@@ -57,17 +57,23 @@ jobs:
 
       - name: Restart test (what a self-update does)
         shell: pwsh
-        timeout-minutes: 3
+        timeout-minutes: 4
         run: |
           $env:REDLINE_HOME = "$PWD\selftest-home"
-          # Diagnostic: relaunch WITHOUT resetting PyInstaller's environment (old updater behaviour)
-          Start-Process dist\redline.exe -ArgumentList "--self-test-restart","$PWD\restart-noreset.json","--no-reset" -Wait
-          Start-Sleep -Seconds 10
-          if (Test-Path restart-noreset.json) { "no-reset: $(Get-Content restart-noreset.json)" } else { "no-reset: child did NOT survive the parent exiting" }
-          # Real check: the updater's relaunch must produce an independent, working instance
-          Start-Process dist\redline.exe -ArgumentList "--self-test-restart","$PWD\restart.json" -Wait
-          Start-Sleep -Seconds 10
-          if (-not (Test-Path restart.json)) { throw "relaunched exe died after the parent exited" }
+          function Relaunch($out, [switch]$NoReset) {
+            $a = @("--self-test-restart", $out); if ($NoReset) { $a += "--no-reset" }
+            $p = Start-Process dist\redline.exe -ArgumentList $a -PassThru
+            $p.WaitForExit()          # the parent only; it exits right after spawning the child
+            Start-Sleep -Seconds 15   # child waits 5s, then loads modules from its own unpack dir
+            $left = Get-Process redline -ErrorAction SilentlyContinue
+            if ($left) { "  still running (hung): $($left.Count) process(es)"; $left | Stop-Process -Force }
+          }
+          # Diagnostic: the old updater's relaunch (environment NOT reset)
+          Relaunch "$PWD\restart-noreset.json" -NoReset
+          if (Test-Path restart-noreset.json) { "no-reset: $(Get-Content restart-noreset.json)" } else { "no-reset: child never finished -> this is the 'app vanished after update' bug" }
+          # Real check: the updater's relaunch must give an independent, working instance
+          Relaunch "$PWD\restart.json"
+          if (-not (Test-Path restart.json)) { throw "relaunched exe did not survive the parent exiting" }
           Get-Content restart.json
           $r = Get-Content restart.json | ConvertFrom-Json
           if (-not $r.ok -or -not $r.independent) { throw "relaunched exe is not independent" }
