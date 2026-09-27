@@ -79,15 +79,25 @@ def account_details() -> dict[str, dict]:
     from . import browsers
     from .login import resolve_profile
     from .providers import identity
+    from .sessions import recent
+    from .slots import is_active, is_slot, load_state
 
     profs = browsers.all_profiles()
+    state = load_state()
     out = {}
     for a in load_accounts():
         p = resolve_profile(a, profs)
+        try:
+            projects = recent(a)
+        except Exception:
+            projects = []
         out[a.key] = {
             "home": str(a.home_path),
             "email": identity(a) or (a.note if "@" in a.note else ""),
             "profile": {"spec": p.spec, "name": p.name, "email": p.email, "bound": bool(a.browser_profile)} if p else None,
+            # the login VS Code and plain `claude` / `codex` use
+            "default": is_active(a, state) or (not state.get(a.provider, {}).get("home") and is_slot(a.provider, a.home_path)),
+            "projects": projects,
         }
     return out
 
@@ -257,8 +267,11 @@ def scan(register: bool = True, include_removed: bool = False) -> tuple[list[tup
         known |= {(a.provider, _resolved(a.home_path)) for a in removed}
     taken = {(a.provider, a.name) for a in accounts}
     added, existing = [], []
+    from .slots import is_slot, managed
+
     for f in discover():
-        if (f.provider, _resolved(f.home)) in known:
+        if (f.provider, _resolved(f.home)) in known or (is_slot(f.provider, f.home) and managed(f.provider)):
+            # once redline switches the default login, ~/.claude holds whichever account is the default
             existing.append(f)
             continue
         mine = {n for p, n in taken if p == f.provider}
@@ -349,7 +362,9 @@ def get_account(name: str, provider: str | None = None) -> Account:
 def open_terminal(acct: Account, argv: list[str] | None = None, extra_env: dict | None = None) -> str:
     """Open a new terminal window running `argv` (default: the provider CLI) as this account."""
     from .clis import cli_env, find_cli
+    from .slots import effective
 
+    acct = effective(acct)
     argv = list(argv or [acct.provider])
     acct.home_path.mkdir(parents=True, exist_ok=True)
     exe = find_cli(argv[0])
@@ -367,7 +382,8 @@ def open_terminal(acct: Account, argv: list[str] | None = None, extra_env: dict 
             env=env, cwd=cwd, creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
     elif sys.platform == "darwin":
-        exports = " ".join(f"export {k}={shlex.quote(v)};" for k, v in acct.env().items())
+        exports = " ".join(f"export {k}={shlex.quote(v)};" if v is not None else f"unset {k};"
+                           for k, v in acct.env().items())
         script = f"cd {shlex.quote(cwd)}; {exports} {shlex.join(argv)}"
         apple = f'tell application "Terminal" to do script "{_applescript_escape(script)}"'
         subprocess.Popen(["osascript", "-e", apple, "-e", 'tell application "Terminal" to activate'])
@@ -387,6 +403,40 @@ def _applescript_escape(s: str) -> str:
 
 def launch(name: str, provider: str | None = None) -> str:
     return open_terminal(get_account(name, provider))
+
+
+def make_default(name: str, provider: str | None = None) -> str:
+    """Move this account's login into ~/.claude / ~/.codex (what VS Code and plain CLIs use)."""
+    from .models import ProviderError
+    from .slots import activate
+
+    acct = get_account(name, provider)
+    try:
+        msg = activate(acct.key)
+    except ProviderError as e:
+        raise ActionError(str(e)) from None
+    if acct.provider == "claude":
+        return msg + " · VS Code: new Claude chats use it (reload the window if one is open)"
+    return msg + " · VS Code: reload the window (Ctrl+Shift+P › Reload Window) to switch Codex"
+
+
+def open_vscode(name: str, folder: str, provider: str | None = None) -> str:
+    """New VS Code window on `folder` whose terminals (and Codex) run as this account."""
+    from .clis import cli_env, find_cli
+    from .slots import effective
+
+    acct = effective(get_account(name, provider))
+    path = Path(folder).expanduser()
+    if not path.is_dir():
+        raise ActionError(f"folder not found: {folder}")
+    exe = find_cli("code")
+    if exe is None:
+        raise ActionError("VS Code (`code`) not found")
+    env = cli_env(exe, child_env(acct.env()))
+    kw = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
+    subprocess.Popen([exe, "-n", str(path)], env=env, stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
+    return f"VS Code: {path.name} as {acct.name}"
 
 
 # ------------------------------------------------------------ console dispatch
@@ -461,6 +511,10 @@ def dispatch(action: str, args: dict) -> str:
             raise ActionError(f"update check failed: {e}") from None
     if action == "launch":
         return launch(args.get("name", ""), prov)
+    if action in ("use", "default"):
+        return make_default(args.get("name", ""), prov)
+    if action == "code":
+        return open_vscode(args.get("name", ""), args.get("path", ""), prov)
     if action == "list":
         accts = load_accounts()
         return "\n".join(

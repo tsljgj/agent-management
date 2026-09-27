@@ -148,7 +148,9 @@ def refresh(creds: Creds, force: bool = False) -> None:
         )
     with cli_lock(creds.path.parent):
         # Another process (usually the CLI itself) may have refreshed while we waited.
-        latest = read_json(creds.path) or creds.data
+        latest = read_json(creds.path)
+        if latest is None:  # moved away meanwhile (default-login switch): never write a second copy
+            raise ProviderError("login moved while refreshing; retry")
         fresh = Creds(latest, "file", creds.path)
         rotated = fresh.oauth.get("accessToken") != creds.oauth.get("accessToken")
         if fresh.oauth and (rotated or (not force and not fresh.expired)):

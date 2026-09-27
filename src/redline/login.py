@@ -336,6 +336,9 @@ def start_wake(names: list[str] | None, log: Log, force: bool = False,
         accounts = load_accounts()
         if names:
             accounts = [find_account(accounts, n, provider) for n in names]
+        from .slots import effective
+
+        accounts = [effective(a) for a in accounts]  # the default account logs in to the default dir
         if not accounts:
             return "no accounts; run `scan` first"
         _current = WakeJob(accounts, log, force=force, on_done=on_done)

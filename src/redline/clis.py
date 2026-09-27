@@ -53,6 +53,11 @@ def _candidates(name: str) -> list[str]:
         dirs = [home / ".local/bin", home / ".npm-global/bin", home / ".bun/bin", home / ".volta/bin",
                 Path("/opt/homebrew/bin"), Path("/usr/local/bin"), home / ".claude/local"]
         files = [str(d / name) for d in dirs]
+    if name == "code" and sys.platform == "win32":
+        for base in (local / "Programs", Path(os.environ.get("ProgramFiles", r"C:\Program Files"))):
+            files += [str(base / "Microsoft VS Code" / "bin" / "code.cmd"),
+                      str(base / "Microsoft VS Code Insiders" / "bin" / "code-insiders.cmd"),
+                      str(base / "cursor" / "resources" / "app" / "bin" / "cursor.cmd")]
     if name == "codex":  # the CLI bundled with the ChatGPT/Codex IDE extension
         exe = "codex.exe" if sys.platform == "win32" else "codex"
         for ide in (".vscode", ".vscode-insiders", ".cursor", ".windsurf"):

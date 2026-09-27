@@ -18,6 +18,9 @@ def child_env(extra: dict | None = None) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if not (k.startswith("_PYI_") or k.startswith("_MEIPASS"))}
     if getattr(sys, "frozen", False):
         env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
-    if extra:
-        env.update(extra)
+    for k, v in (extra or {}).items():
+        if v is None:  # None = make sure the child does *not* see this variable
+            env.pop(k, None)
+        else:
+            env[k] = v
     return env

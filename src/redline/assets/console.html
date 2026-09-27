@@ -62,6 +62,17 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .best .nm{color:var(--acc)}
 .nm input{width:100%;background:none;border:0;border-bottom:1px solid var(--acc);outline:0;color:#fff;font:inherit;padding:0}
 .stale .nm::after{content:" ·";color:var(--warn)}
+/* ◆ = the default login (VS Code + plain claude/codex use it); green dot = a chat is running now */
+.def .nm::before{content:"◆ ";color:var(--acc);font-size:11px}
+.live .nm::before{content:"● ";color:var(--ok);font-size:11px}
+.def.live .nm::before{content:"◆ ";color:var(--ok)}
+.det .prj{display:flex;gap:10px;align-items:baseline;min-width:0}
+.det .prj b{flex:1}
+.det .prj em{font-style:normal;color:var(--dim);font-size:11px;white-space:nowrap}
+.det .prj em.on{color:var(--ok)}
+.det .prj button{color:var(--dim);font-size:11px;white-space:nowrap}
+.det .prj button:hover{color:var(--acc)}
+.det b.acc{color:var(--acc)}
 /* meter: label · bar · % on one line, "↻ time to reset" right under its own bar */
 .m{display:grid;grid-template-columns:18px 1fr 40px;align-items:center;gap:4px 8px}
 .m .t{grid-column:2/4;color:var(--dim);font-size:10.5px;white-space:nowrap;line-height:1}
@@ -219,7 +230,7 @@ async function action(body, quiet) {
     const r = await api("api/action", {method: "POST", body: JSON.stringify(body)});
     log(r.message, r.ok ? "out" : "error");
     if (!quiet || !r.ok) toast(r.message.split("\n").pop(), r.ok ? "" : "bad");
-    if (["add", "add-profile", "remove", "restore", "scan", "bind"].includes(body.action)) setTimeout(() => pull(false), 1200);
+    if (["add", "add-profile", "remove", "restore", "scan", "bind", "use"].includes(body.action)) setTimeout(() => pull(false), 1200);
     return r.ok;
   } catch (e) { log("failed: " + e.message, "error"); toast("failed: " + e.message, "bad"); return false; }
 }
@@ -260,6 +271,9 @@ function meter(w, label) {
   return `<div class="m" style="--c:${lvl(p)}" title="${esc(tip)}"><span class="k">${label}</span>
     <div class="bar"><i style="width:${width}%"></i></div><span class="v">${p == null ? "?" : Math.floor(p) + "%"}</span>${t}</div>`;
 }
+const infoOf = u => ((DATA.meta || {}).accounts || {})[`${u.provider}:${u.account}`] || {};
+const base = p => (p || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
+const since = s => s < 86400 ? ago(s) : Math.floor(s / 86400) + "d";
 function row(u, bestName) {
   const n = esc(u.account);
   const extra = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${Math.round(w.used_percent)}%`)
@@ -271,8 +285,12 @@ function row(u, bestName) {
     ? `<div class="need"><button data-act="retry">retry ⟳</button><span title="${esc(u.error)}">${esc(shortErr(u.error))}</span></div>`
     : meter(u.windows.find(w => w.name === "5h"), "5h") + meter(u.windows.find(w => w.name === "7d"), "7d");
   const open = isOpen(`${u.provider}:${u.account}`);
-  return `<div class="acct${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}${open ? " open" : ""}" data-name="${n}"><span class="ch">${open ? "▴" : "▾"}</span>
-    <div class="nm" title="${esc(tip)}${tip ? " · " : ""}double-click to rename">${n}</div>${body}
+  const info = infoOf(u), live = (info.projects || []).filter(p => p.active);
+  const flags = (info.default ? " def" : "") + (live.length ? " live" : "");
+  const tip2 = [info.default ? "◆ default login (VS Code, plain terminals)" : "", live.length ? "● running in " + live.map(p => base(p.path)).join(", ") : "", tip]
+    .filter(Boolean).join(" · ");
+  return `<div class="acct${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}${open ? " open" : ""}${flags}" data-name="${n}"><span class="ch">${open ? "▴" : "▾"}</span>
+    <div class="nm" title="${esc(tip2)} · double-click to rename">${n}</div>${body}
     ${details(u)}</div>`;
 }
 /* ---------- details: ⋯ opens every row; clicking a row toggles just that row ---------- */
@@ -294,7 +312,7 @@ function when(iso) {
   return (days === 0 ? "today" : days === 1 ? "tomorrow" : d.toLocaleDateString(undefined, {weekday: "short", month: "short", day: "numeric"})) + " " + t;
 }
 function details(u) {
-  const info = ((DATA.meta || {}).accounts || {})[`${u.provider}:${u.account}`] || {};
+  const info = infoOf(u);
   const kv = (k, v, cls = "") => `<div class="wide"><span>${esc(k)}</span><b class="${cls}" title="${esc(v)}">${esc(v)}</b></div>`;
   const rows = [kv("account", [u.email || info.email, u.plan].filter(Boolean).join(" · ") || "–")];
   for (const name of ["5h", "7d"]) {
@@ -306,8 +324,14 @@ function details(u) {
   if (other.length) rows.push(kv("other", other.join(" · ")));
   if (info.profile) rows.push(kv("chrome", info.profile.name));
   if (!u.ok) rows.push(kv("error", u.error || "", "red"));
+  if (info.default) rows.push(kv("default", "◆ VS Code & plain terminals use this login", "acc"));
+  (info.projects || []).forEach((p, i) => rows.push(`<div class="wide"><span>${i ? "" : "used in"}</span><div class="prj">`
+    + `<b title="${esc(p.path)}">${esc(base(p.path))}</b><em class="${p.active ? "on" : ""}">${p.active ? "● now" : since(DATA.now - p.at) + " ago"}</em>`
+    + `<button data-act="code" data-path="${esc(p.path)}" title="new VS Code window on ${esc(p.path)} as this account">↗ code</button></div></div>`));
   const site = u.provider === "codex" ? "chatgpt.com" : "claude.ai";
-  rows.push(`<div class="wide acts act"><button data-act="web" title="open ${site} in its Chrome profile">↗ ${site}</button>`
+  rows.push(`<div class="wide acts act">`
+    + (info.default ? "" : `<button data-act="use" title="make this the login VS Code and plain ${u.provider} use (moves it to ~/.${u.provider})">◆ use in VS Code</button>`)
+    + `<button data-act="web" title="open ${site} in its Chrome profile">↗ ${site}</button>`
     + `<button data-act="jack" title="terminal running ${u.provider} as this account">›_ terminal</button>`
     + `<button data-act="rename">✎ rename</button><button class="del" data-act="del" data-label="✕ remove">✕ remove</button></div>`);
   return `<div class="det">${rows.join("")}</div>`;
@@ -491,10 +515,10 @@ function toast(text, kind = "") {
 const HELP = [
   ["claude | codex", "switch tab (Alt+1/2)"], ["add", "open the + panel"], ["add <name>", "new account, then log in"],
   ["login <name>", "log in via its Chrome"], ["wake", "log in / refresh this tab"], ["web <name>", "open its web page"],
-  ["jack <name>", "terminal as <name>"], ["d | details", "expand all rows (or click one)"], ["sort [default|weekly|headroom|name]", "row order"], ["fit", "auto-size the window again"], ["log", "open the log file (send it when reporting a bug)"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
+  ["jack <name>", "terminal as <name>"], ["use <name>", "◆ make it the login VS Code uses"], ["code <name> <folder>", "VS Code window as <name>"], ["d | details", "expand all rows (or click one)"], ["sort [default|weekly|headroom|name]", "row order"], ["fit", "auto-size the window again"], ["log", "open the log file (send it when reporting a bug)"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
   ["scan [all]", "find logins on this PC"], ["bind <name> <email>", "pin a Chrome profile"], ["ls | r | update | clear", ""],
 ];
-const COMMANDS = ["help","claude","codex","details","add","login","wake","web","jack","rename","rm","restore","removed","scan","bind","profiles","ls","sync","update","clear","hide"];
+const COMMANDS = ["help","claude","codex","details","add","login","wake","web","jack","use","code","rename","rm","restore","removed","scan","bind","profiles","ls","sync","update","clear","hide"];
 const tabNames = () => DATA.usages.filter(u => u.provider === TAB).map(u => u.account);
 const hist = []; let hi = 0;
 async function run(line) {
@@ -515,6 +539,9 @@ async function run(line) {
       else await action({action: "wake", names: a.length ? a : tabNames()}); break;
     case "web": if (need("web <name>")) await action({action: "web", name: a[0]}, true); break;
     case "jack": case "run": if (need("jack <name>")) await action({action: "launch", name: a[0]}, true); break;
+    case "use": case "default": if (need("use <name>")) { if (await action({action: "use", name: a[0]})) setTimeout(() => pull(false), 800); } break;
+    case "code": if (a.length < 2) { log("usage: code <name> <folder>", "error"); break; }
+      await action({action: "code", name: a[0], path: a.slice(1).join(" ")}, true); break;
     case "rm": case "remove": {
       const names = a.filter(x => x !== "-y");
       if (!names.length) { log("usage: rm <name..> -y", "error"); break; }
@@ -610,6 +637,8 @@ $("#list").addEventListener("click", e => {
   }
   if (b.dataset.act === "rename") return startRename(card);
   if (b.dataset.act === "retry") { toast("syncing…"); return pull(true); }
+  if (b.dataset.act === "code") return action({action: "code", name, path: b.dataset.path}, true);
+  if (b.dataset.act === "use") return action({action: "use", name}).then(ok => ok && setTimeout(() => pull(false), 800));
   const map = {web: "web", jack: "launch", login: "login"};
   action({action: map[b.dataset.act], name}, b.dataset.act !== "login");
 });

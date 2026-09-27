@@ -176,7 +176,9 @@ def _exec_with_account(acct: Account, argv: list[str]) -> int:
     if exe is None:
         print(f"{argv[0]!r} not found on PATH", file=sys.stderr)
         return 127
-    env = child_env(acct.env())
+    from .slots import effective
+
+    env = child_env(effective(acct).env())
     os.execvpe(exe, argv, env)
     return 0  # unreachable
 
@@ -184,7 +186,9 @@ def _exec_with_account(acct: Account, argv: list[str]) -> int:
 def cmd_login(args) -> int:
     from .login import WakeJob
 
-    acct = find_account(load_accounts(), args.name)
+    from .slots import effective
+
+    acct = effective(find_account(load_accounts(), args.name))
     results = WakeJob([acct], _print_log, force=True).run()
     return 0 if results.get(acct.name) == "logged-in" else 2
 
@@ -206,8 +210,10 @@ def cmd_exec(args) -> int:
 
 def cmd_env(args) -> int:
     acct = find_account(load_accounts(), args.name)
-    for k, v in acct.env().items():
-        print(f"export {k}={_shell_quote(v)}")
+    from .slots import effective
+
+    for k, v in effective(acct).env().items():
+        print(f"export {k}={_shell_quote(v)}" if v is not None else f"unset {k}")
     return 0
 
 

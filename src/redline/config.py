@@ -65,8 +65,15 @@ class Account:
     def is_default_home(self) -> bool:
         return self.home_path == Path(DEFAULT_HOMES[self.provider]).expanduser()
 
-    def env(self) -> dict[str, str]:
-        """Env vars that point the provider's CLI at this account."""
+    def env(self) -> dict[str, str | None]:
+        """Env vars that point the provider's CLI at this account.
+
+        The default home is selected by *unsetting* the variable: with CLAUDE_CONFIG_DIR set
+        (even to ~/.claude) Claude Code reads a different .claude.json than it does without.
+        None = remove the variable (see procenv.child_env).
+        """
+        if self.is_default_home:
+            return {HOME_ENV_VARS[self.provider]: None}
         return {HOME_ENV_VARS[self.provider]: str(self.home_path)}
 
 

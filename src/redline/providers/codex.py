@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from ..config import Account
 from ..http import HTTPStatusError, request_json
 from ..models import ProviderError, Usage, Window
-from ._util import from_epoch, read_json, write_json_atomic
+from ._util import cli_lock, from_epoch, read_json, write_json_atomic
 
 USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 TOKEN_URL = "https://auth.openai.com/oauth/token"
@@ -101,6 +101,16 @@ def refresh(account: Account, auth: dict) -> dict:
     OpenAI refresh tokens are single-use, so the new ones must be persisted or the
     Codex CLI will fail with `refresh_token_reused`.
     """
+    with cli_lock(account.home_path):  # redline's own lock: a default-login switch moves this file
+        current = read_json(_auth_path(account))
+        if current is None:
+            raise ProviderError("login moved while refreshing; retry")
+        if (current.get("tokens") or {}).get("refresh_token") != (auth.get("tokens") or {}).get("refresh_token"):
+            return current  # refreshed by someone else meanwhile
+        return _refresh_locked(account, current)
+
+
+def _refresh_locked(account: Account, auth: dict) -> dict:
     rt = (auth.get("tokens") or {}).get("refresh_token")
     if not rt:
         raise ProviderError("token rejected and no refresh token stored; run `codex login` again")
