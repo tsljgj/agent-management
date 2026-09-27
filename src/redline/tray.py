@@ -24,6 +24,7 @@ from .monitor import Monitor
 from .web import TOKEN_HEADER, ConsoleServer
 
 WIN_W, WIN_H = 520, 620
+MIN_W, MIN_H = 300, 160
 TOOLTIP_MAX = 120  # Windows caps tray tooltips at 128 chars
 
 
@@ -86,6 +87,36 @@ class JsApi:
         if self._app.window:
             self._app.window.minimize()
             self._app.visible = False
+
+    # The window is frameless (no OS resize border), so the page drives resizing.
+    def resize(self, width, height, edge=""):
+        w = self._app.window
+        if not w:
+            return
+        from webview.window import FixPoint
+
+        fix = FixPoint.NORTH | FixPoint.WEST
+        if "w" in edge:
+            fix = (fix & ~FixPoint.WEST) | FixPoint.EAST  # dragging the left edge keeps the right edge put
+        if "n" in edge:
+            fix = (fix & ~FixPoint.NORTH) | FixPoint.SOUTH
+        w.resize(max(MIN_W, int(width)), max(MIN_H, int(height)), fix)
+
+    def save_size(self, width, height):
+        save_setting("window_size", [max(MIN_W, int(width)), max(MIN_H, int(height))])
+
+    def fit(self, width, height):
+        """Auto-fit the height to the content (kept anchored to the bottom, near the tray)."""
+        w = self._app.window
+        if not w or load_settings().get("window_size"):
+            return
+        from webview.window import FixPoint
+
+        limit = self._app.screen_height() * 0.85 if self._app.screen_height() else 900
+        w.resize(max(MIN_W, int(width)), int(min(max(MIN_H, height), limit)), FixPoint.SOUTH | FixPoint.WEST)
+
+    def reset_size(self):
+        save_setting("window_size", None)
 
 
 class TrayApp:
@@ -316,10 +347,22 @@ class TrayApp:
 
     # ------------------------------------------------------------ run
 
-    def _position(self) -> tuple[int | None, int | None]:
+    def _size(self) -> tuple[int, int]:
+        saved = load_settings().get("window_size")
+        if isinstance(saved, list) and len(saved) == 2:
+            return max(MIN_W, int(saved[0])), max(MIN_H, int(saved[1]))
+        return WIN_W, WIN_H
+
+    def screen_height(self) -> int:
+        try:
+            return int(self.webview.screens[0].height)
+        except Exception:
+            return 0
+
+    def _position(self, w: int, h: int) -> tuple[int | None, int | None]:
         try:
             s = self.webview.screens[0]
-            return max(0, s.width - WIN_W - 12), max(0, s.height - WIN_H - 60)
+            return max(0, s.width - w - 12), max(0, s.height - h - 60)
         except Exception:
             return None, None
 
@@ -341,16 +384,17 @@ class TrayApp:
         if self.webview is None:
             self.icon.run()
             return 0
-        x, y = self._position()
+        width, height = self._size()
+        x, y = self._position(width, height)
         self.window = self.webview.create_window(
             "redline",
             self.server.url,
             js_api=JsApi(self),
-            width=WIN_W,
-            height=WIN_H,
+            width=width,
+            height=height,
             x=x,
             y=y,
-            min_size=(380, 360),
+            min_size=(MIN_W, MIN_H),
             hidden=True,
             frameless=True,
             easy_drag=False,
@@ -451,7 +495,8 @@ def run_tray(interval: int | None = None, refresh_tokens: bool | None = None, se
         interval=interval or settings["interval"],
         refresh_tokens=settings["auto_refresh"] if refresh_tokens is None else refresh_tokens,
     )
-    server = ConsoleServer(monitor, "127.0.0.1", 0, allow_actions=True, extra_boot={"tray": True}).start_background()
+    server = ConsoleServer(monitor, "127.0.0.1", 0, allow_actions=True,
+                           extra_boot={"tray": True, "manual_size": bool(settings.get("window_size"))}).start_background()
     if self_test_mode:
         return self_test(monitor, server)
 

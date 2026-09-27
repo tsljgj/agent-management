@@ -25,8 +25,9 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 ::selection{background:var(--acc);color:var(--bg)}
 
 /* header */
-header{display:flex;align-items:center;gap:20px;height:48px;padding:0 10px 0 18px;border-bottom:1px solid var(--line)}
-.logo{font-weight:800;letter-spacing:.2em;color:#fff}
+header{display:flex;align-items:center;gap:20px;height:48px;padding:0 10px 0 18px;border-bottom:1px solid var(--line);flex-shrink:0;min-width:0;overflow:hidden}
+.logo{font-weight:800;letter-spacing:.2em;color:#fff;white-space:nowrap}
+.logo i{font-style:normal}
 .logo b{color:var(--red);text-shadow:0 0 8px var(--red)}
 .tab{height:48px;position:relative;letter-spacing:.14em;color:var(--dim)}
 .tab:hover{color:var(--fg)}
@@ -53,8 +54,8 @@ header{display:flex;align-items:center;gap:20px;height:48px;padding:0 10px 0 18p
 /* account rows: name · 5h · 7d · actions */
 main{flex:1;overflow-y:auto}
 main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(--faint)}
-.acct{display:grid;grid-template-columns:minmax(70px,1fr) 150px 150px 80px;align-items:center;gap:14px;
-  height:54px;padding:0 10px 0 18px;border-bottom:1px solid var(--line);transition:opacity .2s,transform .2s}
+.acct{display:grid;grid-template-columns:minmax(56px,1fr) minmax(88px,150px) minmax(88px,150px);align-items:center;gap:14px;
+  position:relative;height:54px;padding:0 18px;border-bottom:1px solid var(--line);transition:opacity .2s,transform .2s}
 .acct:hover{background:rgba(0,229,255,.03)}
 .acct.gone{opacity:0;transform:translateX(20px)}
 .nm{color:#fff;font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -73,7 +74,9 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .need{grid-column:2/4;display:flex;gap:12px;align-items:center;color:var(--dim);overflow:hidden;white-space:nowrap}
 .need button{color:var(--acc);font-weight:600}
 .need span{overflow:hidden;text-overflow:ellipsis;font-size:11px}
-.ra{display:flex;justify-content:flex-end;gap:2px;opacity:0;transition:opacity .15s}
+.ra{position:absolute;right:6px;top:4px;display:flex;gap:2px;opacity:0;pointer-events:none;transition:opacity .15s;
+  background:linear-gradient(90deg,transparent,var(--bg) 18px);padding-left:20px}
+.acct:hover .ra{pointer-events:auto}
 .acct:hover .ra{opacity:1}
 .ra button{width:24px;height:24px;color:var(--dim)}
 .ra button:hover{color:var(--acc)}
@@ -125,13 +128,36 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 #toast.show{opacity:1;transform:none}
 #toast.bad{border-color:var(--red);color:var(--red)}
 #toast.good{border-color:var(--ok)}
-@media (max-width:480px){.acct{grid-template-columns:minmax(60px,1fr) 118px 118px 0}.ra{display:none}.m{grid-template-columns:16px 1fr 40px;gap:6px}}
+/* ---- adaptive layout: the window can be dragged to any size ---- */
+@media (max-width:470px){
+  header{gap:12px;padding-left:14px}.acct{gap:10px;padding:0 14px}.m{grid-template-columns:16px 1fr 38px;gap:6px}
+  .det{grid-template-columns:1fr}.det div{grid-template-columns:70px 1fr}
+}
+@media (max-width:440px){ .logo{display:none} header{gap:14px} .hb{min-width:26px;padding:0 4px} }
+@media (max-width:360px){ header{gap:10px;padding-left:12px} .tab{letter-spacing:.04em} #age,#ver{display:none!important} }
+@media (max-width:380px){          /* two-line rows: name, then both meters */
+  .acct{grid-template-columns:1fr 1fr;height:auto;padding:9px 14px 10px;gap:4px 12px}
+  .acct .nm{grid-column:1/-1}.need{grid-column:1/-1}
+}
+@media (max-height:300px){ .prompt{display:none} .logopen #log{max-height:90px} }
+@media (max-height:220px){ header{height:40px}.tab{height:40px} }
+/* resize handles (frameless window has no OS border) */
+.rz{position:fixed;z-index:30;display:none}
+.native .rz{display:block}
+.rz.n{top:0;left:10px;right:10px;height:4px;cursor:ns-resize}
+.rz.s{bottom:0;left:10px;right:10px;height:5px;cursor:ns-resize}
+.rz.w{left:0;top:10px;bottom:10px;width:5px;cursor:ew-resize}
+.rz.e{right:0;top:10px;bottom:10px;width:5px;cursor:ew-resize}
+.rz.nw{left:0;top:0;width:10px;height:10px;cursor:nwse-resize}
+.rz.se{right:0;bottom:0;width:12px;height:12px;cursor:nwse-resize}
+.rz.ne{right:0;top:0;width:10px;height:10px;cursor:nesw-resize}
+.rz.sw{left:0;bottom:0;width:12px;height:12px;cursor:nesw-resize}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
 <header class="pywebview-drag-region">
-  <div class="logo">REDLINE<b>//</b></div>
+  <div class="logo">R<i>EDLINE</i><b>//</b></div>
   <button class="tab" data-tab="claude">CLAUDE<sup id="nclaude"></sup></button>
   <button class="tab" data-tab="codex">CODEX<sup id="ncodex"></sup></button>
   <div class="sp"></div>
@@ -148,6 +174,8 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 <div id="log"></div>
 <div class="prompt"><span class="ps">›</span><input id="cmd" autocomplete="off" spellcheck="false" placeholder=""></div>
 <div id="toast"></div>
+<div class="rz n" data-e="n"></div><div class="rz s" data-e="s"></div><div class="rz w" data-e="w"></div><div class="rz e" data-e="e"></div>
+<div class="rz nw" data-e="nw"></div><div class="rz ne" data-e="ne"></div><div class="rz sw" data-e="sw"></div><div class="rz se" data-e="se"></div>
 <script>
 const BOOT = /*__BOOT__*/{};
 const $ = s => document.querySelector(s);
@@ -294,6 +322,7 @@ function render() {
   const b = best(TAB);
   $("#list").innerHTML = mine.map(u => row(u, mine.length > 1 ? b?.account : null)).join("");
   tick();
+  if (typeof fitHeight === "function") requestAnimationFrame(fitHeight);
 }
 function renderVersion() {
   const u = (DATA.meta || {}).update, v = $("#ver");
@@ -401,7 +430,7 @@ function toast(text, kind = "") {
 const HELP = [
   ["claude | codex", "switch tab (Alt+1/2)"], ["add", "open the + panel"], ["add <name>", "new account, then log in"],
   ["login <name>", "log in via its Chrome"], ["wake", "log in / refresh this tab"], ["web <name>", "open its web page"],
-  ["jack <name>", "terminal as <name>"], ["d | details", "expand all rows (or click one)"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
+  ["jack <name>", "terminal as <name>"], ["d | details", "expand all rows (or click one)"], ["fit", "auto-size the window again"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
   ["scan [all]", "find logins on this PC"], ["bind <name> <email>", "pin a Chrome profile"], ["ls | r | update | clear", ""],
 ];
 const COMMANDS = ["help","claude","codex","details","add","login","wake","web","jack","rename","rm","restore","removed","scan","bind","profiles","ls","sync","update","clear","hide"];
@@ -431,6 +460,9 @@ async function run(line) {
       if (!a.includes("-y")) { log(`confirm: rm ${names.join(" ")} -y`, "warn"); break; }
       for (const n of names) await action({action: "remove", name: n}); break;
     }
+    case "fit":
+      manualSize = false; if (native()) { await window.pywebview.api.reset_size(); fitHeight(); }
+      log("window height follows the content again", "ok"); break;
     case "d": case "details": setDetails(!DETAILS); openLog(false); break;
     case "rename": case "mv": if (a.length < 2) { log("usage: rename <old> <new>", "error"); break; }
       await action({action: "rename", name: a[0], new: a[1]}); break;
@@ -517,7 +549,44 @@ $("#list").addEventListener("click", e => {
 /* ---------- native window (pywebview) ---------- */
 const native = () => window.pywebview && window.pywebview.api;
 function hideWindow() { if (native()) window.pywebview.api.hide(); }
-window.addEventListener("pywebviewready", () => document.body.classList.add("native"));
+window.addEventListener("pywebviewready", () => { document.body.classList.add("native"); setTimeout(fitHeight, 300); });
+
+/* ---------- window size: drag any edge; auto-fit height until resized by hand ---------- */
+let manualSize = !!BOOT.manual_size;
+document.querySelectorAll(".rz").forEach(h => h.addEventListener("pointerdown", e => {
+  if (!native()) return;
+  e.preventDefault(); h.setPointerCapture(e.pointerId);
+  const edge = h.dataset.e, x0 = e.screenX, y0 = e.screenY, w0 = innerWidth, h0 = innerHeight;
+  let pending = null, busy = false, last = [w0, h0];
+  const push = async () => {
+    if (busy || !pending) return; busy = true;
+    const [w, hh] = pending; pending = null; last = [w, hh];
+    try { await window.pywebview.api.resize(w, hh, edge); } catch (err) {}
+    busy = false; if (pending) push();
+  };
+  const move = ev => {
+    const dx = ev.screenX - x0, dy = ev.screenY - y0;
+    let w = w0, hh = h0;
+    if (edge.includes("e")) w = w0 + dx;
+    if (edge.includes("w")) w = w0 - dx;
+    if (edge.includes("s")) hh = h0 + dy;
+    if (edge.includes("n")) hh = h0 - dy;
+    pending = [Math.max(300, Math.round(w)), Math.max(160, Math.round(hh))]; push();
+  };
+  const up = () => {
+    h.removeEventListener("pointermove", move); h.removeEventListener("pointerup", up);
+    manualSize = true;
+    window.pywebview.api.save_size(...(pending || last));
+  };
+  h.addEventListener("pointermove", move); h.addEventListener("pointerup", up);
+}));
+function fitHeight() {
+  if (manualSize || !native()) return;
+  const header = $("header").offsetHeight, prompt = $(".prompt").offsetHeight || 0;
+  const rows = [...$("#list").children].reduce((a, el) => a + el.offsetHeight, 0);
+  const logH = document.body.classList.contains("logopen") ? $("#log").offsetHeight : 0;
+  window.pywebview.api.fit(innerWidth, header + Math.max(rows, 120) + prompt + logH + 2);
+}
 $("#bhide").onclick = hideWindow;
 $("#bmin").onclick = () => native() && window.pywebview.api.minimize();
 

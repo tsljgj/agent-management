@@ -69,6 +69,7 @@ DEFAULT_SETTINGS = {
     "auto_refresh": True,  # tray/serve: refresh expired tokens (with the CLI's lock) and write them back
     "interval": 120,
     "auto_update": True,  # packaged exe: install new GitHub releases automatically
+    "window_size": None,  # [w, h] once the user resizes the console; None = fit to content
 }
 
 
