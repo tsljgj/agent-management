@@ -27,6 +27,9 @@ def home(tmp_path, monkeypatch):
     monkeypatch.delenv("REDLINE_HOME", raising=False)
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     monkeypatch.delenv("CODEX_HOME", raising=False)
+    # Only ever see the fake Chrome below, never the machine's real browsers (CI has Edge).
+    monkeypatch.setattr(browsers, "_candidates",
+                        lambda: [("chrome", "Google Chrome", h / ".config" / "google-chrome", [])])
     return h
 
 
