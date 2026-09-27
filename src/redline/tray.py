@@ -18,6 +18,7 @@ import webbrowser
 
 from . import actions, autostart, update
 from ._build import BUILD
+from .applog import log
 from .config import load_accounts, load_settings, redline_home, save_setting
 from .models import Usage
 from .monitor import Monitor
@@ -171,12 +172,14 @@ class TrayApp:
                     checked=lambda _: load_settings()["auto_update"],
                     visible=update.is_packaged(),
                 ),
+                Item("Open log file", lambda: self._open_log()),
                 Item("Quit", self.quit),
             ),
         )
         monitor.listeners.append(self.on_update)
         server.extra_actions["update"] = self._update_action
         server.extra_actions["show"] = lambda body: (threading.Thread(target=self.show, daemon=True).start(), "shown")[1]
+        server.extra_actions["open-log"] = lambda body: self._open_log()
         if update.is_packaged():
             self._set_update_meta(None)
 
@@ -268,16 +271,25 @@ class TrayApp:
 
     def show(self):
         if self.window is None:
-            webbrowser.open(self.server.url)
+            if self.webview is None:
+                webbrowser.open(self.server.url)
+            else:
+                self._show_when_ready = True  # GUI not up yet: show right after it starts
             return
-        self.window.show()
-        self.window.restore()
+        try:
+            self.window.show()
+            self.window.restore()
+        except Exception:
+            log.exception("show failed")
+            return
         self.visible = True
+        self.monitor.meta["window_visible"] = True
 
     def hide(self):
         if self.window is not None:
             self.window.hide()
         self.visible = False
+        self.monitor.meta["window_visible"] = False
 
     def _on_closing(self):
         if self.quitting:
@@ -319,12 +331,14 @@ class TrayApp:
             self._notify(f"redline build {rel.build} is available")
             return status
         self._set_update_meta(rel.build, "installing")
+        log.info("update: build %s -> %s", BUILD, rel.build)
         self.monitor.log("sys", f"installing build {rel.build}…")
         self._notify(f"Updating redline to build {rel.build}…")
         try:
             update.install(rel, extra_args=["--show"] if self.visible else [])
         except Exception as e:
             self._set_update_meta(rel.build, "failed")
+            log.exception("update failed")
             msg = f"update failed: {e}"
             self.monitor.log("error", msg)
             self._notify(msg)
@@ -335,19 +349,43 @@ class TrayApp:
     def _update_action(self, body: dict) -> str:
         return self.check_updates(manual=True, install=True)
 
+    def _open_log(self) -> str:
+        from .applog import log_path
+
+        p = log_path()
+        try:
+            if sys.platform == "win32":
+                os.startfile(str(p))  # opens in Notepad (or the .log handler)
+            else:
+                webbrowser.open(p.as_uri())
+        except OSError as e:
+            return f"log: {p} ({e})"
+        return f"log: {p}"
+
     def _toggle_auto_update(self, icon=None, item=None):
         save_setting("auto_update", not load_settings()["auto_update"])
 
     def quit(self, icon=None, item=None):
         from . import instance
 
-        instance.clear_state()
+        log.info("quit")
         self.quitting = True
+        # Whatever happens below, make sure this process really ends (it holds the
+        # single-instance lock the next/updated redline is waiting for).
+        killer = threading.Timer(5, os._exit, args=(0,))
+        killer.daemon = True
+        killer.start()
+        instance.clear_state()
+        try:
+            self.server.shutdown()  # first: a new instance must not find us answering
+        except Exception:
+            pass
         self.monitor.stop()
-        self.icon.stop()
-        if self.window is not None:
-            self.window.destroy()
-        self.server.shutdown()
+        for step in (self.icon.stop, lambda: self.window and self.window.destroy()):
+            try:
+                step()
+            except Exception:
+                log.exception("quit step failed")
 
     # ------------------------------------------------------------ run
 
@@ -385,8 +423,9 @@ class TrayApp:
             self._notify(f"redline updated to build {BUILD}")
         if update.is_packaged():
             threading.Thread(target=self._update_loop, name="redline-update", daemon=True).start()
-        if show:
-            threading.Timer(1.5, self.show).start()
+        self._show_when_ready = show
+        self.monitor.meta["pid"] = os.getpid()
+        self.monitor.meta["window_visible"] = False
         if not load_accounts():  # first launch: pick up whatever is already on this machine
             try:
                 actions.scan()
@@ -415,8 +454,17 @@ class TrayApp:
         self.window.events.closing += self._on_closing
         threading.Thread(target=self.icon.run, name="redline", daemon=True).start()
         storage = redline_home() / "webview"
-        self.webview.start(private_mode=False, storage_path=str(storage))
+        log.info("gui starting (show=%s)", self._show_when_ready)
+        self.webview.start(self._gui_started, private_mode=False, storage_path=str(storage))
+        log.info("gui stopped")
         return 0
+
+    def _gui_started(self):
+        """Runs in its own thread once the GUI loop is up (window exists, can be shown)."""
+        log.info("gui started")
+        if getattr(self, "_show_when_ready", False):
+            self._show_when_ready = False
+            self.show()
 
 
 def self_test(monitor: Monitor, server: ConsoleServer) -> int:
@@ -502,6 +550,17 @@ def run_tray(interval: int | None = None, refresh_tokens: bool | None = None, se
     except ImportError:
         webview = None
 
+    from . import applog
+
+    applog.setup()
+    handoff = update.take_handoff()
+    if updated_from is None and handoff is not None:
+        updated_from = handoff  # started by a self-update that couldn't pass its arguments
+    if updated_from is not None:
+        show = True  # after an update, always bring the console back
+    log.info("start build=%s exe=%s args=%s updated_from=%s show=%s",
+             BUILD, sys.executable, sys.argv[1:], updated_from, show)
+
     settings = load_settings()
     monitor = Monitor(
         interval=interval or settings["interval"],
@@ -514,8 +573,10 @@ def run_tray(interval: int | None = None, refresh_tokens: bool | None = None, se
 
     lock = _acquire_instance(updated_from is not None)
     if lock is None:
+        log.info("another instance owns redline; exiting")
         server.shutdown()
         return 0
+    log.info("instance lock acquired")
     return TrayApp(monitor, server, webview).run(updated_from=updated_from, show=show)
 
 
@@ -533,12 +594,14 @@ def _acquire_instance(after_update: bool):
     from . import instance
 
     # Right after a self-update the old process may still be exiting: wait for it.
-    lock = _wait_for_lock(15 if after_update else 0)
+    lock = _wait_for_lock(20 if after_update else 0)
     if lock is not None:
         return lock
     if not after_update and instance.ask_running_to_show():
+        log.info("handed over to the running instance")
         return None  # the live instance just opened its window
     stuck = instance.stuck_pids()
+    log.warning("lock busy; stuck redline processes: %s (after_update=%s)", stuck, after_update)
     if not after_update and not instance.ask_yes_no(
         "redline is already running but is not responding\n"
         "(probably left over from an earlier update).\n\nRestart it?"

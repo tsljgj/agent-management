@@ -79,6 +79,54 @@ jobs:
           $r = Get-Content restart.json | ConvertFrom-Json
           if (-not $r.ok -or -not $r.independent) { throw "relaunched exe is not independent" }
 
+      - name: End-to-end self-update (real tray app)
+        shell: pwsh
+        timeout-minutes: 6
+        run: |
+          $d = "$env:RUNNER_TEMP\e2e"
+          New-Item -ItemType Directory -Force "$d\home" | Out-Null
+          Copy-Item dist\redline.exe "$d\redline.exe"      # the installed copy
+          Copy-Item dist\redline.exe "$d\new.exe"          # the "downloaded" update
+          $h = (Get-FileHash "$d\new.exe" -Algorithm SHA256).Hash.ToLower()
+          "$h  redline.exe" | Set-Content -NoNewline -Encoding ascii "$d\new.exe.sha256"
+          $next = ${{ github.run_number }} + 1000
+          @{ tag_name = "build-$next"; name = "e2e"; html_url = ""; assets = @(
+              @{ name = "redline.exe"; browser_download_url = "$d\new.exe" },
+              @{ name = "redline.exe.sha256"; browser_download_url = "$d\new.exe.sha256" }) } |
+            ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 "$d\feed.json"
+          '{"accounts": [], "settings": {"auto_update": false}}' | Set-Content -Encoding utf8 "$d\home\config.json"
+          $env:REDLINE_HOME = "$d\home"
+          $env:REDLINE_UPDATE_FEED = "$d\feed.json"
+          function State { try { Get-Content "$d\home\instance.json" -ErrorAction Stop | ConvertFrom-Json } catch { $null } }
+          function Usage($st) {
+            try { Invoke-RestMethod -TimeoutSec 5 -Uri "http://127.0.0.1:$($st.port)/api/usage" -Headers @{ "X-Redline-Token" = $st.token } } catch { $null }
+          }
+          $ok = $false
+          try {
+            Start-Process "$d\redline.exe" -ArgumentList "--background"
+            for ($i = 0; $i -lt 60 -and -not (State); $i++) { Start-Sleep 1 }
+            $st = State
+            if (-not $st) { throw "tray app never came up" }
+            "old instance: pid $($st.pid) port $($st.port)"
+            $r = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$($st.port)/api/action" `
+                   -Headers @{ "X-Redline-Token" = $st.token } -ContentType "application/json" -Body '{"action":"update"}'
+            "update action: $($r.message)"
+            for ($i = 0; $i -lt 90; $i++) {
+              Start-Sleep 1
+              $n = State
+              if ($n -and $n.pid -ne $st.pid) {
+                $u = Usage $n
+                if ($u -and $u.meta.window_visible) { "new instance: pid $($n.pid), window visible"; $ok = $true; break }
+              }
+            }
+            if (-not (Test-Path "$d\redline.exe.old")) { "note: no .old copy (already cleaned up)" }
+          } finally {
+            "---- redline.log ----"
+            Get-Content "$d\home\redline.log" -ErrorAction SilentlyContinue
+            Get-Process redline -ErrorAction SilentlyContinue | Stop-Process -Force
+          }
+          if (-not $ok) { throw "after the update no new instance came up with its window shown" }
+
       - name: Checksum
         shell: pwsh
         run: |

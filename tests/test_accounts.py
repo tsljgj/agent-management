@@ -389,7 +389,8 @@ def test_update_install_swaps_and_verifies(tmp_path, monkeypatch):
     payload = b"new build"
     monkeypatch.setattr(update, "can_self_update", lambda: True)
     monkeypatch.setattr(_sys, "executable", str(exe))
-    monkeypatch.setattr(update, "_get", lambda url, timeout=20: (hashlib.sha256(payload).hexdigest() + "  redline.exe").encode())
+    monkeypatch.setattr(update, "_get_any", lambda url, timeout=20: (hashlib.sha256(payload).hexdigest() + "  redline.exe").encode())
+    monkeypatch.setenv("REDLINE_HOME", str(tmp_path / "rh"))
 
     def fake_download(url, dest):
         dest.write_bytes(payload)
@@ -401,6 +402,7 @@ def test_update_install_swaps_and_verifies(tmp_path, monkeypatch):
     update.install(update.Release(9, "build-9", "n", "u", "s", "h"))
     assert exe.read_bytes() == payload and (tmp_path / "redline.exe.old").read_bytes() == b"old build"
     assert launched and launched[0][0] == str(exe) and "--updated-from" in launched[0]
+    assert update.take_handoff() == update.BUILD and update.take_handoff() is None  # consumed once
 
     # a corrupted download must leave the current exe alone
     monkeypatch.setattr(update, "_download", lambda url, dest: dest.write_bytes(b"evil") or "bad")

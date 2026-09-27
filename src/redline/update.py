@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ._build import BUILD
+from .applog import log
 from .models import ProviderError
 from .procenv import child_env
 
@@ -62,8 +63,19 @@ def _get(url: str, timeout: int = 20) -> bytes:
         raise ProviderError(f"network error: {e.reason}") from None
 
 
+def _feed() -> str:
+    # REDLINE_UPDATE_FEED: a local release JSON (same shape as GitHub's) for end-to-end tests
+    return os.environ.get("REDLINE_UPDATE_FEED") or LATEST_API
+
+
+def _get_any(url: str, timeout: int = 20) -> bytes:
+    if url.startswith(("http://", "https://")):
+        return _get(url, timeout)
+    return Path(url.removeprefix("file://")).read_bytes()
+
+
 def latest() -> Release | None:
-    doc = json.loads(_get(LATEST_API))
+    doc = json.loads(_get_any(_feed()))
     m = TAG_RE.match(doc.get("tag_name") or "")
     if not m:
         return None
@@ -88,6 +100,10 @@ def check() -> tuple[Release | None, str]:
 
 def _download(url: str, dest: Path) -> str:
     h = hashlib.sha256()
+    if not url.startswith(("http://", "https://")):
+        data = Path(url.removeprefix("file://")).read_bytes()
+        dest.write_bytes(data)
+        return hashlib.sha256(data).hexdigest()
     req = urllib.request.Request(url, headers={"User-Agent": UA["User-Agent"]})
     with urllib.request.urlopen(req, timeout=120) as r, open(dest, "wb") as f:
         while chunk := r.read(1 << 16):
@@ -103,7 +119,8 @@ def install(rel: Release, extra_args: list[str] | None = None) -> None:
     exe = Path(sys.executable)
     new = exe.with_name(exe.name + ".download")
     old = exe.with_name(exe.name + ".old")
-    expected = _get(rel.sha_url).decode().split()[0].strip().lower()
+    log.info("installing build %s from %s", rel.build, rel.exe_url)
+    expected = _get_any(rel.sha_url).decode().split()[0].strip().lower()
     got = _download(rel.exe_url, new)
     if got != expected:
         new.unlink(missing_ok=True)
@@ -118,7 +135,38 @@ def install(rel: Release, extra_args: list[str] | None = None) -> None:
     except OSError:
         os.replace(old, exe)
         raise
+    write_handoff()
+    log.info("swapped exe, relaunching %s", exe)
     launch_detached(str(exe), ["--updated-from", str(BUILD), *(extra_args or [])])
+
+
+def handoff_path() -> Path:
+    from .config import redline_home
+
+    return redline_home() / "update-handoff.json"
+
+
+def write_handoff() -> None:
+    """Tells the relaunched exe it comes from an update even if it lost its arguments."""
+    try:
+        p = handoff_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"from": BUILD, "at": time.time(), "pid": os.getpid()}), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def take_handoff(max_age: float = 180) -> int | None:
+    """If we were started by a self-update, return the old build (and consume the note)."""
+    p = handoff_path()
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        p.unlink()
+    except (OSError, ValueError):
+        return None
+    if time.time() - float(doc.get("at", 0)) > max_age:
+        return None
+    return int(doc.get("from", 0))
 
 
 def launch_detached(exe: str, args: list[str], reset_env: bool = True) -> None:

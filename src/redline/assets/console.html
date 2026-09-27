@@ -432,7 +432,7 @@ function toast(text, kind = "") {
 const HELP = [
   ["claude | codex", "switch tab (Alt+1/2)"], ["add", "open the + panel"], ["add <name>", "new account, then log in"],
   ["login <name>", "log in via its Chrome"], ["wake", "log in / refresh this tab"], ["web <name>", "open its web page"],
-  ["jack <name>", "terminal as <name>"], ["d | details", "expand all rows (or click one)"], ["fit", "auto-size the window again"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
+  ["jack <name>", "terminal as <name>"], ["d | details", "expand all rows (or click one)"], ["fit", "auto-size the window again"], ["log", "open the log file (send it when reporting a bug)"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
   ["scan [all]", "find logins on this PC"], ["bind <name> <email>", "pin a Chrome profile"], ["ls | r | update | clear", ""],
 ];
 const COMMANDS = ["help","claude","codex","details","add","login","wake","web","jack","rename","rm","restore","removed","scan","bind","profiles","ls","sync","update","clear","hide"];
@@ -462,6 +462,7 @@ async function run(line) {
       if (!a.includes("-y")) { log(`confirm: rm ${names.join(" ")} -y`, "warn"); break; }
       for (const n of names) await action({action: "remove", name: n}); break;
     }
+    case "log": case "logs": await action({action: "open-log"}); break;
     case "fit":
       manualSize = false; if (native()) { await window.pywebview.api.reset_size(); fitHeight(); }
       log("window height follows the content again", "ok"); break;

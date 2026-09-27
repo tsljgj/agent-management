@@ -444,6 +444,10 @@ def dispatch(action: str, args: dict) -> str:
         return bind(args.get("name", ""), args.get("profile", ""), prov)
     if action == "profiles":
         return profiles_text()
+    if action == "open-log":  # the tray overrides this to open it in Notepad
+        from .applog import log_path
+
+        return f"log: {log_path()}"
     if action == "update":  # the tray overrides this with a check-and-install version
         from . import update
 
