@@ -145,6 +145,8 @@ class TrayApp:
         )
         monitor.listeners.append(self.on_update)
         server.extra_actions["update"] = self._update_action
+        if update.is_packaged():
+            self._set_update_meta(None)
 
     # ------------------------------------------------------------ menu
 
@@ -256,14 +258,18 @@ class TrayApp:
     UPDATE_EVERY = 6 * 3600
 
     def _update_loop(self):
-        time.sleep(45)  # let the first sync finish
+        time.sleep(15)  # let the first sync finish
         while not self.quitting:
             self.check_updates(manual=False)
             time.sleep(self.UPDATE_EVERY)
 
+    def _set_update_meta(self, latest: int | None, state: str = "") -> None:
+        self.monitor.meta["update"] = {"build": BUILD, "latest": latest, "state": state, "checked": time.time()}
+
     def check_updates(self, manual: bool = False, install: bool | None = None) -> str:
         try:
             rel, status = update.check()
+            self._set_update_meta(rel.build if rel else BUILD)
         except Exception as e:
             status = f"update check failed: {e}"
             if manual:
@@ -280,11 +286,13 @@ class TrayApp:
             self.monitor.log("sys", status + "  (type `update` to install)")
             self._notify(f"redline build {rel.build} is available")
             return status
+        self._set_update_meta(rel.build, "installing")
         self.monitor.log("sys", f"installing build {rel.build}…")
         self._notify(f"Updating redline to build {rel.build}…")
         try:
             update.install(rel, extra_args=["--show"] if self.visible else [])
         except Exception as e:
+            self._set_update_meta(rel.build, "failed")
             msg = f"update failed: {e}"
             self.monitor.log("error", msg)
             self._notify(msg)

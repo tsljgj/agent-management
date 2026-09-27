@@ -146,3 +146,19 @@ def test_icon_renders():
 
     assert render_icon(None).size == (64, 64)
     assert render_icon(97.0, size=16).getpixel((8, 1))[3] > 0
+
+
+def test_update_button_backend():
+    """The console's version chip reads monitor.meta and triggers the tray's update action."""
+    m = Monitor(collect=lambda a, refresh_tokens=False: [])
+    m.meta["update"] = {"build": 5, "latest": 6, "state": "", "checked": 0}
+    calls = []
+    s = ConsoleServer(m, "127.0.0.1", 0, extra_actions={"update": lambda body: calls.append(body) or "installing build 6"})
+    s.start_background()
+    try:
+        code, body = _req(s.url + "api/usage", token=s.token)
+        assert json.loads(body)["meta"]["update"]["latest"] == 6
+        code, body = _req(s.url + "api/action", token=s.token, data={"action": "update"})
+        assert json.loads(body) == {"ok": True, "message": "installing build 6"} and len(calls) == 1
+    finally:
+        s.shutdown()

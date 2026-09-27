@@ -42,6 +42,10 @@ header{display:flex;align-items:center;gap:20px;height:48px;padding:0 10px 0 18p
 #wake{display:none;color:var(--warn)}
 #wake.on{display:block}
 #plus{font-size:20px;line-height:1;color:var(--acc)}
+#ver{display:none;font-size:11px}
+#ver.on{display:block}
+#ver.new{color:var(--acc);font-weight:600}
+#ver.busy{color:var(--warn)}
 .win{display:none}.native .win{display:block}
 .win.x:hover{color:var(--red)}
 .noact .act{display:none!important}
@@ -118,6 +122,7 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
   <div class="sp"></div>
   <button class="hb act" id="wake" title="some accounts need a login — wake them">⚡</button>
   <button class="hb" id="age" title="sync now">⟳</button>
+  <button class="hb" id="ver" title="check for updates"></button>
   <button class="hb act" id="plus" title="add account">+</button>
   <button class="hb win" id="bmin" title="minimize">_</button>
   <button class="hb win x" id="bhide" title="hide (Esc)">×</button>
@@ -154,6 +159,7 @@ async function pull(force) {
         toast(e.text, e.level === "crit" || e.level === "error" ? "bad" : e.level === "ok" ? "good" : "");
     }
     DATA = d;
+    renderVersion();
     if (d.fetched_at !== lastFetched) { lastFetched = d.fetched_at; render(); }
   } catch (e) { linkOk = false; tick(); }
 }
@@ -241,6 +247,24 @@ function render() {
   const b = best(TAB);
   $("#list").innerHTML = mine.map(u => row(u, mine.length > 1 ? b?.account : null)).join("");
   tick();
+}
+function renderVersion() {
+  const u = (DATA.meta || {}).update, v = $("#ver");
+  if (!u || !u.build) { v.classList.remove("on"); return; }
+  v.classList.add("on");
+  const newer = u.latest && u.latest > u.build;
+  v.classList.toggle("new", newer && u.state !== "installing");
+  v.classList.toggle("busy", u.state === "installing");
+  v.textContent = u.state === "installing" ? `↻b${u.latest}` : newer ? `↑b${u.latest}` : `b${u.build}`;
+  v.title = newer ? `build ${u.latest} is available (you have ${u.build}) · click to install`
+                  : `build ${u.build}` + (u.checked ? ` · checked ${new Date(u.checked * 1000).toLocaleTimeString()}` : "") + " · click to check for updates";
+}
+async function checkUpdate() {
+  const v = $("#ver");
+  v.textContent = "…"; v.classList.add("busy");
+  toast("checking for updates…");
+  await action({action: "update"});
+  setTimeout(() => pull(false), 800);
 }
 function setTab(t) { TAB = t === "codex" ? "codex" : "claude"; store.set("redline.tab", TAB); closeSheet(); render(); }
 function tick() {
@@ -377,6 +401,7 @@ document.addEventListener("keydown", e => {
 });
 document.querySelectorAll(".tab").forEach(t => t.onclick = () => setTab(t.dataset.tab));
 $("#age").onclick = async () => { $("#age").textContent = "…"; await pull(true); };
+$("#ver").onclick = checkUpdate;
 $("#plus").onclick = () => $("#sheet").classList.contains("on") ? closeSheet() : openSheet();
 $("#wake").onclick = () => action({action: "wake", names: DATA.usages.filter(u => u.provider === TAB && needsLogin(u)).map(u => u.account)});
 $("#list").addEventListener("click", e => {

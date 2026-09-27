@@ -48,6 +48,7 @@ class Monitor:
         self.at = 0.0
         self.events: deque[dict] = deque(maxlen=200)
         self.next_at = 0.0
+        self.meta: dict = {}  # extra status for the console (e.g. {"update": {...}} from the tray)
         self._last_pct: dict[tuple[str, str], float] = {}
         self._last_ok: dict[str, Usage] = {}
 
@@ -164,6 +165,7 @@ class Monitor:
                 "auto_refresh": self.refresh_tokens,
                 "usages": [u.to_dict() for u in self.usages],
                 "events": [e for e in self.events if e["id"] > since],
+                "meta": dict(self.meta),
             }
 
     def max_percent(self, window_prefix: str = "5h") -> float | None:
