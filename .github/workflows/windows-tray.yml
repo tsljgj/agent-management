@@ -123,10 +123,13 @@ jobs:
           }
           $ok = $false
           try {
-            Start-Process "$d\redline.exe" -ArgumentList "--background"
+            # Window open: a manual update must bring it back (a hidden app stays hidden).
+            Start-Process "$d\redline.exe"
             for ($i = 0; $i -lt 60 -and -not (State); $i++) { Start-Sleep 1 }
             $st = State
             if (-not $st) { throw "tray app never came up" }
+            for ($i = 0; $i -lt 30; $i++) { $u0 = Usage $st; if ($u0 -and $u0.meta.window_visible) { break }; Start-Sleep 1 }
+            "old instance window visible: $($u0.meta.window_visible)"
             "old instance: pid $($st.pid) port $($st.port)"
             $r = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$($st.port)/api/action" `
                    -Headers @{ "X-Redline-Token" = $st.token } -ContentType "application/json" -Body '{"action":"update"}'
