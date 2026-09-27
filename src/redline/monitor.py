@@ -47,12 +47,14 @@ class Monitor:
         self.usages: list[Usage] = []
         self.at = 0.0
         self.events: deque[dict] = deque(maxlen=200)
+        self.next_at = 0.0
         self._last_pct: dict[tuple[str, str], float] = {}
+        self._last_ok: dict[str, Usage] = {}
 
     # ------------------------------------------------------------ lifecycle
 
     def start(self) -> "Monitor":
-        self._thread = threading.Thread(target=self._run, name="agentman-monitor", daemon=True)
+        self._thread = threading.Thread(target=self._run, name="redline-monitor", daemon=True)
         self._thread.start()
         return self
 
@@ -63,6 +65,7 @@ class Monitor:
     def _run(self) -> None:
         while not self._stop.is_set():
             self.poll()
+            self.next_at = time.time() + self.interval
             self._wake.wait(self.interval)
             self._wake.clear()
 
@@ -77,6 +80,7 @@ class Monitor:
             except Exception as e:  # config file broken etc. -- keep the loop alive
                 self.log("error", f"sync failed: {e}")
                 return
+            usages = [self._with_last_good(u) for u in usages]
             alerts = self._diff(usages)
             with self._state_lock:
                 self.usages = usages
@@ -94,6 +98,19 @@ class Monitor:
             except Exception:
                 pass
 
+    def _with_last_good(self, u: Usage) -> Usage:
+        """Keep showing an account's last good numbers when a fetch fails (429, offline...)."""
+        if u.ok:
+            self._last_ok[u.account] = u
+            return u
+        prev = self._last_ok.get(u.account)
+        if prev is None or not prev.windows:
+            return u
+        return Usage(
+            account=u.account, provider=u.provider, ok=False, email=prev.email, plan=prev.plan,
+            windows=prev.windows, extra=prev.extra, error=u.error, fetched_at=prev.fetched_at, stale=True,
+        )
+
     def refresh_now(self) -> None:
         self.poll(force=True)
 
@@ -101,7 +118,7 @@ class Monitor:
         alerts = []
         first = self.thresholds[0] if self.thresholds else 101
         for u in usages:
-            if not u.ok:
+            if not u.ok:  # includes stale snapshots: don't re-alert on old numbers
                 continue
             for w in u.windows:
                 if w.used_percent is None:
@@ -141,7 +158,10 @@ class Monitor:
         with self._state_lock:
             return {
                 "fetched_at": self.at,
+                "next_at": self.next_at,
+                "now": time.time(),
                 "interval": self.interval,
+                "auto_refresh": self.refresh_tokens,
                 "usages": [u.to_dict() for u in self.usages],
                 "events": [e for e in self.events if e["id"] > since],
             }
@@ -150,7 +170,7 @@ class Monitor:
         """Highest usage of the short (session) window across healthy accounts."""
         vals = [
             w.used_percent
-            for u in self.usages if u.ok
+            for u in self.usages if u.ok or u.stale
             for w in u.windows if w.used_percent is not None and w.name == window_prefix
         ]
         return max(vals) if vals else None

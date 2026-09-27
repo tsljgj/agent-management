@@ -1,4 +1,4 @@
-"""Account registry, stored as JSON in $AGENTMAN_HOME/config.json (default ~/.agentman)."""
+"""Account registry, stored as JSON in $REDLINE_HOME/config.json (default ~/.redline)."""
 
 from __future__ import annotations
 
@@ -25,12 +25,18 @@ HOME_ENV_VARS = {
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
-def agentman_home() -> Path:
-    return Path(os.environ.get("AGENTMAN_HOME", "~/.agentman")).expanduser()
+def redline_home() -> Path:
+    if os.environ.get("REDLINE_HOME"):
+        return Path(os.environ["REDLINE_HOME"]).expanduser()
+    home = Path("~/.redline").expanduser()
+    legacy = Path("~/.agentman").expanduser()  # location before the rename
+    if not home.exists() and (legacy / "config.json").exists():
+        return legacy
+    return home
 
 
 def config_path() -> Path:
-    return agentman_home() / "config.json"
+    return redline_home() / "config.json"
 
 
 @dataclass
@@ -39,6 +45,7 @@ class Account:
     provider: str
     home: str  # the CLAUDE_CONFIG_DIR / CODEX_HOME of this account
     note: str = ""
+    browser_profile: str = ""  # e.g. "chrome:Profile 2"; empty = match by email
 
     @property
     def home_path(self) -> Path:
@@ -58,20 +65,46 @@ def validate_name(name: str) -> None:
         raise ValueError(f"invalid account name {name!r} (use letters, digits, . _ -)")
 
 
-def load_accounts() -> list[Account]:
+DEFAULT_SETTINGS = {
+    "auto_refresh": True,  # tray/serve: refresh expired tokens (with the CLI's lock) and write them back
+    "interval": 120,
+}
+
+
+def _load_raw() -> dict:
     path = config_path()
     if not path.exists():
-        return []
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return [Account(**a) for a in data.get("accounts", [])]
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
-def save_accounts(accounts: list[Account]) -> None:
+def _save_raw(data: dict) -> None:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"accounts": [asdict(a) for a in accounts]}, indent=2) + "\n", encoding="utf-8")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(path)
+
+
+def load_accounts() -> list[Account]:
+    fields = set(Account.__dataclass_fields__)
+    return [Account(**{k: v for k, v in a.items() if k in fields}) for a in _load_raw().get("accounts", [])]
+
+
+def save_accounts(accounts: list[Account]) -> None:
+    data = _load_raw()
+    data["accounts"] = [asdict(a) for a in accounts]
+    _save_raw(data)
+
+
+def load_settings() -> dict:
+    return {**DEFAULT_SETTINGS, **_load_raw().get("settings", {})}
+
+
+def save_setting(key: str, value) -> None:
+    data = _load_raw()
+    data.setdefault("settings", {})[key] = value
+    _save_raw(data)
 
 
 def find_account(accounts: list[Account], name: str) -> Account:

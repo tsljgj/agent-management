@@ -1,150 +1,118 @@
-# agent-management (`agentman`)
+# REDLINE//
 
-在一台机器上管理多个 **Claude Code** / **Codex** 账号，并实时查看每个账号的订阅用量：5 小时窗口、周窗口、Opus/Sonnet 周额度、extra usage 和 credits。
+> 管理多个 **Claude Code** / **Codex** 账号：同时查看所有账号的额度，自动找到电脑上已有的登录，一键把所有账号登录上线，并且每个账号的网页都在它自己绑定的 Chrome（Google 账号）里打开。
 
-- 零依赖：纯 Python 3.11+ 标准库
-- 支持 Linux / macOS / Windows。macOS 会读取 Claude Code 存在 Keychain 里的凭据
-- 默认**只读**：只读取 CLI 已保存的 token，不会去刷新，也不会改动你的登录状态
-- 提供 CLI 表格、`watch` 刷新模式、JSON 输出，以及本地 Web 仪表盘
-- **Windows 托盘程序**：常驻在任务栏的“显示隐藏的图标”里，点开是一个赛博朋克风格的控制台
+<p align="center"><img src="docs/console.png" width="400" alt="redline console"></p>
 
-<p align="center"><img src="docs/console.png" width="380" alt="agentman console"></p>
+- **托盘常驻**：程序待在 Windows 任务栏的“显示隐藏的图标”里。图标的圆环表示所有账号中最高的 5h 用量，点开是一个赛博风格的控制台。
+- **一屏看全**：列表视图同时显示所有账号的 5h 和 7d 额度、重置倒计时，以及每个账号的数据是几秒前更新的。顶部显示同步时间和下次同步倒计时。某个账号暂时拉取失败（比如被限流）时，继续显示它上一次的数据并标成 `STALE`。
+- **自动发现**：`scan` 会找出电脑上所有 Claude 和 Codex 的登录，包括默认目录、`~/.claude-*`、shell 或 PowerShell profile 里 `CLAUDE_CONFIG_DIR` / `CODEX_HOME` 的别名，以及对 home 目录的浅层扫描。
+- **一键登录**：`WAKE ALL` 会自动刷新过期的 token。确实需要登录的账号会**逐个**登录，浏览器直接在该账号绑定的 Chrome profile 里打开，并预填邮箱。登录完成后会检查登上的是哪个邮箱，如果和别的账号重复会报警。
+- **账号的浏览器**：每个账号有一个 `◉ WEB` 按钮，在它对应 Google 账号的 Chrome profile 里打开 claude.ai 或 chatgpt.com。
+- 核心监控功能零依赖（纯 Python 3.11+ 标准库），支持 Windows、macOS 和 Linux。
 
-## Windows 托盘控制台
+<p align="center"><img src="docs/console-wide.png" width="760" alt="wide view"></p>
 
-### 安装
+## 安装
 
-**方式 A：下载 exe（不需要 Python）**
+**Windows（不需要 Python）**：在 GitHub → Actions → `windows-tray` 中打开最新一次运行，下载 artifact `redline-windows`，解压得到 `redline.exe`，双击运行。第一次启动会自动 `scan` 一遍。打过 `v*` tag 的版本也会附在 Releases 里。
 
-在 GitHub → Actions → `windows-tray` 中打开最新一次运行，下载 artifact `agentman-tray-windows`，得到 `agentman-tray.exe`。打过 `v*` tag 的版本也会附在 Releases 里。
+**从源码安装**：
 
-双击运行后，程序会常驻在任务栏右下角的 `^`（显示隐藏的图标）里。可以把图标拖到任务栏上，让它一直显示。
-
-**方式 B：从源码运行**
-
-```powershell
-pip install ".[tray]"
-agentman tray              # 或 pythonw -m agentman tray（不弹出黑窗口）
-.\scripts\build_windows.ps1   # 自己打包 dist\agentman-tray.exe
+```bash
+pip install -e ".[tray]"     # 不需要托盘的话，pip install -e . 就够了
+redline tray                 # 托盘和控制台（Windows 上用 pythonw -m redline tray 可以不弹出黑窗口）
+.\scripts\build_windows.ps1   # 自己打包 dist\redline.exe
 ```
 
-### 托盘图标
+## 快速上手
 
-- 图标是一个圆环，按所有账号中**最高的 5h 用量**填充并变色：绿色低于 70%，黄色 70–90%，红色 90% 以上。有账号出错时变成品红色。
-- 鼠标悬停显示每个账号的 5h 用量。
-- 用量越过 80% 或 95% 时弹出 Windows 通知；窗口重置后也会通知一次。
-- 右键菜单：
-  - Open console
-  - Jack in ▸：选一个账号，直接开一个已登录该账号的终端
-  - Refresh now
-  - Open in browser
-  - Start with Windows：开机自启，写入 HKCU Run 注册表项，不需要管理员权限
-  - Quit
-
-### 控制台
-
-左键点击托盘图标，会在屏幕右下角弹出一个无边框窗口。它用的是 Windows 自带的 Edge WebView2。
-
-- 顶部状态条：在线节点数、最高 5h 用量、Claude 和 Codex 各自剩余额度最多的账号。
-- 每个账号一张卡片：分段霓虹进度条和每秒刷新的重置倒计时（`RESET T-02:13:04`）。卡片上的 **JACK IN** 按钮会开一个 `cmd` 窗口，以该账号运行 `claude` 或 `codex`。
-- 底部是日志区和命令行。支持 Tab 补全、↑/↓ 历史，Esc 收回托盘：
-
-```
-help                      列出命令
-ls                        列出所有账号及用量
-refresh | r               立即同步
-best [claude|codex]       剩余 5h 额度最多的账号
-jack <name>               开一个以 <name> 身份运行 claude/codex 的终端
-login <name>              打开 <name> 的登录流程
-add <claude|codex> <name> 新增一个隔离的账号
-import                    导入默认的 ~/.claude 和 ~/.codex
-rm <name> -y              取消登记（登录文件保留）
-rain [on|off]             数字雨背景开关
-clear / hide
+```bash
+redline scan          # 找出电脑上已有的 Claude / Codex 登录并登记（--dry-run 只看不登记）
+redline profiles      # 列出 Chrome / Edge / Brave 的 profile 和各自登录的 Google 邮箱
+redline wake          # 所有账号上线：刷新过期 token，其余的逐个登录
+redline usage         # 在终端里看所有账号的额度
 ```
 
-第一次使用：在控制台里输入 `import`，再用 `add claude work2` 加账号，最后 `login work2` 登录。
+账号和 Chrome profile 的对应关系**默认按邮箱自动匹配**：Claude 或 ChatGPT 账号的邮箱等于某个 profile 登录的 Google 邮箱，就算匹配上。对不上时可以手动绑定：
 
-> 控制台只监听 `127.0.0.1`。每次启动会生成一个随机 token，并校验 Host 头，所以其他网页无法借用本地端口去开终端。
-> Windows 11 自带 WebView2；如果旧版 Windows 10 上窗口打不开，需要安装 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)。
+```bash
+redline bind claude-work work@gmail.com     # 按 Google 邮箱绑定
+redline bind claude-alt "Profile 3"         # 或者按 profile 目录名或显示名
+redline bind claude-alt none                # 取消绑定，恢复自动匹配
+redline web claude-work                     # 在该 profile 里打开 claude.ai
+```
+
+## 控制台
+
+| 位置 | 功能 |
+|---|---|
+| 顶部 | 在线账号数、最高 5h 用量、Claude 和 Codex 各自剩余额度最多的账号 |
+| 同步条 | 上次同步时间（几秒前）、下次同步倒计时、auto-refresh 状态；`LIST` / `CARDS` 切换视图；`SYNC` / `SCAN` / `WAKE ALL` |
+| 每个账号 | 5h 和 7d 的分段进度条、重置倒计时 `T-02:13:04`、数据更新时间 `⟳12s`；按钮 `◉ WEB`（在它的 Chrome 里打开）和 `⏵ JACK IN`（开一个以该账号运行的终端） |
+| 底部 | 日志和命令行（Tab 补全、↑/↓ 历史、Esc 收回托盘） |
+
+```
+scan                          找出电脑上所有 Claude/Codex 登录
+wake [names..] | wake cancel  一键上线 / 取消
+login <name>                  重新登录某个账号（在它的 Chrome profile 里）
+web <name>                    在它的 Chrome profile 里打开 claude.ai / chatgpt.com
+jack <name>                   开一个以该账号运行 claude/codex 的终端
+profiles / bind <name> <email|profile|none>
+best [claude|codex]           剩余 5h 额度最多的账号
+add <claude|codex> <name> / rm <name> -y
+view list|cards / rain on|off / clear / hide
+```
+
+托盘右键菜单包括：
+
+- Web ▸ 和 Jack in ▸：按账号选择
+- Refresh now
+- Scan for accounts
+- Wake all
+- Auto-refresh expired tokens：开关
+- Start with Windows：开机自启
+- Quit
+
+用量越过 80% 或 95% 时会弹出 Windows 通知。
+
+## 一键登录是怎么做的
+
+1. **Token 过期，但有 refresh token**：直接刷新并写回凭据文件，不需要浏览器。刷新前会先拿到和 Claude Code 自己一样的锁（`<配置目录>.lock`），拿到锁后重新读一次文件。如果 CLI 刚好已经刷新过，就不再重复刷新，避免 refresh token 轮换导致 CLI 被登出。
+2. **没有登录**：在后台运行 `claude auth login --claudeai --email <profile 的邮箱>`（Codex 运行 `codex login`），同时设置 `BROWSER=redline`。CLI 要打开浏览器时会调用 redline，redline 再用 `chrome --profile-directory=<该账号的 profile>` 打开授权页。授权完成后回调到 localhost，**不需要复制粘贴任何东西**。
+3. 等到凭据文件出现新的 token，再去读登上的邮箱。如果和另一个账号重复，或者和绑定 profile 的邮箱不一致，就报警。然后继续登录下一个账号。
+
+> 旧版 Claude Code 没有 `claude auth login`，会退回为打开一个终端执行 `/login`。Codex 在 Windows 和 macOS 上不认 `BROWSER`，所以 redline 会读取它打印的授权链接，在正确的 profile 里打开。但 Codex 自己也会在默认浏览器里再开一个标签页，关掉那个就行。
 
 ## 原理
 
-每个账号对应一个独立的配置目录：
-
-| Provider | 目录环境变量 | 凭据文件 | 用量接口 |
+| Provider | 目录环境变量 | 凭据 | 用量接口 |
 |---|---|---|---|
-| Claude | `CLAUDE_CONFIG_DIR` | `.credentials.json`（macOS 存在 Keychain: `Claude Code-credentials-<hash>`） | `GET https://api.anthropic.com/api/oauth/usage` |
+| Claude | `CLAUDE_CONFIG_DIR` | `.credentials.json`（macOS 在 Keychain `Claude Code-credentials-<hash>`） | `GET https://api.anthropic.com/api/oauth/usage` |
 | Codex | `CODEX_HOME` | `auth.json` | `GET https://chatgpt.com/backend-api/wham/usage` |
 
 这两个接口就是 `claude` 的 `/usage` 和 `codex` 的 `/status` 背后调用的接口，返回的百分比和官方显示的一致。
 
-## 安装
+## 其它命令
 
 ```bash
-git clone https://github.com/tsljgj/agent-management && cd agent-management
-pip install -e .          # 或者直接 python -m agentman ...
+redline usage [names] [--json]     # 终端表格或 JSON
+redline watch -n 120               # 每 2 分钟刷新一次
+redline serve                      # 在浏览器里打开同一个控制台 http://127.0.0.1:8765
+redline add claude work / redline rm work
+redline run work -- --resume       # 以 work 账号运行 claude
+eval "$(redline env work)"         # 在当前 shell 切换到 work 账号
 ```
 
-## 使用
+## 注意
 
-```bash
-# 1. 把当前默认登录的 ~/.claude 和 ~/.codex 导入为账号
-agentman import
-
-# 2. 添加更多账号（比如 4 个 Claude 账号），每个账号有独立目录，再分别登录
-agentman add claude work   --note work@company.com
-agentman add claude alt1
-agentman add codex  plus
-agentman login work        # 以 CLAUDE_CONFIG_DIR=~/.agentman/accounts/claude-work 运行 claude，然后执行 /login
-agentman login plus        # 以 CODEX_HOME=... 运行 codex login
-
-# 3. 查看用量
-agentman usage             # 所有账号
-agentman usage work alt1   # 指定账号
-agentman usage --json      # 输出 JSON，方便接入脚本、状态栏或告警
-agentman watch -n 120      # 每 2 分钟刷新一次
-agentman serve             # 在浏览器里打开同一个控制台 http://127.0.0.1:8765
-agentman tray              # 托盘程序（需要 pip install ".[tray]"）
-
-# 4. 用指定账号干活
-agentman run work                     # = CLAUDE_CONFIG_DIR=... claude
-agentman run work -- --resume         # 透传参数
-eval "$(agentman env alt1)"           # 在当前 shell 切换到 alt1
-agentman exec plus -- codex exec "..."
-```
-
-`agentman usage` 输出示例：
-
-```
-claude-work      claude  work@x.com (max 20x)
-    5h         ████████░░░░░░░░░░░░  42%  resets in 2h12m
-    7d         ███████████████░░░░░  76%  resets in 2d23h
-    extra usage: 12.34 / 50.00 USD
-
-codex-main       codex   me@x.com (pro)
-    5h         ██░░░░░░░░░░░░░░░░░░  10%  resets in 3h59m
-    7d         ███████████░░░░░░░░░  55%  resets in 5d23h
-```
-
-用 `agentman add ... --home <已有目录>` 可以登记已有的 `CLAUDE_CONFIG_DIR` 或 `CODEX_HOME`，不需要重新登录。
-
-### Token 过期怎么办
-
-Claude 和 OpenAI 的 refresh token 都是**一次性、会轮换**的。如果第三方工具自己刷新 token 却不写回，CLI 手里那份 refresh token 就会失效，导致被登出。所以：
-
-- **默认行为**：access token 过期时只报错，提示你在该账号下运行一次 `claude` 或 `codex`，让 CLI 自己去刷新。
-- **`--refresh-tokens`**：由 agentman 刷新 token，并把新 token **原子写回**该账号的凭据文件（文件权限 0600，同时保留 `mcpOAuth` 等其他字段），和 CLI 自己刷新的效果一样。存在 macOS Keychain 里的 Claude 凭据不会被改写。
-
-### 注意
-
-- Claude 用量接口的限流比较严格（会返回 429），轮询间隔不要短于 1 分钟。`tray` 和 `serve` 默认每 120 秒请求一次（用 `-n` 调整），手动刷新至少间隔 15 秒。
-- 如果 Codex 配置了 `cli_auth_credentials_store = "keyring"`，token 存在系统 keyring 里，本工具目前读不到。
-- 所有凭据只在本地读取，只发送给 Anthropic 和 OpenAI 的官方接口。
-
-## 配置
-
-账号列表保存在 `~/.agentman/config.json`，可以用 `AGENTMAN_HOME` 修改这个位置。新账号的目录默认建在 `~/.agentman/accounts/<provider>-<name>`。
+- 控制台只监听 `127.0.0.1`。每次启动会生成随机 token，并校验 Host 头，所以其他网页无法借本地端口去开终端或浏览器。
+- Claude 用量接口的限流比较严格，默认每 120 秒同步一次（`-n` 可调），手动刷新至少间隔 15 秒。被限流时继续显示旧数据。
+- 托盘和 `serve` 默认开启 auto-refresh，也就是自动刷新过期 token，可以在托盘菜单里关掉。`redline usage` 默认只读，需要刷新时加 `--refresh-tokens`。
+- 存在 macOS Keychain 里的 Claude 凭据不会被改写，需要在该账号下运行一次 `claude` 让它自己刷新。
+- 如果 Codex 配置了 `cli_auth_credentials_store = "keyring"`，本工具目前读不到它的 token。
+- 旧版 Windows 10 上控制台窗口打不开的话，需要安装 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)。exe 没有代码签名，SmartScreen 可能会拦截，点“仍要运行”即可。
+- 配置保存在 `~/.redline/config.json`（可以用 `REDLINE_HOME` 修改）。旧的 `~/.agentman` 会被自动沿用。
 
 ## 类似项目调研（2026-09）
 
@@ -170,5 +138,5 @@ pip install pytest && python -m pytest -q
 - [x] 快到上限时提醒（Windows 通知）
 - [ ] 提醒推送到 webhook / Telegram
 - [ ] 记录用量历史并画趋势图（SQLite）
-- [ ] 自动推荐或切换到剩余额度最多的账号（`agentman pick claude`）
+- [ ] 自动推荐或切换到剩余额度最多的账号（`redline pick claude`）
 - [ ] 支持 Cursor / Gemini CLI / Copilot 等更多 provider

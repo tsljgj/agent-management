@@ -3,8 +3,8 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agentman"
-version = "0.2.0"
+name = "redline"
+version = "0.3.0"
 description = "Manage multiple Claude Code / Codex accounts and monitor their subscription usage limits"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -15,13 +15,13 @@ dependencies = []
 tray = ["pystray>=0.19", "Pillow>=10", "pywebview>=5"]
 
 [project.scripts]
-agentman = "agentman.cli:main"
+redline = "redline.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-agentman = ["assets/*"]
+redline = ["assets/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

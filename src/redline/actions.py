@@ -13,7 +13,7 @@ from .config import (
     DEFAULT_HOMES,
     PROVIDERS,
     Account,
-    agentman_home,
+    redline_home,
     find_account,
     load_accounts,
     save_accounts,
@@ -41,7 +41,7 @@ def add_account(provider: str, name: str, home: str | None = None, note: str = "
     accounts = load_accounts()
     if any(a.name == name for a in accounts):
         raise ActionError(f"account {name!r} already exists")
-    home = home or str(agentman_home() / "accounts" / f"{provider}-{name}")
+    home = home or str(redline_home() / "accounts" / f"{provider}-{name}")
     acct = Account(name=name, provider=provider, home=home, note=note)
     acct.home_path.mkdir(parents=True, exist_ok=True)
     accounts.append(acct)
@@ -58,6 +58,76 @@ def remove_account(name: str) -> Account:
     accounts.remove(acct)
     save_accounts(accounts)
     return acct
+
+
+def scan(register: bool = True) -> tuple[list[tuple[Account, "Found"]], list["Found"]]:
+    """Discover account dirs on this machine; register the new ones.
+
+    Returns (newly added, already registered).
+    """
+    from .discover import discover, suggest_name
+
+    accounts = load_accounts()
+    known = {(a.provider, _resolved(a.home_path)) for a in accounts}
+    taken = {a.name for a in accounts}
+    added, existing = [], []
+    for f in discover():
+        if (f.provider, _resolved(f.home)) in known:
+            existing.append(f)
+            continue
+        name = suggest_name(f, taken)
+        taken.add(name)
+        acct = Account(name=name, provider=f.provider, home=str(f.home), note=f.email or "")
+        accounts.append(acct)
+        added.append((acct, f))
+    if register and added:
+        save_accounts(accounts)
+    return added, existing
+
+
+def _resolved(p: Path) -> str:
+    try:
+        return str(p.resolve())
+    except OSError:
+        return str(p)
+
+
+def bind(name: str, spec: str) -> str:
+    from . import browsers
+
+    accounts = load_accounts()
+    try:
+        acct = find_account(accounts, name)
+    except KeyError as e:
+        raise ActionError(e.args[0]) from None
+    if spec in ("", "none", "-"):
+        acct.browser_profile = ""
+        save_accounts(accounts)
+        return f"{name}: browser binding cleared (auto-match by email)"
+    prof = browsers.find_profile(spec)
+    if prof is None:
+        raise ActionError(f"no browser profile matches {spec!r}; run `profiles` to list them")
+    acct.browser_profile = prof.spec
+    save_accounts(accounts)
+    return f"{name} -> {prof.spec} “{prof.name}” {prof.email}"
+
+
+def profiles_text() -> str:
+    from . import browsers
+    from .login import resolve_profile
+
+    profs = browsers.all_profiles()
+    if not profs:
+        return "no Chrome / Edge / Brave profiles found"
+    users: dict[str, list[str]] = {}
+    for a in load_accounts():
+        p = resolve_profile(a, profs)
+        if p:
+            users.setdefault(p.spec, []).append(a.name)
+    return "\n".join(
+        f"{p.spec:<22} {p.name[:18]:<18} {p.email or '(not signed in)':<30} {', '.join(users.get(p.spec, []))}"
+        for p in profs
+    )
 
 
 def import_defaults() -> list[Account]:
@@ -86,15 +156,15 @@ def get_account(name: str) -> Account:
 # ------------------------------------------------------------ terminals
 
 
-def open_terminal(acct: Account, argv: list[str] | None = None) -> str:
+def open_terminal(acct: Account, argv: list[str] | None = None, extra_env: dict | None = None) -> str:
     """Open a new terminal window running `argv` (default: the provider CLI) as this account."""
     argv = argv or [acct.provider]
     acct.home_path.mkdir(parents=True, exist_ok=True)
     if shutil.which(argv[0]) is None:
         raise ActionError(f"{argv[0]!r} not found on PATH")
-    env = {**os.environ, **acct.env()}
+    env = {**os.environ, **acct.env(), **(extra_env or {})}
     cwd = str(Path.home())
-    title = f"agentman: {acct.name}"
+    title = f"redline: {acct.name}"
 
     if sys.platform == "win32":
         cmdline = subprocess.list2cmdline(argv)
@@ -125,11 +195,6 @@ def launch(name: str) -> str:
     return open_terminal(get_account(name))
 
 
-def login(name: str) -> str:
-    acct = get_account(name)
-    return open_terminal(acct, LOGIN_COMMANDS[acct.provider])
-
-
 # ------------------------------------------------------------ console dispatch
 
 
@@ -142,11 +207,34 @@ def dispatch(action: str, args: dict) -> str:
     if action == "remove":
         acct = remove_account(args.get("name", ""))
         return f"removed {acct.name} (files kept in {acct.home_path})"
-    if action == "import":
-        added = import_defaults()
-        return "imported " + ", ".join(a.name for a in added) if added else "nothing new to import"
-    if action == "login":
-        return login(args.get("name", ""))
+    if action in ("import", "scan"):
+        added, existing = scan()
+        lines = [f"+ {a.name:<18} {a.provider:<6} {f.email or '?':<30} {f.home}" for a, f in added]
+        lines.append(f"scan: {len(added)} new, {len(existing)} already registered")
+        return "\n".join(lines)
+    if action in ("wake", "login"):
+        from .login import start_wake
+
+        if args.get("log") is None:
+            raise ActionError("wake needs a log sink")
+        names = [args["name"]] if action == "login" else (args.get("names") or None)
+        try:
+            return start_wake(names, args["log"], force=action == "login", on_done=args.get("on_done"))
+        except KeyError as e:
+            raise ActionError(e.args[0]) from None
+    if action == "wake-cancel":
+        from .login import cancel_wake
+
+        return cancel_wake()
+    if action == "web":
+        from .login import open_web
+
+        acct = get_account(args.get("name", ""))
+        return open_web(acct, args.get("url") or None)
+    if action == "bind":
+        return bind(args.get("name", ""), args.get("profile", ""))
+    if action == "profiles":
+        return profiles_text()
     if action == "launch":
         return launch(args.get("name", ""))
     if action == "list":

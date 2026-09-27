@@ -32,19 +32,19 @@ jobs:
       - name: Self-test packaged exe
         shell: pwsh
         run: |
-          $env:AGENTMAN_SELFTEST_OUT = "$PWD\selftest.json"
-          $p = Start-Process dist\agentman-tray.exe -ArgumentList "--self-test" -Wait -PassThru
+          $env:REDLINE_SELFTEST_OUT = "$PWD\selftest.json"
+          $p = Start-Process dist\redline.exe -ArgumentList "--self-test" -Wait -PassThru
           Get-Content selftest.json
           $r = Get-Content selftest.json | ConvertFrom-Json
           if ($p.ExitCode -ne 0 -or -not $r.ok -or -not $r.webview) { throw "self-test failed (exit $($p.ExitCode))" }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: agentman-tray-windows
-          path: dist/agentman-tray.exe
+          name: redline-windows
+          path: dist/redline.exe
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/agentman-tray.exe
+          files: dist/redline.exe

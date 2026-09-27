@@ -16,7 +16,7 @@ import urllib.request
 import webbrowser
 
 from . import actions, autostart
-from .config import agentman_home, load_accounts
+from .config import load_accounts, load_settings, redline_home, save_setting
 from .models import Usage
 from .monitor import Monitor
 from .web import TOKEN_HEADER, ConsoleServer
@@ -30,13 +30,13 @@ def _single_instance() -> object | None:
     if sys.platform == "win32":
         import ctypes
 
-        handle = ctypes.windll.kernel32.CreateMutexW(None, False, "Local\\agentman-tray")
+        handle = ctypes.windll.kernel32.CreateMutexW(None, False, "Local\\redline")
         if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
             return None
         return handle
     import fcntl
 
-    path = agentman_home() / "tray.lock"
+    path = redline_home() / "tray.lock"
     path.parent.mkdir(parents=True, exist_ok=True)
     f = open(path, "w")
     try:
@@ -50,22 +50,24 @@ def _message_box(text: str) -> None:
     if sys.platform == "win32":
         import ctypes
 
-        ctypes.windll.user32.MessageBoxW(None, text, "agentman", 0x40)
+        ctypes.windll.user32.MessageBoxW(None, text, "redline", 0x40)
     else:
         print(text, file=sys.stderr)
 
 
 def tooltip(usages: list[Usage]) -> str:
     if not usages:
-        return "agentman - no accounts"
+        return "redline - no accounts"
     parts = []
     for u in usages:
-        if not u.ok:
+        if not u.ok and not u.stale:
             parts.append(f"{u.account} !")
             continue
         w = next((w for w in u.windows if w.name == "5h"), u.windows[0] if u.windows else None)
-        parts.append(f"{u.account} {w.used_percent:.0f}%" if w and w.used_percent is not None else u.account)
-    text = "agentman\n" + "\n".join(parts)
+        mark = "?" if u.stale else ""
+        parts.append(f"{u.account} {w.used_percent:.0f}%{mark}" if w and w.used_percent is not None else u.account)
+    stamp = max(u.fetched_at for u in usages).astimezone().strftime("%H:%M")
+    text = f"redline · {stamp}\n" + "\n".join(parts)
     return text if len(text) <= TOOLTIP_MAX else text[: TOOLTIP_MAX - 1] + "…"
 
 
@@ -102,15 +104,24 @@ class TrayApp:
 
         M, Item = pystray.Menu, pystray.MenuItem
         self.icon = pystray.Icon(
-            "agentman",
+            "redline",
             render_icon(None),
-            "agentman",
+            "redline",
             menu=M(
                 Item(lambda _: self.status, None, enabled=False),
                 Item("Open console", self.toggle, default=True),
-                Item("Jack in", M(self._jack_items)),
+                Item("Web (Chrome profile)", M(lambda: self._account_items(self._web))),
+                Item("Jack in (terminal)", M(lambda: self._account_items(self._launcher))),
+                M.SEPARATOR,
                 Item("Refresh now", lambda: threading.Thread(target=monitor.refresh_now, daemon=True).start()),
-                Item("Open in browser", lambda: webbrowser.open(server.url)),
+                Item("Scan for accounts", self._scan),
+                Item("Wake all (refresh / log in)", self._wake),
+                Item(
+                    "Auto-refresh expired tokens",
+                    self._toggle_auto_refresh,
+                    checked=lambda _: self.monitor.refresh_tokens,
+                ),
+                Item("Open console in browser", lambda: webbrowser.open(server.url)),
                 M.SEPARATOR,
                 Item(
                     "Start with Windows",
@@ -125,16 +136,47 @@ class TrayApp:
 
     # ------------------------------------------------------------ menu
 
-    def _jack_items(self):
+    def _account_items(self, make_handler):
         Item = self.pystray.MenuItem
         by_name = {u.account: u for u in self.monitor.usages}
         items = []
         for a in load_accounts():
             u = by_name.get(a.name)
-            w = next((w for w in u.windows if w.name == "5h"), None) if u and u.ok else None
+            w = next((w for w in u.windows if w.name == "5h"), None) if u and (u.ok or u.stale) else None
             label = f"{a.name}  ({a.provider}{f', 5h {w.used_percent:.0f}%' if w and w.used_percent is not None else ''})"
-            items.append(Item(label, self._launcher(a.name)))
+            items.append(Item(label, make_handler(a.name)))
         return items or [Item("no accounts", None, enabled=False)]
+
+    def _web(self, name: str):
+        def go(icon=None, item=None):
+            try:
+                self.monitor.log("info", actions.dispatch("web", {"name": name}))
+            except Exception as e:
+                self._notify(str(e))
+        return go
+
+    def _scan(self, icon=None, item=None):
+        def run():
+            msg = actions.dispatch("scan", {})
+            for line in msg.splitlines():
+                self.monitor.log("out", line)
+            self._notify(msg.splitlines()[-1])
+            self.monitor.poll()
+        threading.Thread(target=run, daemon=True).start()
+
+    def _wake(self, icon=None, item=None):
+        mon = self.monitor
+        msg = actions.dispatch("wake", {
+            "log": lambda level, text: mon.log(level, text, alert=level == "crit"),
+            "on_done": mon.poll,
+        })
+        mon.log("sys", msg)
+        self.show()  # progress is shown in the console log
+
+    def _toggle_auto_refresh(self, icon=None, item=None):
+        self.monitor.refresh_tokens = not self.monitor.refresh_tokens
+        save_setting("auto_refresh", self.monitor.refresh_tokens)
+        threading.Thread(target=self.monitor.poll, daemon=True).start()
 
     def _launcher(self, name: str):
         def go(icon=None, item=None):
@@ -166,7 +208,7 @@ class TrayApp:
     def _notify(self, text: str) -> None:
         if getattr(self.icon, "HAS_NOTIFICATION", False):
             try:
-                self.icon.notify(text, "agentman")
+                self.icon.notify(text, "redline")
             except Exception:
                 pass
 
@@ -215,13 +257,18 @@ class TrayApp:
             return None, None
 
     def run(self) -> int:
+        if not load_accounts():  # first launch: pick up whatever is already on this machine
+            try:
+                actions.scan()
+            except Exception:
+                pass
         self.monitor.start()
         if self.webview is None:
             self.icon.run()
             return 0
         x, y = self._position()
         self.window = self.webview.create_window(
-            "agentman",
+            "redline",
             self.server.url,
             js_api=JsApi(self),
             width=WIN_W,
@@ -235,15 +282,15 @@ class TrayApp:
             background_color="#030507",
         )
         self.window.events.closing += self._on_closing
-        threading.Thread(target=self.icon.run, name="agentman-tray", daemon=True).start()
-        storage = agentman_home() / "webview"
+        threading.Thread(target=self.icon.run, name="redline", daemon=True).start()
+        storage = redline_home() / "webview"
         self.webview.start(private_mode=False, storage_path=str(storage))
         return 0
 
 
 def self_test(monitor: Monitor, server: ConsoleServer) -> int:
     """Smoke test for packaged builds: deps import, icon renders, server + auth work."""
-    out = os.environ.get("AGENTMAN_SELFTEST_OUT")
+    out = os.environ.get("REDLINE_SELFTEST_OUT")
     results: dict[str, object] = {}
     try:
         import pystray  # noqa: F401
@@ -260,7 +307,7 @@ def self_test(monitor: Monitor, server: ConsoleServer) -> int:
         results["icon"] = render_icon(42.0).size == (64, 64)
         with urllib.request.urlopen(server.url, timeout=5) as r:
             html = r.read().decode()
-        results["page"] = server.token in html and "NETRUNNER" in html
+        results["page"] = server.token in html and "REDLINE" in html
         try:
             urllib.request.urlopen(server.url + "api/usage", timeout=5)
             results["auth"] = False
@@ -283,25 +330,29 @@ def self_test(monitor: Monitor, server: ConsoleServer) -> int:
     return 0 if results.get("ok") else 1
 
 
-def run_tray(interval: int = 120, refresh_tokens: bool = False, self_test_mode: bool = False) -> int:
+def run_tray(interval: int | None = None, refresh_tokens: bool | None = None, self_test_mode: bool = False) -> int:
     try:
         import pystray  # noqa: F401
         from PIL import Image  # noqa: F401
     except ImportError:
-        print("the tray app needs extra packages:  pip install 'agentman[tray]'", file=sys.stderr)
+        print("the tray app needs extra packages:  pip install 'redline[tray]'", file=sys.stderr)
         return 1
     try:
         import webview
     except ImportError:
         webview = None
 
-    monitor = Monitor(interval=interval, refresh_tokens=refresh_tokens)
+    settings = load_settings()
+    monitor = Monitor(
+        interval=interval or settings["interval"],
+        refresh_tokens=settings["auto_refresh"] if refresh_tokens is None else refresh_tokens,
+    )
     server = ConsoleServer(monitor, "127.0.0.1", 0, allow_actions=True, extra_boot={"tray": True}).start_background()
     if self_test_mode:
         return self_test(monitor, server)
 
     lock = _single_instance()
     if lock is None:
-        _message_box("agentman is already running in the system tray.")
+        _message_box("redline is already running in the system tray.")
         return 0
     return TrayApp(monitor, server, webview).run()

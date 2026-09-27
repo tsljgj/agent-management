@@ -4,16 +4,16 @@ import urllib.request
 
 import pytest
 
-from agentman import actions
-from agentman.config import load_accounts
-from agentman.models import Usage, Window
-from agentman.monitor import Monitor
-from agentman.web import TOKEN_HEADER, ConsoleServer
+from redline import actions
+from redline.config import load_accounts
+from redline.models import Usage, Window
+from redline.monitor import Monitor
+from redline.web import TOKEN_HEADER, ConsoleServer
 
 
 @pytest.fixture(autouse=True)
 def isolated_home(tmp_path, monkeypatch):
-    monkeypatch.setenv("AGENTMAN_HOME", str(tmp_path / "am"))
+    monkeypatch.setenv("REDLINE_HOME", str(tmp_path / "am"))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     (tmp_path / "home").mkdir()
@@ -133,16 +133,16 @@ def test_dispatch_validation():
 
 
 def test_tooltip_truncates():
-    from agentman.tray import TOOLTIP_MAX, tooltip
+    from redline.tray import TOOLTIP_MAX, tooltip
 
     us = [Usage(f"account-{i}", "claude", True, windows=[Window("5h", 50.0)]) for i in range(20)]
     t = tooltip(us)
-    assert len(t) <= TOOLTIP_MAX and t.startswith("agentman\naccount-0 50%")
+    assert len(t) <= TOOLTIP_MAX and t.startswith("redline · ") and "\naccount-0 50%" in t
 
 
 def test_icon_renders():
     pytest.importorskip("PIL")
-    from agentman.icon import render_icon
+    from redline.icon import render_icon
 
     assert render_icon(None).size == (64, 64)
     assert render_icon(97.0, size=16).getpixel((8, 1))[3] > 0

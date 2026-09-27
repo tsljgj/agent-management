@@ -20,7 +20,7 @@ from pathlib import Path
 from ..config import Account
 from ..http import HTTPStatusError, request_json
 from ..models import ProviderError, Usage, Window
-from ._util import parse_iso, read_json, write_json_atomic
+from ._util import cli_lock, parse_iso, read_json, write_json_atomic
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 PROFILE_URL = "https://api.anthropic.com/api/oauth/profile"
@@ -57,7 +57,7 @@ class Creds:
 def keychain_service(account: Account) -> str:
     if account.is_default_home:
         return "Claude Code-credentials"
-    # Claude Code hashes the literal CLAUDE_CONFIG_DIR value; agentman always exports
+    # Claude Code hashes the literal CLAUDE_CONFIG_DIR value; redline always exports
     # the expanded absolute path, so hash exactly that.
     raw = unicodedata.normalize("NFC", str(account.home_path))
     return "Claude Code-credentials-" + hashlib.sha256(raw.encode()).hexdigest()[:8]
@@ -115,7 +115,28 @@ def _cached_identity(account: Account) -> tuple[str | None, str | None]:
     return None, None
 
 
-def refresh(creds: Creds) -> None:
+def identity(account: Account) -> str | None:
+    return _cached_identity(account)[0]
+
+
+def token_state(account: Account) -> str:
+    """"ok", "expired" (refreshable) or "missing" (needs an interactive login)."""
+    c = load_creds(account)
+    if c is None or not c.oauth.get("accessToken"):
+        return "missing"
+    if c.expired:
+        return "expired" if c.oauth.get("refreshToken") and c.source == "file" else "missing"
+    return "ok"
+
+
+def refresh_account(account: Account) -> None:
+    c = load_creds(account)
+    if c is None:
+        raise ProviderError("not logged in")
+    refresh(c)
+
+
+def refresh(creds: Creds, force: bool = False) -> None:
     """Refresh the access token and persist the rotated tokens back to the file.
 
     Claude rotates refresh tokens, so writing back is mandatory, otherwise the CLI's
@@ -125,6 +146,18 @@ def refresh(creds: Creds) -> None:
         raise ProviderError(
             "access token expired (stored in Keychain); run `claude` in this account once to refresh it"
         )
+    with cli_lock(creds.path.parent):
+        # Another process (usually the CLI itself) may have refreshed while we waited.
+        latest = read_json(creds.path) or creds.data
+        fresh = Creds(latest, "file", creds.path)
+        rotated = fresh.oauth.get("accessToken") != creds.oauth.get("accessToken")
+        if fresh.oauth and (rotated or (not force and not fresh.expired)):
+            creds.data = latest
+            return
+        _refresh_locked(creds)
+
+
+def _refresh_locked(creds: Creds) -> None:
     rt = creds.oauth.get("refreshToken")
     if not rt:
         raise ProviderError("access token expired and no refresh token is stored; log in again")
@@ -190,7 +223,7 @@ def parse_usage(doc: dict) -> tuple[list[Window], dict]:
 def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
     creds = load_creds(account)
     if creds is None:
-        raise ProviderError(f"not logged in (no credentials in {account.home_path}); run `agentman login {account.name}`")
+        raise ProviderError(f"not logged in (no credentials in {account.home_path}); run `redline login {account.name}`")
     oauth = creds.oauth
     if creds.expired:
         if not refresh_tokens:
@@ -207,7 +240,7 @@ def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
         doc = request_json("GET", USAGE_URL, headers=_headers(token))
     except HTTPStatusError as e:
         if e.status == 401 and refresh_tokens and creds.source == "file":
-            refresh(creds)
+            refresh(creds, force=True)
             doc = request_json("GET", USAGE_URL, headers=_headers(creds.oauth["accessToken"]))
         elif e.status == 401:
             raise ProviderError("unauthorized (token expired or revoked); run `claude` in this account or pass --refresh-tokens") from None

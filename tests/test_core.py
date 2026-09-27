@@ -6,14 +6,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from agentman import cli
-from agentman.config import Account, load_accounts
-from agentman.providers import claude, codex, fetch_usage
+from redline import cli
+from redline.config import Account, load_accounts
+from redline.providers import claude, codex, fetch_usage
 
 
 @pytest.fixture(autouse=True)
 def isolated_home(tmp_path, monkeypatch):
-    monkeypatch.setenv("AGENTMAN_HOME", str(tmp_path / "am"))
+    monkeypatch.setenv("REDLINE_HOME", str(tmp_path / "am"))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
@@ -168,9 +168,13 @@ def test_cli_add_list_usage_json(tmp_path, monkeypatch, capsys):
     assert cli.main(["rm", "work"]) == 0 and load_accounts() == []
 
 
-def test_cli_import_default_homes(tmp_path, monkeypatch, capsys):
+def test_cli_scan_default_homes(tmp_path, monkeypatch, capsys):
     home = tmp_path / "home"
     (home / ".codex").mkdir()
-    (home / ".codex" / "auth.json").write_text(json.dumps({"tokens": {"access_token": "x"}}))
-    assert cli.main(["import"]) == 0
-    assert [a.name for a in load_accounts()] == ["codex-default"]
+    (home / ".codex" / "auth.json").write_text(json.dumps(
+        {"OPENAI_API_KEY": None, "tokens": {"access_token": "x", "id_token": _jwt({"email": "a@b.c"})}}))
+    assert cli.main(["scan"]) == 0
+    accts = load_accounts()
+    assert [a.name for a in accts] == ["codex"] and accts[0].note == "a@b.c"
+    assert cli.main(["scan"]) == 0  # idempotent
+    assert len(load_accounts()) == 1

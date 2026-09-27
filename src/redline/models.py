@@ -29,6 +29,7 @@ class Usage:
     extra: dict = field(default_factory=dict)  # provider-specific (credits, extra usage...)
     error: str | None = None
     fetched_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    stale: bool = False  # windows are from an earlier successful fetch (this one failed)
 
     def to_dict(self) -> dict:
         return {
@@ -41,6 +42,7 @@ class Usage:
             "extra": self.extra,
             "error": self.error,
             "fetched_at": self.fetched_at.isoformat(),
+            "stale": self.stale,
         }
 
 

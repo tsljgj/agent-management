@@ -1,4 +1,4 @@
-"""Command-line interface: `agentman <command>`."""
+"""Command-line interface: `redline <command>`."""
 
 from __future__ import annotations
 
@@ -41,24 +41,65 @@ def cmd_add(args) -> int:
         return 1
     print(f"added {acct.provider} account {acct.name!r} -> {acct.home_path}")
     if not has_credentials(acct):
-        print(f"not logged in yet; run:  agentman login {acct.name}")
+        print(f"not logged in yet; run:  redline login {acct.name}")
     return 0
 
 
-def cmd_import(args) -> int:
-    """Register the CLIs' default home dirs (~/.claude, ~/.codex) if they hold a login."""
-    added = actions.import_defaults()
-    for a in added:
-        print(f"imported {a.name} ({a.home})")
-    if not added:
-        print("nothing new to import")
+def cmd_scan(args) -> int:
+    if args.dry_run:
+        from .discover import discover
+
+        for f in discover():
+            state = "logged in" if f.logged_in else "no token"
+            print(f"{f.provider:<6} {state:<9} {f.email or '?':<32} {f.home}  [{f.source}]")
+        return 0
+    added, existing = actions.scan()
+    for a, f in added:
+        print(f"+ {a.name:<18} {a.provider:<6} {f.email or '?':<32} {f.home}")
+    print(f"{len(added)} new, {len(existing)} already registered")
+    return 0
+
+
+def _print_log(level: str, text: str) -> None:
+    print(f"[{level}] {text}", flush=True)
+
+
+def cmd_wake(args) -> int:
+    from .login import WakeJob
+
+    accounts = _select(args.names)
+    if not accounts:
+        print("no accounts; run `redline scan` first")
+        return 1
+    results = WakeJob(accounts, _print_log, force=args.force).run()
+    return 0 if all(v in ("ok", "refreshed", "logged-in") for v in results.values()) else 2
+
+
+def cmd_web(args) -> int:
+    from .login import open_web
+
+    print(open_web(find_account(load_accounts(), args.name), args.url))
+    return 0
+
+
+def cmd_bind(args) -> int:
+    try:
+        print(actions.bind(args.name, args.profile))
+    except actions.ActionError as e:
+        print(e, file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_profiles(args) -> int:
+    print(actions.profiles_text())
     return 0
 
 
 def cmd_list(args) -> int:
     accounts = load_accounts()
     if not accounts:
-        print("no accounts; add one with `agentman add claude <name>` or `agentman import`")
+        print("no accounts; add one with `redline add claude <name>` or `redline import`")
         return 0
     w = max(len(a.name) for a in accounts)
     for a in accounts:
@@ -80,7 +121,7 @@ def cmd_remove(args) -> int:
 def cmd_usage(args) -> int:
     accounts = _select(args.names)
     if not accounts:
-        print("no accounts; add one with `agentman add claude <name>` or `agentman import`")
+        print("no accounts; add one with `redline add claude <name>` or `redline import`")
         return 1
     usages = collect(accounts, refresh_tokens=args.refresh_tokens)
     if args.json:
@@ -116,11 +157,11 @@ def _exec_with_account(acct: Account, argv: list[str]) -> int:
 
 
 def cmd_login(args) -> int:
+    from .login import WakeJob
+
     acct = find_account(load_accounts(), args.name)
-    acct.home_path.mkdir(parents=True, exist_ok=True)
-    argv = actions.LOGIN_COMMANDS[acct.provider]
-    print(f"launching `{' '.join(argv)}` with {acct.env()}", file=sys.stderr)
-    return _exec_with_account(acct, argv)
+    results = WakeJob([acct], _print_log, force=True).run()
+    return 0 if results.get(acct.name) == "logged-in" else 2
 
 
 def cmd_run(args) -> int:
@@ -133,7 +174,7 @@ def cmd_exec(args) -> int:
     acct = find_account(load_accounts(), args.name)
     cmd = args.cmd[1:] if args.cmd[:1] == ["--"] else args.cmd
     if not cmd:
-        print("usage: agentman exec <name> -- <command> [args...]", file=sys.stderr)
+        print("usage: redline exec <name> -- <command> [args...]", file=sys.stderr)
         return 1
     return _exec_with_account(acct, cmd)
 
@@ -152,22 +193,26 @@ def _shell_quote(s: str) -> str:
 def cmd_serve(args) -> int:
     from .web import serve
 
-    serve(args.host, args.port, interval=args.interval, refresh_tokens=args.refresh_tokens)
+    from .config import load_settings
+
+    serve(args.host, args.port, interval=args.interval,
+          refresh_tokens=args.refresh_tokens or load_settings()["auto_refresh"])
     return 0
 
 
 def cmd_tray(args) -> int:
     from .tray import run_tray
 
-    return run_tray(interval=args.interval, refresh_tokens=args.refresh_tokens, self_test_mode=args.self_test)
+    return run_tray(interval=args.interval, refresh_tokens=True if args.refresh_tokens else None,
+                    self_test_mode=args.self_test)
 
 
 # ---------------------------------------------------------------- parser
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="agentman", description=__doc__)
-    p.add_argument("--version", action="version", version=f"agentman {__version__}")
+    p = argparse.ArgumentParser(prog="redline", description=__doc__)
+    p.add_argument("--version", action="version", version=f"redline {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
 
     s = sub.add_parser("add", help="register a new account (own config dir per account)")
@@ -177,8 +222,27 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--note", help="free-form note, e.g. the account email")
     s.set_defaults(func=cmd_add)
 
-    s = sub.add_parser("import", help="register the default ~/.claude and ~/.codex logins")
-    s.set_defaults(func=cmd_import)
+    s = sub.add_parser("scan", aliases=["import"], help="find Claude/Codex accounts on this machine and register them")
+    s.add_argument("--dry-run", action="store_true", help="only list what would be registered")
+    s.set_defaults(func=cmd_scan)
+
+    s = sub.add_parser("wake", help="bring all (or given) accounts online: refresh expired tokens, log in the rest")
+    s.add_argument("names", nargs="*")
+    s.add_argument("--force", action="store_true", help="log in again even if the token is valid")
+    s.set_defaults(func=cmd_wake)
+
+    s = sub.add_parser("web", help="open claude.ai / chatgpt.com in this account's Chrome profile")
+    s.add_argument("name")
+    s.add_argument("url", nargs="?")
+    s.set_defaults(func=cmd_web)
+
+    s = sub.add_parser("bind", help="bind an account to a browser profile: redline bind work me@gmail.com")
+    s.add_argument("name")
+    s.add_argument("profile", help='Google email, "Profile 2", "chrome:Profile 2", or "none"')
+    s.set_defaults(func=cmd_bind)
+
+    s = sub.add_parser("profiles", help="list Chrome/Edge/Brave profiles and their Google accounts")
+    s.set_defaults(func=cmd_profiles)
 
     s = sub.add_parser("list", aliases=["ls"], help="list registered accounts")
     s.set_defaults(func=cmd_list)
@@ -204,21 +268,21 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--refresh-tokens", action="store_true", help=refresh_help)
     s.set_defaults(func=cmd_watch)
 
-    s = sub.add_parser("login", help="run the provider's login flow inside this account's dir")
+    s = sub.add_parser("login", help="log this account in (browser opens in its bound Chrome profile)")
     s.add_argument("name")
     s.set_defaults(func=cmd_login)
 
-    s = sub.add_parser("run", help="run claude/codex as this account: agentman run work -- --resume")
+    s = sub.add_parser("run", help="run claude/codex as this account: redline run work -- --resume")
     s.add_argument("name")
     s.add_argument("args", nargs=argparse.REMAINDER)
     s.set_defaults(func=cmd_run)
 
-    s = sub.add_parser("exec", help="run any command with this account's env: agentman exec work -- cmd")
+    s = sub.add_parser("exec", help="run any command with this account's env: redline exec work -- cmd")
     s.add_argument("name")
     s.add_argument("cmd", nargs=argparse.REMAINDER)
     s.set_defaults(func=cmd_exec)
 
-    s = sub.add_parser("env", help="print export lines, e.g. eval \"$(agentman env work)\"")
+    s = sub.add_parser("env", help="print export lines, e.g. eval \"$(redline env work)\"")
     s.add_argument("name")
     s.set_defaults(func=cmd_env)
 
@@ -229,8 +293,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--refresh-tokens", action="store_true", help=refresh_help)
     s.set_defaults(func=cmd_serve)
 
-    s = sub.add_parser("tray", help="system tray app with the console window (needs `pip install agentman[tray]`)")
-    s.add_argument("-n", "--interval", type=int, default=120, help="seconds between upstream fetches")
+    s = sub.add_parser("tray", help="system tray app with the console window (needs `pip install redline[tray]`)")
+    s.add_argument("-n", "--interval", type=int, default=None, help="seconds between upstream fetches")
     s.add_argument("--refresh-tokens", action="store_true", help=refresh_help)
     s.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
     s.set_defaults(func=cmd_tray)
@@ -238,6 +302,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if len(argv) == 1:
+        from .login import handle_browser_callback, is_url
+
+        if is_url(argv[0]):  # we were invoked as $BROWSER by claude/codex during a login
+            return handle_browser_callback(argv[0])
     args = build_parser().parse_args(argv)
     try:
         return args.func(args) or 0

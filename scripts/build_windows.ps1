@@ -1,4 +1,4 @@
-# Build dist\agentman-tray.exe (single file, no console window).
+# Build dist\redline.exe (single file, no console window).
 # Usage (PowerShell, from the repo root):  .\scripts\build_windows.ps1
 $ErrorActionPreference = "Stop"
 
@@ -6,15 +6,15 @@ python -m pip install --upgrade pip
 python -m pip install ".[tray]" pyinstaller
 
 New-Item -ItemType Directory -Force build | Out-Null
-python -c "from agentman.icon import save_ico; save_ico('build/agentman.ico')"
+python -c "from redline.icon import save_ico; save_ico('build/redline.ico')"
 
 python -m PyInstaller --noconfirm --clean --onefile --noconsole `
-  --name agentman-tray `
-  --icon build/agentman.ico `
-  --add-data "src/agentman/assets;agentman/assets" `
+  --name redline `
+  --icon build/redline.ico `
+  --add-data "src/redline/assets;redline/assets" `
   --hidden-import pystray._win32 `
   --collect-submodules webview `
   --paths src `
-  scripts/agentman_tray.py
+  scripts/redline_tray.py
 
-Write-Host "built dist\agentman-tray.exe"
+Write-Host "built dist\redline.exe"

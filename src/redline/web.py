@@ -1,4 +1,4 @@
-"""Local HTTP server behind the console (used by both `agentman serve` and the tray app).
+"""Local HTTP server behind the console (used by both `redline serve` and the tray app).
 
 Security: the server binds to 127.0.0.1 by default, rejects foreign Host headers
 (DNS rebinding) and requires a per-process token header on every API call (CSRF),
@@ -19,12 +19,12 @@ from . import __version__, actions
 from .monitor import Monitor
 
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
-TOKEN_HEADER = "X-Agentman-Token"
+TOKEN_HEADER = "X-Redline-Token"
 MAX_BODY = 64 * 1024
 
 
 def console_html() -> str:
-    return resources.files("agentman").joinpath("assets/console.html").read_text(encoding="utf-8")
+    return resources.files("redline").joinpath("assets/console.html").read_text(encoding="utf-8")
 
 
 class ConsoleServer:
@@ -57,7 +57,7 @@ class ConsoleServer:
         return html.encode("utf-8")
 
     def start_background(self) -> "ConsoleServer":
-        threading.Thread(target=self.httpd.serve_forever, name="agentman-http", daemon=True).start()
+        threading.Thread(target=self.httpd.serve_forever, name="redline-http", daemon=True).start()
         return self
 
     def shutdown(self) -> None:
@@ -116,12 +116,20 @@ class ConsoleServer:
                     return self._json(413, {"ok": False, "message": "body too large"})
                 try:
                     body = json.loads(self.rfile.read(length) or b"{}")
+                    if not isinstance(body, dict):
+                        raise ValueError("body must be an object")
+                    for k in ("log", "on_done"):  # never accept callables from the client
+                        body.pop(k, None)
+                    if body.get("action") in ("wake", "login"):
+                        mon = server.monitor
+                        body["log"] = lambda level, text: mon.log(level, text, alert=level == "crit")
+                        body["on_done"] = lambda: mon.poll()
                     msg = actions.dispatch(str(body.get("action", "")), body)
                 except actions.ActionError as e:
                     return self._json(200, {"ok": False, "message": str(e)})
                 except (json.JSONDecodeError, OSError, ValueError) as e:
                     return self._json(200, {"ok": False, "message": f"{type(e).__name__}: {e}"})
-                if body.get("action") in ("add", "remove", "import"):
+                if body.get("action") in ("add", "remove", "import", "scan", "bind"):
                     threading.Thread(target=server.monitor.poll, daemon=True).start()
                 return self._json(200, {"ok": True, "message": msg})
 
@@ -134,7 +142,7 @@ class ConsoleServer:
 def serve(host: str, port: int, interval: int = 120, refresh_tokens: bool = False) -> None:
     monitor = Monitor(interval=interval, refresh_tokens=refresh_tokens).start()
     srv = ConsoleServer(monitor, host, port)
-    print(f"agentman console on {srv.url}  (Ctrl-C to stop)")
+    print(f"redline console on {srv.url}  (Ctrl-C to stop)")
     try:
         srv.httpd.serve_forever()
     except KeyboardInterrupt:

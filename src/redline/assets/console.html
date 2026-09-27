@@ -2,7 +2,7 @@
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AGENTMAN // console</title>
+<title>REDLINE // console</title>
 <link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Orbitron:wght@600;800&display=swap" rel="stylesheet">
@@ -36,7 +36,7 @@ header{display:flex;align-items:center;gap:10px;padding:9px 10px 8px 14px;border
   background:linear-gradient(90deg,rgba(0,240,255,.10),rgba(255,43,214,.06) 60%,transparent)}
 .logo{font:800 13px/1 var(--disp);letter-spacing:.18em;color:var(--cyan);text-shadow:0 0 8px rgba(0,240,255,.8);
   position:relative;white-space:nowrap}
-.logo b{color:var(--mag);text-shadow:0 0 8px rgba(255,43,214,.9)}
+.logo b{color:var(--red);text-shadow:0 0 8px rgba(255,59,92,.9)}
 .logo.glitch::before,.logo.glitch::after{content:attr(data-t);position:absolute;inset:0;overflow:hidden;opacity:0;background:var(--bg)}
 .logo.glitch::before{color:var(--mag);transform:translate(2px,0);clip-path:inset(0 0 55% 0);animation:gl 2.6s infinite steps(1)}
 .logo.glitch::after{color:var(--cyan);transform:translate(-2px,0);clip-path:inset(55% 0 0 0);animation:gl 3.1s infinite steps(1) reverse}
@@ -74,6 +74,8 @@ main::-webkit-scrollbar-thumb,#log::-webkit-scrollbar-thumb{background:var(--fai
 .intro .node{animation:in .35s ease-out both}
 .node::before{content:"";position:absolute;left:0;top:0;width:3px;height:100%;background:var(--c);box-shadow:0 0 12px var(--c)}
 .node.claude{--c:var(--amber)} .node.codex{--c:var(--cyan)} .node.fault{--c:var(--red)}
+.node .btn.web{color:var(--mag);border-color:var(--mag)}
+.node .btn.web:hover{background:var(--mag);color:var(--bg);box-shadow:0 0 14px var(--mag)}
 @keyframes in{from{opacity:0;transform:translateY(6px)}}
 .nh{display:flex;align-items:baseline;gap:8px}
 .idx{color:var(--dim);font-size:10.5px}
@@ -106,6 +108,54 @@ main::-webkit-scrollbar-thumb,#log::-webkit-scrollbar-thumb{background:var(--fai
 .empty pre{color:var(--cyan);text-shadow:0 0 8px rgba(0,240,255,.6);font:12px/1.2 var(--mono);margin-bottom:12px}
 .empty code{color:var(--mag)}
 
+/* ---------- sync strip / toolbar ---------- */
+.sync{display:flex;align-items:center;gap:10px;padding:6px 12px;border-bottom:1px solid var(--line);
+  background:rgba(0,0,0,.35);font-size:10.5px;letter-spacing:.08em;color:var(--dim);flex-wrap:wrap}
+.sync b{color:var(--text);font-weight:600}
+.sync .hot{color:var(--amber)}
+.sync .tools{margin-left:auto;display:flex;gap:5px}
+.tb{font:600 10px var(--mono);letter-spacing:.12em;color:var(--cyan);background:transparent;border:1px solid var(--line);
+  padding:3px 8px;cursor:pointer;text-transform:uppercase;white-space:nowrap}
+.tb:hover{border-color:var(--cyan);background:rgba(0,240,255,.12);box-shadow:0 0 10px rgba(0,240,255,.35)}
+.tb.on{background:var(--cyan);color:var(--bg);border-color:var(--cyan)}
+.tb.hot{color:var(--mag);border-color:rgba(255,43,214,.45)}
+.tb.hot:hover{background:rgba(255,43,214,.15);box-shadow:0 0 10px rgba(255,43,214,.45)}
+.noact .tb.act{display:none}
+
+/* ---------- list view (all accounts at a glance) ---------- */
+main.list{grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:8px}
+.row{--c:var(--cyan);position:relative;background:var(--panel);border:1px solid var(--line);padding:7px 10px 7px 13px;min-width:0;overflow:hidden}
+.row::before{content:"";position:absolute;left:0;top:0;width:3px;height:100%;background:var(--c);box-shadow:0 0 10px var(--c)}
+.row.claude{--c:var(--amber)} .row.codex{--c:var(--cyan)} .row.fault{--c:var(--red)}
+.intro .row{animation:in .3s ease-out both}
+.rh{display:flex;align-items:center;gap:7px;min-width:0}
+.rh .nm{font-size:13px}
+.rh .who{margin:0;flex:1;min-width:0}
+.rh .plan{margin-left:0;font-size:9.5px;padding:0 5px}
+.age{font-size:10px;color:var(--dim);white-space:nowrap}
+.age.stale{color:var(--amber)}
+.mini{font:600 9.5px var(--mono);letter-spacing:.1em;color:var(--c);background:transparent;border:1px solid var(--c);
+  padding:1px 6px;cursor:pointer;white-space:nowrap}
+.mini:hover{background:var(--c);color:var(--bg);box-shadow:0 0 10px var(--c)}
+.mini.web{color:var(--mag);border-color:var(--mag)}
+.mini.web:hover{background:var(--mag);color:var(--bg);box-shadow:0 0 10px var(--mag)}
+.noact .mini{display:none}
+.rw{display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;margin-top:5px}
+.mw{display:grid;grid-template-columns:22px minmax(40px,1fr) 34px 58px;align-items:center;gap:5px;min-width:0}
+.mw .wn{font-size:10px}
+.mw .bar{grid-template-columns:repeat(16,1fr);height:9px}
+.mw .pct{font-size:12px}
+.mw .rt{font-size:9.5px;color:var(--dim);white-space:nowrap;text-align:right}
+.mw .rt b{color:var(--text);font-weight:600}
+.chips{font-size:10px;color:var(--dim);margin-top:3px;display:flex;gap:10px;flex-wrap:wrap}
+.chips b{color:var(--text);font-weight:600}
+.chips i{font-style:normal;color:var(--mag)}
+.row .err{font-size:10.5px;margin:4px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stale .bar i.on{opacity:.45;box-shadow:none}
+.stale .pct{opacity:.6}
+@media (max-width:560px){main.list{grid-template-columns:1fr}.rh .plan{display:none}.sync .tools{margin-left:0}}
+@media (max-width:420px){.rw{grid-template-columns:1fr}}
+
 /* ---------- log + prompt ---------- */
 #log{height:118px;overflow-y:auto;padding:6px 12px;border-top:1px solid var(--line);background:rgba(0,0,0,.45);
   font-size:11px;user-select:text}
@@ -131,7 +181,7 @@ main::-webkit-scrollbar-thumb,#log::-webkit-scrollbar-thumb{background:var(--fai
 <canvas id="rain"></canvas>
 <div class="frame"></div>
 <header class="pywebview-drag-region">
-  <div class="logo glitch" data-t="AGENTMAN//">AGENTMAN<b>//</b></div>
+  <div class="logo glitch" data-t="REDLINE//">REDLINE<b>//</b></div>
   <div class="sub">NETRUNNER CONSOLE</div>
   <div class="spacer"></div>
   <div class="led" id="led"><i></i><span>LINK</span></div>
@@ -140,9 +190,21 @@ main::-webkit-scrollbar-thumb,#log::-webkit-scrollbar-thumb{background:var(--fai
   <button class="wbtn x" id="bhide" title="Hide to tray (Esc)">×</button>
 </header>
 <section class="hero" id="hero"></section>
+<section class="sync">
+  <span>SYNC <b id="syncAt">--:--:--</b> <span id="syncAgo"></span></span>
+  <span>NEXT <b id="syncNext">--</b></span>
+  <span id="autoRef" title="expired tokens are refreshed automatically"></span>
+  <div class="tools">
+    <button class="tb" id="vList" title="all accounts at a glance">≡ LIST</button>
+    <button class="tb" id="vCards" title="big cards">▦ CARDS</button>
+    <button class="tb" id="bSync" title="refresh now (r)">⟳ SYNC</button>
+    <button class="tb act" id="bScan" title="find accounts on this computer">⌕ SCAN</button>
+    <button class="tb hot act" id="bWake" title="refresh expired tokens and log in every account">⚡ WAKE ALL</button>
+  </div>
+</section>
 <main id="grid"></main>
 <div id="log"></div>
-<div class="prompt"><span class="ps">agentman@<b>local</b>:~$</span>
+<div class="prompt"><span class="ps">redline@<b>local</b>:~$</span>
   <input id="cmd" autocomplete="off" spellcheck="false" placeholder="type `help`"></div>
 <div id="toast"></div>
 <script>
@@ -154,7 +216,7 @@ let DATA = {usages: [], fetched_at: 0}, lastEvent = 0, lastFetched = -1, linkOk 
 
 /* ---------------- api ---------------- */
 async function api(path, opts = {}) {
-  const r = await fetch(path, {...opts, headers: {"X-Agentman-Token": BOOT.token, "Content-Type": "application/json", ...(opts.headers||{})}});
+  const r = await fetch(path, {...opts, headers: {"X-Redline-Token": BOOT.token, "Content-Type": "application/json", ...(opts.headers||{})}});
   if (!r.ok && r.status !== 200) throw new Error("HTTP " + r.status);
   return r.json();
 }
@@ -179,7 +241,7 @@ async function action(body) {
   try {
     const r = await api("api/action", {method: "POST", body: JSON.stringify(body)});
     log(r.message, r.ok ? "out" : "error");
-    if (r.ok && ["add","remove","import"].includes(body.action)) setTimeout(() => pull(false), 1500);
+    if (r.ok && ["add","remove","scan","bind"].includes(body.action)) setTimeout(() => pull(false), 1500);
   } catch (e) { log("action failed: " + e.message, "error"); }
 }
 function setLink(ok) {
@@ -190,73 +252,130 @@ function setLink(ok) {
 
 /* ---------------- render ---------------- */
 const colorFor = p => p == null ? "var(--dim)" : p >= 90 ? "var(--red)" : p >= 70 ? "var(--amber)" : "var(--green)";
-function countdown(iso) {
-  if (!iso) return "";
-  let s = Math.floor((new Date(iso) - Date.now()) / 1000);
-  if (s <= 0) return "<b>RESETTING</b>";
-  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
-  return "RESET T-<b>" + (d ? `${d}D ${pad(h)}H ${pad(m)}M` : `${pad(h)}:${pad(m)}:${pad(x)}`) + "</b>";
+let VIEW = "list";
+try { VIEW = localStorage.getItem("redline.view") || "list"; } catch (e) {}
+function span(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60), x = sec % 60;
+  return d ? `${d}D ${pad(h)}H` : h ? `${pad(h)}:${pad(m)}:${pad(x)}` : `${pad(m)}:${pad(x)}`;
 }
-function bar(p) {
-  const n = p == null ? 0 : Math.round(Math.min(100, Math.max(0, p)) / 100 * 24);
+function ago(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  return sec < 60 ? `${sec}s` : sec < 3600 ? `${Math.floor(sec / 60)}m` : `${Math.floor(sec / 3600)}h${pad(Math.floor(sec % 3600 / 60))}m`;
+}
+function countdown(iso, compact) {
+  if (!iso) return "";
+  const s = (new Date(iso) - Date.now()) / 1000;
+  if (s <= 0) return "<b>RESETTING</b>";
+  return (compact ? "T-<b>" : "RESET T-<b>") + span(s) + "</b>";
+}
+function bar(p, n = 24) {
+  const k = p == null ? 0 : Math.round(Math.min(100, Math.max(0, p)) / 100 * n);
   let h = "";
-  for (let i = 0; i < 24; i++) h += `<i class="${i < n ? "on" : ""}${i === n - 1 && p >= 90 ? " tip" : ""}"></i>`;
+  for (let i = 0; i < n; i++) h += `<i class="${i < k ? "on" : ""}${i === k - 1 && p >= 90 ? " tip" : ""}"></i>`;
   return `<div class="bar">${h}</div>`;
 }
 function short(u) { return u.windows.find(w => w.name === "5h") || u.windows[0]; }
+const live = u => u.ok || u.stale;
 function best(provider) {
   const c = DATA.usages.filter(u => u.ok && u.provider === provider && u.windows.length &&
     !u.windows.some(w => w.used_percent >= 100));
   c.sort((a, b) => (short(a)?.used_percent ?? 999) - (short(b)?.used_percent ?? 999));
   return c[0];
 }
-function render() {
-  const us = DATA.usages, ok = us.filter(u => u.ok);
-  const peaks = ok.map(short).filter(Boolean).map(w => w.used_percent).filter(v => v != null);
+const pctTxt = p => p == null ? "?" : Math.round(p);
+const ageOf = u => (Date.now() - new Date(u.fetched_at)) / 1000;
+function acctButtons(u, cls) {
+  const n = esc(u.account);
+  return `<button class="${cls} web" data-act="web" data-name="${n}" title="open ${u.provider === "codex" ? "chatgpt.com" : "claude.ai"} in this account's browser profile">◉ web</button>` +
+    `<button class="${cls}" data-act="${u.ok || u.stale ? "jack" : "login"}" data-name="${n}" title="${u.ok || u.stale ? "open a terminal as this account" : "log in"}">${u.ok || u.stale ? "⏵ jack in" : "⚡ login"}</button>`;
+}
+function hero(us) {
+  const peaks = us.filter(live).map(short).filter(Boolean).map(w => w.used_percent).filter(v => v != null);
   const peak = peaks.length ? Math.max(...peaks) : null;
-  let hero = `<div class="stat"><div class="k">NODES</div><div class="v">${ok.length}<small>/ ${us.length}</small></div></div>
+  let h = `<div class="stat"><div class="k">NODES</div><div class="v">${us.filter(u => u.ok).length}<small>/ ${us.length}</small></div></div>
     <div class="stat"><div class="k">PEAK 5H</div><div class="v" style="color:${colorFor(peak)};text-shadow:0 0 10px ${colorFor(peak)}">${peak == null ? "--" : Math.round(peak) + "%"}</div></div>`;
   for (const p of ["claude", "codex"]) {
     if (!us.some(u => u.provider === p)) continue;
     const b = best(p);
-    hero += `<div class="stat"><div class="k">BEST ${p.toUpperCase()}</div><div class="v" title="${esc(b?.account)}">${b ? esc(b.account) : "--"}${b ? `<small>${Math.round(short(b)?.used_percent ?? 0)}%</small>` : ""}</div></div>`;
+    h += `<div class="stat"><div class="k">BEST ${p.toUpperCase()}</div><div class="v" title="${esc(b?.account)}">${b ? esc(b.account) : "--"}${b ? `<small>${Math.round(short(b)?.used_percent ?? 0)}%</small>` : ""}</div></div>`;
   }
-  $("#hero").innerHTML = hero;
-
+  $("#hero").innerHTML = h;
+}
+function rowHTML(u, i) {
+  const main = [u.windows.find(w => w.name === "5h"), u.windows.find(w => w.name === "7d")].filter(Boolean);
+  if (!main.length) main.push(...u.windows.slice(0, 2));
+  const rest = u.windows.filter(w => !main.includes(w));
+  const age = u.stale ? `<span class="age stale" data-ago="${esc(u.fetched_at)}" data-pre="STALE ">STALE ${ago(ageOf(u))}</span>`
+    : u.ok ? `<span class="age" data-ago="${esc(u.fetched_at)}" data-pre="⟳">⟳${ago(ageOf(u))}</span>` : "";
+  let h = `<div class="row ${esc(u.provider)} ${u.ok ? "" : "fault"} ${u.stale ? "stale" : ""}" style="animation-delay:${i * 50}ms">
+    <div class="rh"><span class="idx">${pad(i + 1)}</span><span class="prov">${esc(u.provider.toUpperCase())}</span>
+    <span class="nm">${esc(u.account)}</span><span class="who" title="${esc(u.email)}">${esc(u.email || "")}</span>
+    ${u.plan ? `<span class="plan">${esc(String(u.plan).toUpperCase())}</span>` : ""}${age}${acctButtons(u, "mini")}</div>`;
+  if (main.length) {
+    h += `<div class="rw">` + main.map(w => `<div class="mw" style="--b:${colorFor(w.used_percent)}">
+      <span class="wn">${esc(w.name.toUpperCase())}</span>${bar(w.used_percent, 16)}<span class="pct">${pctTxt(w.used_percent)}%</span>
+      <span class="rt" data-reset="${esc(w.resets_at || "")}" data-compact="1" title="${w.resets_at ? new Date(w.resets_at).toLocaleString() : ""}">${countdown(w.resets_at, true)}</span></div>`).join("") + `</div>`;
+  }
+  const chips = rest.map(w => `<span>${esc(w.name.toUpperCase())} <b style="color:${colorFor(w.used_percent)}">${pctTxt(w.used_percent)}%</b></span>`)
+    .concat(Object.entries(u.extra || {}).map(([k, v]) => `<span>${esc(k)} <i>${esc(v)}</i></span>`));
+  if (chips.length) h += `<div class="chips">${chips.join("")}</div>`;
+  if (!u.ok) h += `<div class="err" title="${esc(u.error)}">${esc(u.error)}</div>`;
+  return h + "</div>";
+}
+function cardHTML(u, i) {
+  let h = `<div class="node ${esc(u.provider)} ${u.ok ? "" : "fault"} ${u.stale ? "stale" : ""}" style="animation-delay:${i * 60}ms">
+    <div class="nh"><span class="idx">${pad(i + 1)}</span><span class="prov">${esc(u.provider.toUpperCase())}</span>
+    <span class="nm">${esc(u.account)}</span>${u.plan ? `<span class="plan">${esc(String(u.plan).toUpperCase())}</span>` : ""}</div>
+    <div class="who">${esc(u.email || (u.ok ? "unknown identity" : "--"))}</div>`;
+  if (!u.ok) h += `<div class="err">${esc(u.error)}</div>`;
+  for (const w of u.windows) {
+    h += `<div class="win" style="--b:${colorFor(w.used_percent)}"><span class="wn" title="${esc(w.name)}">${esc(w.name)}</span>${bar(w.used_percent)}
+      <span class="pct">${pctTxt(w.used_percent)}%</span>
+      <span class="rs" data-reset="${esc(w.resets_at || "")}">${countdown(w.resets_at)}</span></div>`;
+  }
+  for (const [k, v] of Object.entries(u.extra || {})) h += `<div class="extra">${esc(k)} <b>${esc(v)}</b></div>`;
+  return h + `<div class="acts">${acctButtons(u, "btn")}</div></div>`;
+}
+function render() {
+  const us = DATA.usages;
+  hero(us);
+  $("#grid").className = VIEW === "list" ? "list" : "";
+  $("#vList").classList.toggle("on", VIEW === "list"); $("#vCards").classList.toggle("on", VIEW !== "list");
+  $("#autoRef").innerHTML = DATA.auto_refresh ? "AUTO-REFRESH <b>ON</b>" : "AUTO-REFRESH <b class=hot>OFF</b>";
   if (!us.length && !DATA.fetched_at) {
     $("#grid").innerHTML = `<div class="empty">SCANNING NODES<span class="led" style="display:inline-flex;margin-left:8px"><i></i></span></div>`;
     return;
   }
   if (!us.length) {
-    $("#grid").innerHTML = `<div class="empty"><pre> ▄▀█ █▀▀ █▀▀ █▄░█ ▀█▀ █▀▄▀█ ▄▀█ █▄░█
- █▀█ █▄█ ██▄ █░▀█ ░█░ █░▀░█ █▀█ █░▀█</pre>
+    $("#grid").innerHTML = `<div class="empty"><pre> █▀█ █▀▀ █▀▄ █░░ █ █▄░█ █▀▀
+ █▀▄ ██▄ █▄▀ █▄▄ █ █░▀█ ██▄</pre>
       NO NODES REGISTERED.<br><br>
-      &gt; <code>import</code> &nbsp;— pick up your default ~/.claude and ~/.codex logins<br>
+      &gt; <code>scan</code> &nbsp;— find every Claude / Codex login on this computer<br>
+      &gt; <code>wake</code> &nbsp;— bring them all online (refresh / log in)<br>
       &gt; <code>add claude work</code> &nbsp;— new isolated account, then <code>login work</code></div>`;
     return;
   }
-  $("#grid").innerHTML = us.map((u, i) => {
-    let h = `<div class="node ${esc(u.provider)} ${u.ok ? "" : "fault"}" style="animation-delay:${i * 60}ms">
-      <div class="nh"><span class="idx">${pad(i + 1)}</span><span class="prov">${esc(u.provider.toUpperCase())}</span>
-      <span class="nm">${esc(u.account)}</span>${u.plan ? `<span class="plan">${esc(String(u.plan).toUpperCase())}</span>` : ""}</div>
-      <div class="who">${esc(u.email || (u.ok ? "unknown identity" : "--"))}</div>`;
-    if (!u.ok) h += `<div class="err">${esc(u.error)}</div>`;
-    for (const w of u.windows) {
-      const c = colorFor(w.used_percent);
-      h += `<div class="win" style="--b:${c}"><span class="wn" title="${esc(w.name)}">${esc(w.name)}</span>${bar(w.used_percent)}
-        <span class="pct">${w.used_percent == null ? "?" : Math.round(w.used_percent)}%</span>
-        <span class="rs" data-reset="${esc(w.resets_at || "")}">${countdown(w.resets_at)}</span></div>`;
-    }
-    for (const [k, v] of Object.entries(u.extra || {})) h += `<div class="extra">${esc(k)} <b>${esc(v)}</b></div>`;
-    h += `<div class="acts"><button class="btn" data-act="launch" data-name="${esc(u.account)}">⏵ jack in</button>
-      <button class="btn ghost" data-act="login" data-name="${esc(u.account)}">login</button></div></div>`;
-    return h;
-  }).join("");
+  $("#grid").innerHTML = us.map(VIEW === "list" ? rowHTML : cardHTML).join("");
+  tick();
+}
+function setView(v) {
+  VIEW = v === "cards" ? "cards" : "list";
+  try { localStorage.setItem("redline.view", VIEW); } catch (e) {}
+  render();
 }
 function tick() {
   const n = new Date();
   $("#clock").textContent = `${pad(n.getHours())}:${pad(n.getMinutes())}:${pad(n.getSeconds())}`;
-  document.querySelectorAll(".rs[data-reset]").forEach(el => { el.innerHTML = countdown(el.dataset.reset); });
+  document.querySelectorAll("[data-reset]").forEach(el => { el.innerHTML = countdown(el.dataset.reset, el.dataset.compact); });
+  document.querySelectorAll("[data-ago]").forEach(el => { el.textContent = el.dataset.pre + ago((Date.now() - new Date(el.dataset.ago)) / 1000); });
+  if (DATA.fetched_at) {
+    const at = new Date(DATA.fetched_at * 1000);
+    $("#syncAt").textContent = `${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`;
+    $("#syncAgo").textContent = `(${ago(Date.now() / 1000 - DATA.fetched_at)} ago)`;
+    const left = (DATA.next_at || 0) - Date.now() / 1000;
+    $("#syncNext").textContent = DATA.next_at ? (left > 0 ? span(left) : "now") : "--";
+  }
 }
 
 /* ---------------- log / toast ---------------- */
@@ -280,12 +399,19 @@ function toast(text, ok) {
 /* ---------------- command line ---------------- */
 const HELP = [
   ["help", "this list"], ["ls", "list nodes (accounts)"], ["refresh | r", "force a sync now"],
-  ["best [claude|codex]", "node with the most 5h headroom"], ["jack <name>", "open a terminal running claude/codex as <name>"],
-  ["login <name>", "open the login flow for <name>"], ["add <claude|codex> <name>", "register a new isolated account"],
-  ["import", "register default ~/.claude / ~/.codex logins"], ["rm <name> -y", "unregister (files are kept)"],
-  ["rain [on|off]", "toggle digital rain"], ["clear", "clear this log"], ["hide | exit", "back to the tray  (Esc)"],
+  ["scan", "find every Claude/Codex login on this computer"],
+  ["wake [names..]", "bring accounts online: refresh tokens, log in the rest"], ["wake cancel", "stop a running wake"],
+  ["login <name>", "log in again (browser opens in its Chrome profile)"],
+  ["web <name>", "open claude.ai / chatgpt.com in its Chrome profile"],
+  ["jack <name>", "open a terminal running claude/codex as <name>"],
+  ["profiles", "list Chrome/Edge profiles + their Google accounts"],
+  ["bind <name> <email|profile>", "pin an account to a browser profile"],
+  ["best [claude|codex]", "node with the most 5h headroom"],
+  ["add <claude|codex> <name>", "register a new isolated account"], ["rm <name> -y", "unregister (files are kept)"],
+  ["view list|cards", "compact list or big cards"], ["rain [on|off]", "toggle digital rain"],
+  ["clear", "clear this log"], ["hide | exit", "back to the tray  (Esc)"],
 ];
-const COMMANDS = ["help","ls","refresh","best","jack","login","add","import","rm","rain","clear","hide"];
+const COMMANDS = ["help","ls","refresh","scan","wake","login","web","jack","profiles","bind","best","add","rm","view","rain","clear","hide"];
 const hist = []; let hi = 0;
 async function run(line) {
   const [c, ...a] = line.trim().split(/\s+/);
@@ -313,10 +439,20 @@ async function run(line) {
       if (!a[0]) { log("usage: jack <name>", "error"); break; } await action({action: "launch", name: a[0]}); break;
     case "login":
       if (!a[0]) { log("usage: login <name>", "error"); break; } await action({action: "login", name: a[0]}); break;
+    case "web": case "www": case "browse":
+      if (!a[0]) { log("usage: web <name>", "error"); break; } await action({action: "web", name: a[0]}); break;
+    case "scan": case "import": log("scanning this computer for accounts...", "sys"); await action({action: "scan"}); break;
+    case "wake":
+      if (a[0] === "cancel") { await action({action: "wake-cancel"}); break; }
+      await action({action: "wake", names: a}); break;
+    case "profiles": await action({action: "profiles"}); break;
+    case "bind":
+      if (a.length < 2) { log("usage: bind <name> <google email | Profile 2 | none>", "error"); break; }
+      await action({action: "bind", name: a[0], profile: a.slice(1).join(" ")}); break;
+    case "view": setView(a[0] || (VIEW === "list" ? "cards" : "list")); break;
     case "add":
       if (a.length < 2) { log("usage: add <claude|codex> <name>", "error"); break; }
       await action({action: "add", provider: a[0], name: a[1], note: a.slice(2).join(" ")}); break;
-    case "import": await action({action: "import"}); break;
     case "rm": case "remove":
       if (!a[0]) { log("usage: rm <name> -y", "error"); break; }
       if (!a.includes("-y")) { log(`this unregisters ${a[0]} (its login files stay on disk). confirm with: rm ${a[0]} -y`, "warn"); break; }
@@ -332,7 +468,8 @@ function complete(input) {
   const parts = input.value.split(/\s+/), cur = parts[parts.length - 1].toLowerCase();
   const pool = parts.length === 1 ? COMMANDS
     : parts[0] === "add" && parts.length === 2 ? ["claude", "codex"]
-    : parts[0] === "best" ? ["claude", "codex"] : DATA.usages.map(u => u.account);
+    : parts[0] === "best" ? ["claude", "codex"] : parts[0] === "view" ? ["list", "cards"]
+    : parts[0] === "wake" ? ["cancel", ...DATA.usages.map(u => u.account)] : DATA.usages.map(u => u.account);
   const hits = pool.filter(x => x.toLowerCase().startsWith(cur));
   if (hits.length === 1) { parts[parts.length - 1] = hits[0]; input.value = parts.join(" ") + " "; }
   else if (hits.length > 1) log(hits.join("  "), "out");
@@ -351,7 +488,7 @@ document.addEventListener("keydown", e => {
 });
 $("#grid").addEventListener("click", e => {
   const b = e.target.closest("[data-act]"); if (!b) return;
-  run(`${b.dataset.act === "launch" ? "jack" : "login"} ${b.dataset.name}`);
+  run(`${b.dataset.act} ${b.dataset.name}`);
 });
 
 /* ---------------- native window (pywebview) ---------------- */
@@ -359,6 +496,11 @@ function native() { return window.pywebview && window.pywebview.api; }
 function hideWindow() { if (native()) window.pywebview.api.hide(); }
 window.addEventListener("pywebviewready", () => document.body.classList.add("native"));
 $("#bhide").onclick = hideWindow;
+$("#vList").onclick = () => setView("list");
+$("#vCards").onclick = () => setView("cards");
+$("#bSync").onclick = () => run("refresh");
+$("#bScan").onclick = () => run("scan");
+$("#bWake").onclick = () => run("wake");
 $("#bmin").onclick = () => native() && window.pywebview.api.minimize();
 
 /* ---------------- digital rain ---------------- */
@@ -377,17 +519,17 @@ function frame(t) {
   });
 }
 function setRain(on) {
-  rainOn = on; try { localStorage.setItem("agentman.rain", on ? "1" : "0"); } catch (e) {}
+  rainOn = on; try { localStorage.setItem("redline.rain", on ? "1" : "0"); } catch (e) {}
   if (!on) cx.clearRect(0, 0, cv.width, cv.height);
 }
-try { if (localStorage.getItem("agentman.rain") === "0") rainOn = false; } catch (e) {}
+try { if (localStorage.getItem("redline.rain") === "0") rainOn = false; } catch (e) {}
 if (matchMedia("(prefers-reduced-motion: reduce)").matches) rainOn = false;
 addEventListener("resize", sizeRain); sizeRain(); requestAnimationFrame(frame);
 
 /* ---------------- boot ---------------- */
 if (!BOOT.actions) document.body.classList.add("noact");
 const bootLines = [
-  [`agentman v${BOOT.version || "?"} // netrunner console`, "sys"],
+  [`redline v${BOOT.version || "?"} // netrunner console`, "sys"],
   [`uplink ${location.host} ........ OK`, "ok"],
   ["decrypting session token ....... OK", "ok"],
   ["type `help` for commands", "info"],

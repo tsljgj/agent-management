@@ -18,7 +18,7 @@ from ._util import from_epoch, read_json, write_json_atomic
 USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 TOKEN_URL = "https://auth.openai.com/oauth/token"
 CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
-USER_AGENT = "agentman"
+USER_AGENT = "redline"
 AUTH_CLAIM = "https://api.openai.com/auth"
 PROFILE_CLAIM = "https://api.openai.com/profile"
 
@@ -116,6 +116,31 @@ def refresh(account: Account, auth: dict) -> dict:
     return latest
 
 
+def identity(account: Account) -> str | None:
+    auth = load_auth(account)
+    if not auth:
+        return None
+    c = jwt_claims(auth["tokens"].get("id_token"))
+    return c.get("email") or (c.get(PROFILE_CLAIM) or {}).get("email")
+
+
+def token_state(account: Account) -> str:
+    auth = load_auth(account)
+    if auth is None:
+        return "missing"
+    exp = jwt_claims(auth["tokens"]["access_token"]).get("exp")
+    if exp and exp < datetime.now(timezone.utc).timestamp() + 60:
+        return "expired" if auth["tokens"].get("refresh_token") else "missing"
+    return "ok"
+
+
+def refresh_account(account: Account) -> None:
+    auth = load_auth(account)
+    if auth is None:
+        raise ProviderError("not logged in")
+    refresh(account, auth)
+
+
 def _headers(auth: dict) -> dict[str, str]:
     tokens = auth["tokens"]
     h = {"Authorization": f"Bearer {tokens['access_token']}", "User-Agent": USER_AGENT}
@@ -137,7 +162,7 @@ def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
             raise ProviderError("logged in with an API key; usage limits only exist for ChatGPT logins")
         raise ProviderError(
             f"not logged in (no ChatGPT tokens in {_auth_path(account)}; if you use "
-            f"cli_auth_credentials_store=keyring this tool can't read them); run `agentman login {account.name}`"
+            f"cli_auth_credentials_store=keyring this tool can't read them); run `redline login {account.name}`"
         )
 
     exp = jwt_claims(auth["tokens"]["access_token"]).get("exp")

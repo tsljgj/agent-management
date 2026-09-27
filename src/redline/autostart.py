@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-VALUE = "agentman"
+VALUE = "redline"
 
 
 def supported() -> bool:
@@ -18,7 +18,7 @@ def command() -> str:
         return f'"{sys.executable}"'
     exe = Path(sys.executable)
     pythonw = exe.with_name("pythonw.exe")
-    return f'"{pythonw if pythonw.exists() else exe}" -m agentman tray'
+    return f'"{pythonw if pythonw.exists() else exe}" -m redline tray'
 
 
 def is_enabled() -> bool:
