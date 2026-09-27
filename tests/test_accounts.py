@@ -660,3 +660,33 @@ def test_find_cli_checks_install_locations(home, monkeypatch):
     local.mkdir(parents=True)
     (local / "claude").write_text("#!/bin/sh\n")
     assert clis.find_cli("claude") == str(local / "claude")
+
+
+def test_update_swap_retries_while_file_is_busy(tmp_path, monkeypatch):
+    import hashlib
+    import subprocess
+    import sys as _sys
+
+    from redline import update
+
+    exe = tmp_path / "redline.exe"
+    exe.write_bytes(b"old")
+    payload = b"new"
+    monkeypatch.setattr(update, "can_self_update", lambda: True)
+    monkeypatch.setattr(_sys, "executable", str(exe))
+    monkeypatch.setenv("REDLINE_HOME", str(tmp_path / "rh"))
+    monkeypatch.setattr(update, "_get_any", lambda url, timeout=20: hashlib.sha256(payload).hexdigest().encode())
+    monkeypatch.setattr(update, "_download", lambda url, dest: (dest.write_bytes(payload), hashlib.sha256(payload).hexdigest())[1])
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: None)
+    monkeypatch.setattr(update.time, "sleep", lambda s: None)
+    real, busy = update.os.replace, [3]
+
+    def flaky(src, dst):  # "in use by another process" a few times, then fine
+        if busy[0]:
+            busy[0] -= 1
+            raise PermissionError(32, "The process cannot access the file because it is being used")
+        return real(src, dst)
+
+    monkeypatch.setattr(update.os, "replace", flaky)
+    update.install(update.Release(9, "build-9", "n", "u", "s", "h"))
+    assert exe.read_bytes() == payload

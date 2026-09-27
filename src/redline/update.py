@@ -129,11 +129,13 @@ def install(rel: Release, extra_args: list[str] | None = None) -> None:
         old.unlink(missing_ok=True)
     except OSError:
         pass
-    os.replace(exe, old)  # renaming a running exe is allowed on Windows
+    # Renaming a running exe is allowed on Windows, but a scanner (Defender) or our own
+    # archive reader may hold a handle for a moment -> WinError 32. Retry briefly.
+    _retry(lambda: os.replace(exe, old))
     try:
-        os.replace(new, exe)
+        _retry(lambda: os.replace(new, exe))
     except OSError:
-        os.replace(old, exe)
+        _retry(lambda: os.replace(old, exe))
         raise
     write_handoff()
     log.info("swapped exe, relaunching %s", exe)
@@ -175,6 +177,17 @@ def launch_detached(exe: str, args: list[str], reset_env: bool = True) -> None:
     env = child_env() if reset_env else dict(os.environ)
     subprocess.Popen([exe, *args], env=env, creationflags=flags, close_fds=True,
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _retry(fn, attempts: int = 30, delay: float = 0.2):
+    for i in range(attempts):
+        try:
+            return fn()
+        except PermissionError as e:  # WinError 5/32: file briefly in use
+            if i == attempts - 1:
+                raise
+            log.info("file busy (%s), retrying", e)
+            time.sleep(delay)
 
 
 def cleanup_old() -> None:
