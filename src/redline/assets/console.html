@@ -246,7 +246,7 @@ const needsLogin = u => !u.ok && !u.stale;
 // "↻ 2h 08m" = resets in 2h 08m. No reset time yet means the window hasn't started.
 const resetText = l => l == null ? "idle" : l > 0 ? "↻ " + span(l) : "↻ now";
 function meter(w, label) {
-  if (!w) return `<div class="m"><span class="k">${label}</span><div class="bar"></div><span class="v" style="--c:var(--dim)">–</span><span class="t">&nbsp;</span></div>`;
+  if (!w) return `<div class="m none"></div>`;   // e.g. a Codex plan without a 5h window: leave the slot empty
   const p = w.used_percent, l = left(w.resets_at);
   const tip = `${w.name} ${p == null ? "?" : Math.round(p) + "%"}${w.resets_at ? " · resets in " + span(l) + " (" + new Date(w.resets_at).toLocaleString() + ")" : " · window not started"}`;
   // weekly window resetting soon with quota left = "use it or lose it"
@@ -321,7 +321,7 @@ const SORTS = {
     return [dead ? 1 : 0, w && w.resets_at ? new Date(w.resets_at).getTime() : Infinity, w ? -(100 - (w.used_percent ?? 0)) : 0];
   }],
   headroom: ["most 5h left", u => {
-    const w = u.windows.find(x => x.name === "5h");
+    const w = u.windows.find(x => x.name === "5h") || u.windows.find(x => x.name === "7d");
     return [needsLogin(u) ? 1 : 0, w ? (w.used_percent ?? 100) : 100];
   }],
   name: ["name", u => [u.account.toLowerCase()]],
