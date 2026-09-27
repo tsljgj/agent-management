@@ -31,6 +31,8 @@ class Usage:
     fetched_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     stale: bool = False  # windows are from an earlier successful fetch (this one failed)
     renews_at: str | None = None  # ISO date the subscription is paid until (renews or ends then)
+    renews_kind: str | None = None  # "end": renews_at is the end of the paid period; "start": it's when
+    #                                the subscription began (the console rolls it forward by months)
 
     def to_dict(self) -> dict:
         return {
@@ -45,6 +47,7 @@ class Usage:
             "fetched_at": self.fetched_at.isoformat(),
             "stale": self.stale,
             "renews_at": self.renews_at,
+            "renews_kind": self.renews_kind,
         }
 
 

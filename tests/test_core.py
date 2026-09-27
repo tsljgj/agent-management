@@ -184,3 +184,22 @@ def test_cli_scan_default_homes(tmp_path, monkeypatch, capsys):
     assert [a.name for a in accts] == ["a@b.c"] and accts[0].note == "a@b.c"
     assert cli.main(["scan"]) == 0  # idempotent
     assert len(load_accounts()) == 1
+
+
+def test_claude_renewal_from_subscription_start():
+    assert claude.paid_until({"organization": {"subscription_created_at": "2025-03-12T09:00:00Z"}}) == {
+        "renews_at": "2025-03-12T09:00:00+00:00", "renews_kind": "start"}
+    assert claude.paid_until({"organization": {}}) == {}
+
+
+def test_set_renews(tmp_path, monkeypatch):
+    from redline import actions
+
+    monkeypatch.setenv("REDLINE_HOME", str(tmp_path / "rh"))
+    actions.add_account("claude", "w", home=str(tmp_path / "w"))
+    assert "renews 2026-10-03" in actions.dispatch("renew", {"name": "w", "date": "2026-10-03"})
+    assert load_accounts()[0].renews == "2026-10-03"
+    with pytest.raises(actions.ActionError):
+        actions.dispatch("renew", {"name": "w", "date": "soon"})
+    actions.dispatch("renew", {"name": "claude:w", "date": "-"})
+    assert load_accounts()[0].renews == ""

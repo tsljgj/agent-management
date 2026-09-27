@@ -124,7 +124,7 @@ class Monitor:
         return Usage(
             account=u.account, provider=u.provider, ok=False, email=prev.email, plan=prev.plan,
             windows=prev.windows, extra=prev.extra, error=u.error, fetched_at=prev.fetched_at, stale=True,
-            renews_at=prev.renews_at,
+            renews_at=prev.renews_at, renews_kind=prev.renews_kind,
         )
 
     def rename(self, old: str, new: str, provider: str | None = None) -> None:

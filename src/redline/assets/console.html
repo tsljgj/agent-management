@@ -36,12 +36,14 @@ header{display:flex;align-items:center;gap:20px;height:48px;padding:0 10px 0 18p
 .tab sup{font-size:10px;margin-left:3px;color:var(--dim)}
 .tab.hot sup{color:var(--red)}
 .sp{flex:1}
+.tools{display:flex;align-items:center;gap:2px;flex-shrink:0}
 .hb{height:30px;min-width:30px;padding:0 6px;color:var(--dim);font-size:13px}
 .hb:hover{color:var(--acc)}
 #age{font-size:11px}
 #age.old{color:var(--warn)}
 #wake{display:none;color:var(--warn)}
 #wake.on{display:block}
+#wake.hide{display:none!important}
 #plus{font-size:20px;line-height:1;color:var(--acc)}
 #ver{display:none;font-size:11px}
 #ver.on{display:block}
@@ -104,6 +106,27 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .det .acts button:hover{color:var(--acc)}
 .det .acts .del:hover,.det .acts .del.arm{color:var(--red)}
 #sort.on{color:var(--acc)}
+#sortm{position:fixed;top:44px;right:10px;z-index:25;display:none;min-width:230px;background:var(--bg);border:1px solid var(--faint);
+  box-shadow:0 8px 24px rgba(0,0,0,.6);padding:4px 0}
+#sortm.on{display:block}
+#sortm button{display:block;width:100%;text-align:left;padding:7px 14px;color:var(--dim);white-space:nowrap}
+#sortm button:hover{color:var(--fg);background:rgba(0,229,255,.05)}
+#sortm button.on{color:var(--acc)}
+#sortm button.on::before{content:"› "}
+/* plans: every subscription, soonest renewal first */
+.pl{display:grid;grid-template-columns:52px minmax(0,1fr) 64px 118px 58px 34px;align-items:center;gap:10px;min-height:44px;
+  padding:0 12px 0 18px;border-bottom:1px solid var(--line);cursor:pointer}
+.pl:hover{background:rgba(0,229,255,.03)}
+.pl i{font-style:normal;font-size:10px;letter-spacing:.12em;color:var(--dim)}
+.pl b{color:#fff;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pl em{font-style:normal;color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl .dt{white-space:nowrap}
+.pl .dl{text-align:right;white-space:nowrap;color:var(--dim)}
+.pl .soon{color:var(--warn)}.pl .gone{color:var(--red)}
+.pl.unk .dt,.pl.unk .dl{color:var(--faint)}
+.pl button{color:var(--dim)}.pl button:hover{color:var(--acc)}
+.plnote{padding:12px 18px;color:var(--dim);font-size:11px;line-height:1.7}
+@media (max-width:470px){ .pl{grid-template-columns:44px minmax(0,1fr) 104px 46px 26px;padding-left:14px} .pl em{display:none} }
 .det div{display:grid;grid-template-columns:84px 1fr;gap:8px;min-width:0}
 .det div.wide{grid-column:1/-1}
 .det span{color:var(--dim)}
@@ -146,8 +169,14 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
   header{gap:12px;padding-left:14px}.acct{gap:10px;padding:0 14px}.m{grid-template-columns:16px 1fr 36px;gap:4px 6px}
   .det{grid-template-columns:1fr}.det div{grid-template-columns:70px 1fr}
 }
-@media (max-width:440px){ .logo{display:none} header{gap:14px} .hb{min-width:26px;padding:0 4px} }
-@media (max-width:360px){ header{gap:10px;padding-left:12px} .tab{letter-spacing:.04em} #age,#ver{display:none!important} }
+/* header: logo · CLAUDE · CODEX · PLANS · tools must fit the default 520px window (and narrower) */
+@media (max-width:640px){ header{gap:12px} .logo i{display:none} }
+@media (max-width:500px){ .logo{display:none} .tab{letter-spacing:.1em} }
+@media (max-width:440px){ .hb{min-width:26px;padding:0 4px} .tab{letter-spacing:.06em} }
+@media (max-width:410px){ #ver{display:none!important} }
+@media (max-width:400px){ #age{display:none!important} }
+@media (max-width:345px){ #sort,#det{display:none} }   /* still there as the sort / d commands */
+@media (max-width:360px){ header{gap:10px;padding-left:12px} .tab{letter-spacing:.02em} #age,#ver{display:none!important} }
 @media (max-width:440px){          /* two-line rows: name, then both meters */
   .acct{grid-template-columns:1fr 1fr;grid-template-rows:none;height:auto;padding:9px 14px 10px;gap:6px 22px}
   .acct .nm{grid-column:1/-1}.need{grid-column:1/-1}
@@ -173,7 +202,9 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
   <div class="logo">R<i>EDLINE</i><b>//</b></div>
   <button class="tab" data-tab="claude">CLAUDE<sup id="nclaude"></sup></button>
   <button class="tab" data-tab="codex">CODEX<sup id="ncodex"></sup></button>
+  <button class="tab" data-tab="plans" title="subscriptions: which one renews/ends first (alt+3)">PLANS</button>
   <div class="sp"></div>
+  <div class="tools">
   <button class="hb act" id="wake" title="some accounts need a login — wake them">⚡</button>
   <button class="hb" id="age" title="sync now">⟳</button>
   <button class="hb" id="sort" title="sort">⇅</button>
@@ -182,8 +213,10 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
   <button class="hb act" id="plus" title="add account">+</button>
   <button class="hb win" id="bmin" title="minimize">_</button>
   <button class="hb win x" id="bhide" title="hide (Esc)">×</button>
+  </div>
 </header>
 <main id="list"></main>
+<div id="sortm"></div>
 <div id="sheet"></div>
 <div id="log"></div>
 <div class="prompt"><span class="ps">›</span><input id="cmd" autocomplete="off" spellcheck="false" placeholder=""></div>
@@ -224,12 +257,13 @@ async function pull(force) {
 async function action(body, quiet) {
   if (!BOOT.actions) { toast("read-only console", "bad"); return false; }
   // names are unique per provider: actions from a tab refer to that tab's accounts
-  if (!body.provider && body.action !== "scan" && body.action !== "update") body = {...body, provider: TAB};
+  if (!body.provider && body.action !== "scan" && body.action !== "update" && TAB !== "plans") body = {...body, provider: TAB};
   try {
     const r = await api("api/action", {method: "POST", body: JSON.stringify(body)});
     log(r.message, r.ok ? "out" : "error");
     if (!quiet || !r.ok) toast(r.message.split("\n").pop(), r.ok ? "" : "bad");
     if (["add", "add-profile", "remove", "restore", "scan", "bind", "use"].includes(body.action)) setTimeout(() => pull(false), 1200);
+    if (body.action === "renew" && r.ok) setTimeout(() => pull(false), 150);
     return r.ok;
   } catch (e) { log("failed: " + e.message, "error"); toast("failed: " + e.message, "bad"); return false; }
 }
@@ -271,6 +305,39 @@ function meter(w, label) {
     <div class="bar"><i style="width:${width}%"></i></div><span class="v">${p == null ? "?" : Math.floor(p) + "%"}</span>${t}</div>`;
 }
 const infoOf = u => ((DATA.meta || {}).accounts || {})[`${u.provider}:${u.account}`] || {};
+/* subscriptions: when the paid period ends. Claude only reports when the subscription started;
+   monthly plans renew on that day each month, so roll it forward (marked ~ = estimate). */
+function addMonths(d, n) {
+  const r = new Date(d), day = r.getDate();
+  r.setDate(1); r.setMonth(r.getMonth() + n);
+  r.setDate(Math.min(day, new Date(r.getFullYear(), r.getMonth() + 1, 0).getDate()));
+  return r;
+}
+function rollForward(anchor) {
+  const now = Date.now();
+  if (anchor.getTime() > now) return anchor;
+  for (let n = 1; n < 1200; n++) { const d = addMonths(anchor, n); if (d.getTime() > now) return d; }
+  return null;
+}
+function renewOf(u) {
+  const info = infoOf(u);
+  if (info.renews) return {at: rollForward(new Date(info.renews + "T00:00:00")), est: false, set: true};
+  if (!u.renews_at) return null;
+  const a = new Date(u.renews_at);
+  if (isNaN(a)) return null;
+  if (u.renews_kind === "end" && a.getTime() > Date.now()) return {at: a, est: false};
+  return {at: rollForward(a), est: true};
+}
+const renewTime = u => { const r = renewOf(u); return r && r.at ? r.at.getTime() : Infinity; };
+function renewParts(r) {
+  if (!r || !r.at) return {date: "unknown", left: "", cls: "", days: null};
+  const days = Math.ceil((new Date(r.at.toDateString()) - new Date(new Date().toDateString())) / 864e5);
+  return {
+    date: (r.est ? "~" : "") + r.at.toLocaleDateString(undefined, {year: "numeric", month: "short", day: "numeric"}),
+    left: days <= 0 ? "today" : days === 1 ? "1 day" : `${days} days`,
+    cls: days <= 3 ? "soon" : "", days,
+  };
+}
 const base = p => (p || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 const since = s => s < 86400 ? ago(s) : Math.floor(s / 86400) + "d";
 function row(u, bestName) {
@@ -321,12 +388,11 @@ function details(u) {
   const other = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${Math.round(w.used_percent ?? 0)}%`)
     .concat(Object.entries(u.extra || {}).map(([k, v]) => `${k} ${v}`));
   if (other.length) rows.push(kv("other", other.join(" · ")));
-  if (u.renews_at) {
-    const d = new Date(u.renews_at), left = Math.ceil((d - Date.now()) / 864e5);
-    const txt = d.toLocaleDateString(undefined, {year: "numeric", month: "short", day: "numeric"})
-      + (left < 0 ? " · lapsed" : left === 0 ? " · today" : ` · in ${left} day${left === 1 ? "" : "s"}`);
-    rows.push(kv("paid until", txt, left <= 3 ? "warn" : ""));
-  }
+  { const r = renewOf(u), p = renewParts(r);
+    rows.push(`<div class="wide"><span>${r && !r.est ? "paid until" : "renews"}</span><div class="prj">`
+      + `<b class="${p.cls ? "warn" : ""}" title="${r && r.est ? "estimate: the subscription start rolled forward by months (" + esc(u.provider) + " doesn't report the end date)" : r && r.set ? "set by you" : ""}">`
+      + `${esc(p.date)}${p.days != null ? " · in " + esc(p.left) : ""}</b>`
+      + `<button data-act="renew" title="set the real renewal/end date">✎ set</button></div></div>`); }
   if (info.profile) rows.push(kv("chrome", info.profile.name));
   if (!u.ok) rows.push(kv("error", u.error || "", "red"));
   if (info.default) rows.push(kv("default", "◆ VS Code & plain terminals use this login", "acc"));
@@ -359,6 +425,7 @@ const SORTS = {
     return [needsLogin(u) ? 1 : 0, w ? (w.used_percent ?? 100) : 100];
   }],
   name: ["name", u => [u.account.toLowerCase()]],
+  renews: ["subscription ends soonest", u => [renewTime(u)]],
 };
 let SORT = SORTS[store.get("redline.sort", "default")] ? store.get("redline.sort", "default") : "default";
 function sorted(list) {
@@ -370,7 +437,9 @@ function sorted(list) {
 function setSort(mode, announce = true) {
   SORT = SORTS[mode] ? mode : "default"; store.set("redline.sort", SORT);
   $("#sort").classList.toggle("on", SORT !== "default");
-  $("#sort").title = "sort: " + SORTS[SORT][0] + " (click to change)";
+  $("#sort").title = "sort: " + SORTS[SORT][0];
+  $("#sortm").innerHTML = Object.entries(SORTS).map(([k, [label]]) =>
+    `<button data-sort="${k}" class="${k === SORT ? "on" : ""}">${esc(label)}</button>`).join("");
   if (announce) toast("sort: " + SORTS[SORT][0]);
   render();
 }
@@ -394,6 +463,8 @@ function render() {
     document.querySelector(`.tab[data-tab="${p}"]`).classList.toggle("hot", hot);
   }
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.tab === TAB));
+  $("#wake").classList.toggle("hide", TAB === "plans");
+  if (TAB === "plans") return renderPlans(us);
   const mine = us.filter(u => u.provider === TAB);
   const waiting = mine.filter(needsLogin).length;
   $("#wake").classList.toggle("on", waiting > 0);
@@ -409,6 +480,26 @@ function render() {
   $("#list").innerHTML = sorted(mine).map(u => row(u, mine.length > 1 ? b?.account : null)).join("");
   tick();
   if (typeof fitHeight === "function") requestAnimationFrame(fitHeight);
+}
+function renderPlans(us) {
+  const list = us.map((u, i) => [renewTime(u), i, u]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
+  $("#list").innerHTML = !list.length ? `<div class="empty">${DATA.fetched_at ? "no accounts" : "…"}</div>`
+    : list.map(u => {
+        const r = renewOf(u), p = renewParts(r), gone = p.days != null && p.days <= 0;
+        return `<div class="pl ${r ? "" : "unk"}" data-prov="${esc(u.provider)}" data-name="${esc(u.account)}" title="open in ${esc(u.provider)}">`
+          + `<i>${u.provider === "codex" ? "CODEX" : "CLAUDE"}</i><b>${esc(u.account)}</b><em>${esc(u.plan || "")}</em>`
+          + `<span class="dt ${gone ? "gone" : p.cls}" title="${r && r.est ? "estimated from the subscription start (monthly)" : r && r.set ? "set by you" : r ? "reported by " + esc(u.provider) : "not reported · ✎ to set it"}">${esc(p.date)}</span>`
+          + `<span class="dl ${gone ? "gone" : p.cls}">${esc(p.left)}</span>`
+          + `<button data-act="renew" title="set the real renewal/end date">✎</button></div>`;
+      }).join("")
+      + `<div class="plnote">~ estimated: Claude only reports when a subscription started, so this assumes monthly renewals on that day.<br>`
+      + `✎ or <code>renew &lt;name&gt; YYYY-MM-DD</code> sets the real date (<code>renew &lt;name&gt; -</code> undoes it).</div>`;
+  if (typeof fitHeight === "function") requestAnimationFrame(fitHeight);
+}
+function renewPrompt(provider, name) {
+  const cmd = $("#cmd");
+  cmd.value = `renew ${provider}:${name} `; cmd.focus();
+  toast("type the date (YYYY-MM-DD) and press Enter");
 }
 function renderVersion() {
   const u = (DATA.meta || {}).update, v = $("#ver");
@@ -428,7 +519,12 @@ async function checkUpdate() {
   await action({action: "update"});
   setTimeout(() => pull(false), 800);
 }
-function setTab(t) { TAB = t === "codex" ? "codex" : "claude"; store.set("redline.tab", TAB); closeSheet(); render(); }
+function setTab(t) {
+  TAB = t === "codex" || t === "plans" ? t : "claude"; store.set("redline.tab", TAB);
+  if (TAB !== "plans") store.set("redline.acctab", TAB);
+  closeSheet(); render();
+}
+const accountTab = () => store.get("redline.acctab", "claude") === "codex" ? "codex" : "claude";
 function tick() {
   document.querySelectorAll("[data-reset]").forEach(el => { if (el.dataset.reset) el.textContent = resetText(left(el.dataset.reset)); });
   const a = $("#age");
@@ -472,6 +568,7 @@ $("#list").addEventListener("dblclick", e => {
 
 /* ---------- add sheet ---------- */
 async function openSheet() {
+  if (TAB === "plans") setTab(accountTab());   // accounts are added to a provider tab
   const sh = $("#sheet");
   sh.innerHTML = `<div class="sh"><span>ADD ${TAB.toUpperCase()} ACCOUNT</span><button class="hb" data-x="close">esc</button></div><div class="opt"><span class="s">loading…</span></div>`;
   sh.classList.add("on");
@@ -520,7 +617,7 @@ function toast(text, kind = "") {
 const HELP = [
   ["claude | codex", "switch tab (Alt+1/2)"], ["add", "open the + panel"], ["add <name>", "new account, then log in"],
   ["login <name>", "log in via its Chrome"], ["wake", "log in / refresh this tab"], ["web <name>", "open its web page"],
-  ["jack <name>", "terminal as <name>"], ["use <name>", "◆ make it the login VS Code uses"], ["code <name> <folder>", "VS Code window as <name>"], ["d | details", "expand all rows (or click one)"], ["sort [default|weekly|headroom|name]", "row order"], ["fit", "auto-size the window again"], ["log", "open the log file (send it when reporting a bug)"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
+  ["jack <name>", "terminal as <name>"], ["use <name>", "◆ make it the login VS Code uses"], ["code <name> <folder>", "VS Code window as <name>"], ["plans", "subscriptions, soonest renewal first"], ["renew <name> <date>", "set when a subscription renews/ends (- = auto)"], ["d | details", "expand all rows (or click one)"], ["sort [default|weekly|headroom|name|renews]", "row order"], ["fit", "auto-size the window again"], ["log", "open the log file (send it when reporting a bug)"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
   ["scan [all]", "find logins on this PC"], ["bind <name> <email>", "pin a Chrome profile"], ["ls | r | update | clear", ""],
 ];
 const COMMANDS = ["help","claude","codex","details","add","login","wake","web","jack","use","code","rename","rm","restore","removed","scan","bind","profiles","ls","sync","update","clear","hide"];
@@ -536,7 +633,7 @@ async function run(line) {
     case "claude": case "codex": setTab(c.toLowerCase()); openLog(false); break;
     case "add":
       if (!a[0]) { openLog(false); openSheet(); break; }
-      { const [prov, name] = a.length > 1 ? [a[0], a[1]] : [TAB, a[0]];
+      { const [prov, name] = a.length > 1 ? [a[0], a[1]] : [accountTab(), a[0]];
         if (await action({action: "add", provider: prov, name}, true)) { setTab(prov); action({action: "login", name}); } }
       break;
     case "login": if (need("login <name>")) await action({action: "login", name: a[0]}); break;
@@ -545,6 +642,9 @@ async function run(line) {
     case "web": if (need("web <name>")) await action({action: "web", name: a[0]}, true); break;
     case "jack": case "run": if (need("jack <name>")) await action({action: "launch", name: a[0]}, true); break;
     case "use": case "default": if (need("use <name>")) { if (await action({action: "use", name: a[0]})) setTimeout(() => pull(false), 800); } break;
+    case "renew": if (!a[0]) { log("usage: renew <name> YYYY-MM-DD   (or - to go back to the reported date)", "error"); break; }
+      await action({action: "renew", name: a[0], date: a[1] || ""}); break;
+    case "plans": case "subs": setTab("plans"); openLog(false); break;
     case "code": if (a.length < 2) { log("usage: code <name> <folder>", "error"); break; }
       await action({action: "code", name: a[0], path: a.slice(1).join(" ")}, true); break;
     case "rm": case "remove": {
@@ -557,7 +657,7 @@ async function run(line) {
     case "fit":
       manualSize = false; if (native()) { await window.pywebview.api.reset_size(); fitHeight(); }
       log("window height follows the content again", "ok"); break;
-    case "sort": setSort(a[0] || Object.keys(SORTS)[(Object.keys(SORTS).indexOf(SORT) + 1) % 4]); break;
+    case "sort": setSort(a[0] || Object.keys(SORTS)[(Object.keys(SORTS).indexOf(SORT) + 1) % Object.keys(SORTS).length]); break;
     case "d": case "details": setDetails(!DETAILS); openLog(false); break;
     case "rename": case "mv": if (a.length < 2) { log("usage: rename <old> <new>", "error"); break; }
       await action({action: "rename", name: a[0], new: a[1]}); break;
@@ -601,7 +701,7 @@ document.addEventListener("keydown", e => {
     else hideWindow();
     return;
   }
-  if (e.altKey && (e.key === "1" || e.key === "2")) { setTab(e.key === "1" ? "claude" : "codex"); return; }
+  if (e.altKey && ["1", "2", "3"].includes(e.key)) { setTab(["claude", "codex", "plans"][+e.key - 1]); return; }
   if (document.activeElement.tagName !== "INPUT" && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) $("#cmd").focus();
 });
 document.querySelectorAll(".tab").forEach(t => t.onclick = () => setTab(t.dataset.tab));
@@ -609,11 +709,24 @@ $("#age").onclick = async () => { $("#age").textContent = "…"; await pull(true
 $("#ver").onclick = checkUpdate;
 $("#det").onclick = () => setDetails(!DETAILS);
 $("#det").classList.toggle("on", DETAILS);
-$("#sort").onclick = () => { const ks = Object.keys(SORTS); setSort(ks[(ks.indexOf(SORT) + 1) % ks.length]); };
+$("#sort").onclick = e => { e.stopPropagation(); $("#sortm").classList.toggle("on"); };
+$("#sortm").onclick = e => {
+  const b = e.target.closest("[data-sort]");
+  if (!b) return;
+  $("#sortm").classList.remove("on");
+  if (TAB === "plans") setTab(accountTab());   // plans have their own order
+  setSort(b.dataset.sort);
+};
+document.addEventListener("click", e => { if (!e.target.closest("#sortm")) $("#sortm").classList.remove("on"); });
 setSort(SORT, false);
 $("#plus").onclick = () => $("#sheet").classList.contains("on") ? closeSheet() : openSheet();
 $("#wake").onclick = () => action({action: "wake", names: DATA.usages.filter(u => u.provider === TAB && needsLogin(u)).map(u => u.account)});
 $("#list").addEventListener("click", e => {
+  const pl = e.target.closest(".pl");
+  if (pl) {
+    if (e.target.closest("[data-act=renew]")) return renewPrompt(pl.dataset.prov, pl.dataset.name);
+    return setTab(pl.dataset.prov);
+  }
   if (!e.target.closest("[data-act]")) {
     openLog(false);
     const c = e.target.closest(".acct");
@@ -641,6 +754,7 @@ $("#list").addEventListener("click", e => {
     return;
   }
   if (b.dataset.act === "rename") return startRename(card);
+  if (b.dataset.act === "renew") return renewPrompt(TAB, name);
   if (b.dataset.act === "retry") { toast("syncing…"); return pull(true); }
   if (b.dataset.act === "code") return action({action: "code", name, path: b.dataset.path}, true);
   if (b.dataset.act === "use") return action({action: "use", name}).then(ok => ok && setTimeout(() => pull(false), 800));

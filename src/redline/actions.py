@@ -98,6 +98,7 @@ def account_details() -> dict[str, dict]:
             # the login VS Code and plain `claude` / `codex` use
             "default": is_active(a, state) or (not state.get(a.provider, {}).get("home") and is_slot(a.provider, a.home_path)),
             "projects": projects,
+            "renews": a.renews,
         }
     return out
 
@@ -315,6 +316,28 @@ def bind(name: str, spec: str, provider: str | None = None) -> str:
     return f"{name} -> {prof.spec} “{prof.name}” {prof.email}"
 
 
+def set_renews(name: str, value: str, provider: str | None = None) -> str:
+    """Remember the day this subscription renews/ends (the console rolls it on by months)."""
+    from datetime import date
+
+    accounts = load_accounts()
+    try:
+        acct = find_account(accounts, name, provider)
+    except KeyError as e:
+        raise ActionError(e.args[0]) from None
+    value = (value or "").strip()
+    if value in ("", "-", "none", "auto"):
+        acct.renews = ""
+        save_accounts(accounts)
+        return f"{acct.name}: renewal date back to what {acct.provider} reports"
+    try:
+        acct.renews = date.fromisoformat(value).isoformat()
+    except ValueError:
+        raise ActionError(f"not a date: {value!r} (use YYYY-MM-DD)") from None
+    save_accounts(accounts)
+    return f"{acct.name}: renews {acct.renews}"
+
+
 def profiles_text() -> str:
     from . import browsers
     from .login import resolve_profile
@@ -513,6 +536,8 @@ def dispatch(action: str, args: dict) -> str:
         return launch(args.get("name", ""), prov)
     if action in ("use", "default"):
         return make_default(args.get("name", ""), prov)
+    if action == "renew":
+        return set_renews(args.get("name", ""), args.get("date", ""), prov)
     if action == "code":
         return open_vscode(args.get("name", ""), args.get("path", ""), prov)
     if action == "list":

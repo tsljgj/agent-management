@@ -269,7 +269,7 @@ def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
     return Usage(
         account=account.name, provider="claude", ok=True,
         email=email, plan=plan, windows=windows, extra=extra,
-        renews_at=paid_until(prof),
+        **paid_until(prof),
     )
 
 
@@ -299,15 +299,24 @@ _UNTIL_KEYS = ("subscription_ends_at", "subscription_end_date", "subscription_ex
                "period_end", "renews_at", "renewal_date", "next_billing_date", "next_charge_date", "paid_until")
 
 
-def paid_until(prof: dict) -> str | None:
-    """The date the plan is paid until, if the profile endpoint reports one (it isn't documented)."""
-    for part in (prof.get("organization") or {}, prof.get("account") or {}, prof):
+def paid_until(prof: dict) -> dict:
+    """{renews_at, renews_kind} for Usage. The OAuth profile has no end date (checked up to Claude
+    Code 2.1.283), only organization.subscription_created_at; monthly plans renew on that day of
+    the month, so the console rolls it forward. An explicit end date wins if one ever shows up."""
+    org = prof.get("organization") or {}
+    for part in (org, prof.get("account") or {}):
         for k in _UNTIL_KEYS:
-            v = part.get(k)
-            if isinstance(v, (int, float)) and v > 0:
-                return datetime.fromtimestamp(v / 1000 if v > 1e11 else v, timezone.utc).isoformat()
-            if isinstance(v, str) and v:
-                d = parse_iso(v)
-                if d is not None:
-                    return d.isoformat()
+            d = _date(part.get(k))
+            if d:
+                return {"renews_at": d, "renews_kind": "end"}
+    d = _date(org.get("subscription_created_at"))
+    return {"renews_at": d, "renews_kind": "start"} if d else {}
+
+
+def _date(v) -> str | None:
+    if isinstance(v, (int, float)) and v > 0:
+        return datetime.fromtimestamp(v / 1000 if v > 1e11 else v, timezone.utc).isoformat()
+    if isinstance(v, str) and v:
+        d = parse_iso(v)
+        return d.isoformat() if d else None
     return None

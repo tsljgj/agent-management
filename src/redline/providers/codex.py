@@ -200,7 +200,7 @@ def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
     return Usage(
         account=account.name, provider="codex", ok=True,
         email=email, plan=plan, windows=windows, extra=extra,
-        renews_at=paid_until(id_claims),
+        renews_at=paid_until(id_claims), renews_kind="end",
     )
 
 

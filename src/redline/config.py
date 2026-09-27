@@ -51,6 +51,8 @@ class Account:
     # True: the name follows the account's login email. False: the user named it.
     # None: written by an older version (decided heuristically, see actions.adopt_email_names).
     auto_name: bool | None = None
+    # A renewal day the user typed ("YYYY-MM-DD"); overrides what the provider reports.
+    renews: str = ""
 
     @property
     def key(self) -> str:
