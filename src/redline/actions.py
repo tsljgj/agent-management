@@ -348,11 +348,15 @@ def get_account(name: str, provider: str | None = None) -> Account:
 
 def open_terminal(acct: Account, argv: list[str] | None = None, extra_env: dict | None = None) -> str:
     """Open a new terminal window running `argv` (default: the provider CLI) as this account."""
-    argv = argv or [acct.provider]
+    from .clis import cli_env, find_cli
+
+    argv = list(argv or [acct.provider])
     acct.home_path.mkdir(parents=True, exist_ok=True)
-    if shutil.which(argv[0]) is None:
-        raise ActionError(f"{argv[0]!r} not found on PATH")
-    env = child_env({**acct.env(), **(extra_env or {})})
+    exe = find_cli(argv[0])
+    if exe is None:
+        raise ActionError(f"{argv[0]!r} not found (not on PATH or in the usual install locations)")
+    argv[0] = exe
+    env = cli_env(exe, child_env({**acct.env(), **(extra_env or {})}))
     cwd = str(Path.home())
     title = f"redline: {acct.name}"
 

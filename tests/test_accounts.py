@@ -566,3 +566,97 @@ def test_codex_usage_request_identifies_like_the_cli(home, monkeypatch):
 
     fetch_usage(Account("cx", "codex", str(d)))
     assert seen["User-Agent"].startswith("codex_cli_rs/") and seen["originator"] == "codex_cli_rs"
+
+
+# ------------------------------------------------------------ codex sign-in without the CLI
+
+
+def test_codex_oauth_login_writes_auth_json(home, monkeypatch):
+    import threading
+    import urllib.parse
+    import urllib.request
+
+    from redline import codex_oauth
+
+    id_token = _jwt({"email": "me@gmail.com", "https://api.openai.com/auth": {"chatgpt_account_id": "acc-9"}})
+    seen = {}
+
+    def fake_exchange(code, redirect_uri, verifier):
+        seen.update(code=code, redirect_uri=redirect_uri, verifier=verifier)
+        return {"id_token": id_token, "access_token": _jwt({"exp": time.time() + 3600}), "refresh_token": "rt"}
+
+    monkeypatch.setattr(codex_oauth, "exchange_code", fake_exchange)
+
+    def browser(url):  # plays the part of the user signing in
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
+        assert q["client_id"] == [codex_oauth.CLIENT_ID] and q["code_challenge_method"] == ["S256"]
+        assert q["originator"] == ["codex_cli_rs"] and "offline_access" in q["scope"][0]
+        cb = f"{q['redirect_uri'][0]}?code=CODE123&state={q['state'][0]}"
+        threading.Timer(0.3, lambda: urllib.request.urlopen(cb, timeout=5).read()).start()
+
+    d = home / "cx"
+    email = codex_oauth.login(d, browser, timeout=20)
+    assert email == "me@gmail.com" and seen["code"] == "CODE123"
+    assert seen["redirect_uri"] in ("http://127.0.0.1:1455/auth/callback", "http://127.0.0.1:1457/auth/callback")
+    doc = json.loads((d / "auth.json").read_text())
+    assert doc["auth_mode"] == "chatgpt" and doc["tokens"]["account_id"] == "acc-9" and doc["tokens"]["refresh_token"] == "rt"
+    assert token_state(Account("cx", "codex", str(d))) == "ok"
+
+
+def test_codex_oauth_rejects_wrong_state(home, monkeypatch):
+    import threading
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    from redline import codex_oauth
+
+    codes = []
+
+    def browser(url):
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
+        def hit():
+            try:
+                urllib.request.urlopen(f"{q['redirect_uri'][0]}?code=X&state=forged", timeout=5)
+            except urllib.error.HTTPError as e:
+                codes.append(e.code)
+        threading.Timer(0.3, hit).start()
+
+    with pytest.raises(login.ProviderError):
+        codex_oauth.login(home / "cy", browser, timeout=3)
+    assert codes == [400] and not (home / "cy" / "auth.json").exists()
+
+
+def test_wake_logs_codex_in_without_the_cli(home, monkeypatch):
+    from redline import codex_oauth
+
+    monkeypatch.setattr(login, "find_cli", lambda name: None)  # no codex anywhere
+    calls = []
+
+    def fake_login(codex_home, open_url, cancelled=None, timeout=300):
+        calls.append(codex_home)
+        make_codex(codex_home, email="me@gmail.com")
+        return "me@gmail.com"
+
+    monkeypatch.setattr(codex_oauth, "login", fake_login)
+    acct = Account("me@gmail.com", "codex", str(home / "cx"))
+    save_accounts([acct])
+    logs = []
+    res = login.WakeJob([acct], lambda lv, t: logs.append(t), force=True).run()
+    assert res == {"me@gmail.com": "logged-in"} and calls == [home / "cx"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="posix install locations")
+def test_find_cli_checks_install_locations(home, monkeypatch):
+    from redline import clis
+
+    monkeypatch.setenv("PATH", "/nonexistent")
+    assert clis.find_cli("codex") is None
+    ext = home / ".vscode/extensions/openai.chatgpt-1.2.3/bin/linux-x86_64"
+    ext.mkdir(parents=True)
+    (ext / "codex").write_text("#!/bin/sh\n")
+    assert clis.find_cli("codex") == str(ext / "codex")
+    local = home / ".local/bin"
+    local.mkdir(parents=True)
+    (local / "claude").write_text("#!/bin/sh\n")
+    assert clis.find_cli("claude") == str(local / "claude")

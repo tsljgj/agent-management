@@ -40,6 +40,26 @@ jobs:
           python -m pip install ".[tray]" pytest
           python -m pytest -q
 
+      - name: ChatGPT sign-in URL is accepted by auth.openai.com
+        shell: bash
+        run: |
+          python - <<'PY'
+          import urllib.request, urllib.error
+          from redline import codex_oauth
+          _, challenge = codex_oauth.pkce()
+          url = codex_oauth.authorize_url("http://127.0.0.1:1455/auth/callback", challenge, "ci-state-check")
+          class Stop(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *a, **k): return None
+          try:
+              r = urllib.request.build_opener(Stop).open(urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"}), timeout=30)
+              status, where = r.status, r.geturl()
+          except urllib.error.HTTPError as e:
+              status, where = e.code, e.headers.get("Location") or e.read()[:300]
+          print("authorize ->", status, str(where)[:200])
+          # 400 = our parameters were rejected; 2xx/3xx = login page. 403 can be the CDN blocking CI IPs.
+          assert status != 400, "auth.openai.com rejected the authorize request"
+          PY
+
       - name: Build exe
         shell: pwsh
         run: ./scripts/build_windows.ps1

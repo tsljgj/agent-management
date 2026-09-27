@@ -25,6 +25,7 @@ import webbrowser
 from typing import Callable
 
 from . import applog, browsers
+from .clis import cli_env, find_cli
 from .config import Account, find_account, load_accounts, redline_home
 from .models import ProviderError
 from .procenv import child_env
@@ -94,7 +95,7 @@ _auth_login_cache: dict[str, bool] = {}
 
 
 def claude_has_auth_login() -> bool:
-    exe = shutil.which("claude")
+    exe = find_cli("claude")
     if not exe:
         return False
     if exe not in _auth_login_cache:
@@ -225,9 +226,10 @@ class WakeJob:
             self.log("info", f"{a.name}: this claude version has no `auth login`; opening a terminal with /login")
             open_terminal(a, ["claude", "/login"], extra_env=env)
         else:
-            # Codex's browser opener ignores $BROWSER on Windows/macOS: open the printed URL ourselves.
-            self._spawn_hidden(["codex", "login"], env,
-                               open_urls=not helper or sys.platform in ("win32", "darwin"), prof=prof)
+            # Our own ChatGPT sign-in (same flow as `codex login`): no Codex CLI needed, and the
+            # page opens only in this account's browser profile.
+            self._codex_login(a, prof)
+            return
 
         deadline = time.monotonic() + LOGIN_TIMEOUT
         exited_at = None
@@ -271,13 +273,29 @@ class WakeJob:
 
     # -- subprocess plumbing
 
+    def _codex_login(self, a: Account, prof) -> None:
+        from . import codex_oauth
+
+        def open_url(url: str) -> None:
+            try:
+                if prof:
+                    browsers.open_in_profile(prof, url)
+                else:
+                    webbrowser.open(url)
+            except Exception as e:
+                self.log("error", f"could not open the browser ({e}); open this URL: {url}")
+
+        email = codex_oauth.login(a.home_path, open_url, cancelled=self.cancelled, timeout=LOGIN_TIMEOUT)
+        self._done(a, "ok", "logged-in", f"{a.name}: logged in" + (f" as {email}" if email else ""))
+        self._check_identity(a, email, prof)
+
     def _spawn_hidden(self, cmd: list[str], env: dict, open_urls: bool, prof) -> None:
-        exe = shutil.which(cmd[0])
+        exe = find_cli(cmd[0])
         if not exe:
-            raise ProviderError(f"{cmd[0]!r} not found on PATH")
+            raise ProviderError(f"{cmd[0]!r} not found (not on PATH or in the usual install locations)")
         self._lines: list[str] = []
         self.proc = subprocess.Popen(
-            [exe, *cmd[1:]], env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            [exe, *cmd[1:]], env=cli_env(exe, env), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", **_no_window(),
         )
         threading.Thread(target=self._pump, args=(open_urls, prof), daemon=True).start()
