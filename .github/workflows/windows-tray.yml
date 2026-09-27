@@ -63,7 +63,8 @@ jobs:
           function Relaunch($out, [switch]$NoReset) {
             $a = @("--self-test-restart", $out); if ($NoReset) { $a += "--no-reset" }
             $p = Start-Process dist\redline.exe -ArgumentList $a -PassThru
-            $p.WaitForExit()          # the parent only; it exits right after spawning the child
+            # the parent only; it should exit right after spawning the child
+            if (-not $p.WaitForExit(30000)) { "  parent did not exit within 30s (stuck on temp-dir cleanup)" }
             Start-Sleep -Seconds 15   # child waits 5s, then loads modules from its own unpack dir
             $left = Get-Process redline -ErrorAction SilentlyContinue
             if ($left) { "  still running (hung): $($left.Count) process(es)"; $left | Stop-Process -Force }
