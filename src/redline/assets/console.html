@@ -52,7 +52,7 @@ header{display:flex;align-items:center;gap:20px;height:48px;padding:0 10px 0 18p
 .noact .act{display:none!important}
 
 /* account rows: name · 5h · 7d · actions */
-main{flex:1;overflow-y:auto}
+main{flex:1;overflow-y:auto;scrollbar-gutter:stable}  /* the scrollbar appearing must not shift the rows */
 main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(--faint)}
 .acct{display:grid;grid-template-columns:minmax(56px,1fr) minmax(120px,180px) minmax(120px,180px);grid-template-rows:minmax(40px,auto);align-items:center;gap:14px 30px;
   position:relative;min-height:60px;padding:10px 18px;border-bottom:1px solid var(--line);transition:opacity .2s,transform .2s}
@@ -321,6 +321,12 @@ function details(u) {
   const other = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${Math.round(w.used_percent ?? 0)}%`)
     .concat(Object.entries(u.extra || {}).map(([k, v]) => `${k} ${v}`));
   if (other.length) rows.push(kv("other", other.join(" · ")));
+  if (u.renews_at) {
+    const d = new Date(u.renews_at), left = Math.ceil((d - Date.now()) / 864e5);
+    const txt = d.toLocaleDateString(undefined, {year: "numeric", month: "short", day: "numeric"})
+      + (left < 0 ? " · lapsed" : left === 0 ? " · today" : ` · in ${left} day${left === 1 ? "" : "s"}`);
+    rows.push(kv("paid until", txt, left <= 3 ? "warn" : ""));
+  }
   if (info.profile) rows.push(kv("chrome", info.profile.name));
   if (!u.ok) rows.push(kv("error", u.error || "", "red"));
   if (info.default) rows.push(kv("default", "◆ VS Code & plain terminals use this login", "acc"));

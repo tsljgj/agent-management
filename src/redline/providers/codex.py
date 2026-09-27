@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from ..config import Account
 from ..http import HTTPStatusError, request_json
 from ..models import ProviderError, Usage, Window
-from ._util import cli_lock, from_epoch, read_json, write_json_atomic
+from ._util import cli_lock, from_epoch, parse_iso, read_json, write_json_atomic
 
 USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 TOKEN_URL = "https://auth.openai.com/oauth/token"
@@ -200,4 +200,12 @@ def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
     return Usage(
         account=account.name, provider="codex", ok=True,
         email=email, plan=plan, windows=windows, extra=extra,
+        renews_at=paid_until(id_claims),
     )
+
+
+def paid_until(id_claims: dict) -> str | None:
+    """The id_token says until when the ChatGPT subscription is paid (as of the last token refresh)."""
+    v = (id_claims.get(AUTH_CLAIM) or {}).get("chatgpt_subscription_active_until")
+    d = from_epoch(v) if isinstance(v, (int, float)) else parse_iso(v) if isinstance(v, str) else None
+    return d.isoformat() if d else None

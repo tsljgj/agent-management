@@ -87,13 +87,17 @@ def test_claude_fetch(tmp_path, monkeypatch):
     seen = {}
 
     def fake(method, url, headers=None, **kw):
+        if url == claude.PROFILE_URL:
+            return {"organization": {"organization_type": "claude_max", "subscription_ends_at": "2026-10-15T00:00:00Z"}}
         seen.update(headers)
         assert url == claude.USAGE_URL
         return CLAUDE_USAGE
 
     monkeypatch.setattr(claude, "request_json", fake)
+    claude._profiles.clear()
     u = fetch_usage(acct)
     assert u.ok and u.email == "c1@x.com" and u.plan == "max 20x"
+    assert u.renews_at.startswith("2026-10-15")
     assert seen["anthropic-beta"] == "oauth-2025-04-20" and seen["Authorization"] == "Bearer at-old"
 
 
@@ -128,7 +132,8 @@ def test_claude_refresh_writes_back_rotated_tokens(tmp_path, monkeypatch):
 def test_codex_fetch(tmp_path, monkeypatch):
     home = tmp_path / "cx"
     home.mkdir()
-    id_token = _jwt({"email": "me@openai.test", "https://api.openai.com/auth": {"chatgpt_plan_type": "plus", "chatgpt_account_id": "acc-1"}})
+    id_token = _jwt({"email": "me@openai.test", "https://api.openai.com/auth": {"chatgpt_plan_type": "plus", "chatgpt_account_id": "acc-1",
+                                                                              "chatgpt_subscription_active_until": "2026-11-02T08:00:00+00:00"}})
     (home / "auth.json").write_text(json.dumps({
         "OPENAI_API_KEY": None,
         "tokens": {"id_token": id_token, "access_token": _jwt({"exp": time.time() + 3600}), "refresh_token": "r", "account_id": "acc-1"},
@@ -138,6 +143,7 @@ def test_codex_fetch(tmp_path, monkeypatch):
     u = fetch_usage(Account("cx", "codex", str(home)))
     assert u.ok and u.email == "me@openai.test" and u.plan == "pro"
     assert seen["ChatGPT-Account-Id"] == "acc-1"
+    assert u.renews_at.startswith("2026-11-02")
 
 
 def test_missing_credentials_is_reported(tmp_path):

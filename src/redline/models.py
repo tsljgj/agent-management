@@ -30,6 +30,7 @@ class Usage:
     error: str | None = None
     fetched_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     stale: bool = False  # windows are from an earlier successful fetch (this one failed)
+    renews_at: str | None = None  # ISO date the subscription is paid until (renews or ends then)
 
     def to_dict(self) -> dict:
         return {
@@ -43,6 +44,7 @@ class Usage:
             "error": self.error,
             "fetched_at": self.fetched_at.isoformat(),
             "stale": self.stale,
+            "renews_at": self.renews_at,
         }
 
 

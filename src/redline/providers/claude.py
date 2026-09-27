@@ -15,6 +15,7 @@ import sys
 import time
 import unicodedata
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..config import Account
@@ -261,14 +262,52 @@ def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
         plan = "max 20x"
     elif plan == "max" and "5x" in tier:
         plan = "max 5x"
+    prof = _profile(account, creds.oauth["accessToken"], force=email is None)
     if email is None:
-        try:
-            prof = request_json("GET", PROFILE_URL, headers=_headers(creds.oauth["accessToken"]))
-            a = prof.get("account") or {}
-            email = a.get("email_address") or a.get("email")
-        except ProviderError:
-            pass
+        a = prof.get("account") or {}
+        email = a.get("email_address") or a.get("email")
     return Usage(
         account=account.name, provider="claude", ok=True,
         email=email, plan=plan, windows=windows, extra=extra,
+        renews_at=paid_until(prof),
     )
+
+
+PROFILE_TTL = 6 * 3600
+_profiles: dict[str, tuple[float, dict]] = {}  # home -> (fetched, profile); it hardly ever changes
+
+
+def _profile(account: Account, token: str, force: bool = False) -> dict:
+    key = str(account.home_path)
+    hit = _profiles.get(key)
+    if hit and not force and time.time() - hit[0] < PROFILE_TTL:
+        return hit[1]
+    try:
+        prof = request_json("GET", PROFILE_URL, headers=_headers(token)) or {}
+    except ProviderError:
+        return hit[1] if hit else {}
+    if hit is None:
+        from ..applog import log
+
+        log.info("claude profile fields: organization=%s account=%s",
+                 sorted((prof.get("organization") or {}).keys()), sorted((prof.get("account") or {}).keys()))
+    _profiles[key] = (time.time(), prof)
+    return prof
+
+
+_UNTIL_KEYS = ("subscription_ends_at", "subscription_end_date", "subscription_expires_at", "current_period_end",
+               "period_end", "renews_at", "renewal_date", "next_billing_date", "next_charge_date", "paid_until")
+
+
+def paid_until(prof: dict) -> str | None:
+    """The date the plan is paid until, if the profile endpoint reports one (it isn't documented)."""
+    for part in (prof.get("organization") or {}, prof.get("account") or {}, prof):
+        for k in _UNTIL_KEYS:
+            v = part.get(k)
+            if isinstance(v, (int, float)) and v > 0:
+                return datetime.fromtimestamp(v / 1000 if v > 1e11 else v, timezone.utc).isoformat()
+            if isinstance(v, str) and v:
+                d = parse_iso(v)
+                if d is not None:
+                    return d.isoformat()
+    return None
