@@ -99,6 +99,7 @@ class JsApi:
         if self._app.window:
             self._app.window.minimize()
             self._app.visible = False
+            self._app.minimized = True  # still on screen as far as updates are concerned
 
     # The window is frameless (no OS resize border), so the page drives resizing.
     def resize(self, width, height, edge=""):
@@ -144,7 +145,10 @@ class TrayApp:
         self.webview = webview_mod
         self.window = None
         self.visible = False
+        self.minimized = False
         self.quitting = False
+        self._pending_update = None  # a release waiting for the window to be hidden
+        self._handoff_window: dict = {}  # how the window was before a self-update restarted us
         self.status = "syncing…"
 
         M, Item = pystray.Menu, pystray.MenuItem
@@ -294,13 +298,18 @@ class TrayApp:
             log.exception("show failed")
             return
         self.visible = True
+        self.minimized = False
         self.monitor.meta["window_visible"] = True
 
     def hide(self):
         if self.window is not None:
             self.window.hide()
         self.visible = False
+        self.minimized = False
         self.monitor.meta["window_visible"] = False
+        rel, self._pending_update = self._pending_update, None
+        if rel is not None and not self.quitting:  # the user is done looking: install now, unseen
+            threading.Thread(target=self._install, args=(rel, False), daemon=True).start()
 
     def _on_closing(self):
         if self.quitting:
@@ -341,12 +350,29 @@ class TrayApp:
             self.monitor.log("sys", status + "  (type `update` to install)")
             self._notify(f"redline build {rel.build} is available")
             return status
+        if not manual and (self.visible or self.minimized):
+            # Restarting would close the console under the user: wait until they hide it.
+            self._pending_update = rel
+            self._set_update_meta(rel.build, "pending")
+            self.monitor.log("sys", f"build {rel.build} will install when you close this window (or click the version now)")
+            return f"build {rel.build} is waiting for the window to be hidden"
+        return self._install(rel, manual)
+
+    def _install(self, rel, manual: bool) -> str:
+        self._pending_update = None
         self._set_update_meta(rel.build, "installing")
-        log.info("update: build %s -> %s", BUILD, rel.build)
+        log.info("update: build %s -> %s (manual=%s)", BUILD, rel.build, manual)
         self.monitor.log("sys", f"installing build {rel.build}…")
-        self._notify(f"Updating redline to build {rel.build}…")
+        if manual:
+            self._notify(f"Updating redline to build {rel.build}…")
+        window = {"show": self.visible}
         try:
-            update.install(rel, extra_args=["--show"] if self.visible else [])
+            if self.visible and self.window is not None:
+                window.update(x=int(self.window.x), y=int(self.window.y))
+        except Exception:
+            pass
+        try:
+            update.install(rel, extra_args=["--show"] if self.visible else [], window=window)
         except Exception as e:
             self._set_update_meta(rel.build, "failed")
             log.exception("update failed")
@@ -413,14 +439,20 @@ class TrayApp:
             return 0
 
     def _position(self, w: int, h: int) -> tuple[int | None, int | None]:
+        hw = self._handoff_window
         try:
             s = self.webview.screens[0]
+            if isinstance(hw.get("x"), int) and isinstance(hw.get("y"), int):
+                # restarted by an update: reopen where it was (kept on screen)
+                return min(max(0, hw["x"]), max(0, s.width - w)), min(max(0, hw["y"]), max(0, s.height - h))
             return max(0, s.width - w - 12), max(0, s.height - h - 60)
         except Exception:
             return None, None
 
-    def run(self, updated_from: int | None = None, show: bool = False) -> int:
+    def run(self, updated_from: int | None = None, show: bool = False, handoff_window: dict | None = None) -> int:
         from . import instance
+
+        self._handoff_window = handoff_window or {}
 
         instance.write_state(self.server.port, self.server.token)
         threading.Thread(target=update.cleanup_old, daemon=True).start()
@@ -431,7 +463,8 @@ class TrayApp:
                 pass
         if updated_from is not None:
             self.monitor.log("ok", f"updated: build {updated_from} -> {BUILD}")
-            self._notify(f"redline updated to build {BUILD}")
+            if show:  # a background update stays silent; the version tag and the log say it
+                self._notify(f"redline updated to build {BUILD}")
         if update.is_packaged():
             threading.Thread(target=self._update_loop, name="redline-update", daemon=True).start()
         self._show_when_ready = show
@@ -567,11 +600,12 @@ def run_tray(interval: int | None = None, refresh_tokens: bool | None = None, se
     from . import applog
 
     applog.setup()
-    handoff = update.take_handoff()
-    if updated_from is None and handoff is not None:
-        updated_from = handoff  # started by a self-update that couldn't pass its arguments
-    if updated_from is not None:
-        show = True  # after an update, always bring the console back
+    handoff = update.take_handoff(full=True) or {}
+    if updated_from is None and handoff:
+        updated_from = int(handoff.get("from", 0))  # started by a self-update that couldn't pass its arguments
+    window = handoff.get("window") if isinstance(handoff.get("window"), dict) else {}
+    if window.get("show"):
+        show = True  # the console was open before the update: bring it back where it was
     log.info("start build=%s exe=%s args=%s updated_from=%s show=%s",
              BUILD, sys.executable, sys.argv[1:], updated_from, show)
 
@@ -591,7 +625,7 @@ def run_tray(interval: int | None = None, refresh_tokens: bool | None = None, se
         server.shutdown()
         return 0
     log.info("instance lock acquired")
-    return TrayApp(monitor, server, webview).run(updated_from=updated_from, show=show)
+    return TrayApp(monitor, server, webview).run(updated_from=updated_from, show=show, handoff_window=window)
 
 
 def _wait_for_lock(seconds: float):

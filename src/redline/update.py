@@ -112,7 +112,7 @@ def _download(url: str, dest: Path) -> str:
     return h.hexdigest()
 
 
-def install(rel: Release, extra_args: list[str] | None = None) -> None:
+def install(rel: Release, extra_args: list[str] | None = None, window: dict | None = None) -> None:
     """Download, verify, swap and launch the new exe. The caller must exit afterwards."""
     if not can_self_update():
         raise ProviderError("self-update only works for the packaged Windows exe")
@@ -137,7 +137,7 @@ def install(rel: Release, extra_args: list[str] | None = None) -> None:
     except OSError:
         _retry(lambda: os.replace(old, exe))
         raise
-    write_handoff()
+    write_handoff(window)
     log.info("swapped exe, relaunching %s", exe)
     launch_detached(str(exe), ["--updated-from", str(BUILD), *(extra_args or [])])
 
@@ -148,18 +148,21 @@ def handoff_path() -> Path:
     return redline_home() / "update-handoff.json"
 
 
-def write_handoff() -> None:
-    """Tells the relaunched exe it comes from an update even if it lost its arguments."""
+def write_handoff(window: dict | None = None) -> None:
+    """Tells the relaunched exe it comes from an update even if it lost its arguments,
+    and how the window was ({"show", "x", "y"}) so the new one picks up where we left off."""
     try:
         p = handoff_path()
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({"from": BUILD, "at": time.time(), "pid": os.getpid()}), encoding="utf-8")
+        doc = {"from": BUILD, "at": time.time(), "pid": os.getpid(), "window": window or {}}
+        p.write_text(json.dumps(doc), encoding="utf-8")
     except OSError:
         pass
 
 
-def take_handoff(max_age: float = 180) -> int | None:
-    """If we were started by a self-update, return the old build (and consume the note)."""
+def take_handoff(max_age: float = 180, full: bool = False):
+    """If we were started by a self-update, return the old build (and consume the note).
+    full=True returns the whole note ({"from", "window", ...}) instead."""
     p = handoff_path()
     try:
         doc = json.loads(p.read_text(encoding="utf-8"))
@@ -168,7 +171,7 @@ def take_handoff(max_age: float = 180) -> int | None:
         return None
     if time.time() - float(doc.get("at", 0)) > max_age:
         return None
-    return int(doc.get("from", 0))
+    return doc if full else int(doc.get("from", 0))
 
 
 def launch_detached(exe: str, args: list[str], reset_env: bool = True) -> None:

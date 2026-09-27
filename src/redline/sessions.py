@@ -103,7 +103,7 @@ def recent(account: Account, limit: int = 5) -> list[dict]:
 
     def add(found: dict[str, float], periods: list[tuple[float, float]] | None = None) -> None:
         for cwd, at in found.items():
-            if periods is not None and not any(f <= at <= t for f, t in periods):
+            if periods is not None and not any(f <= at < t for f, t in periods):  # half-open: a switch instant has one owner
                 continue
             seen[cwd] = max(seen.get(cwd, 0), at)
 

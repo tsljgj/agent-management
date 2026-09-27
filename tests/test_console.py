@@ -284,3 +284,31 @@ def test_console_page_is_well_formed():
             assert r.returncode == 0, r.stderr
         finally:
             os.unlink(f.name)
+
+
+def test_auto_update_waits_until_the_window_is_hidden(monkeypatch):
+    """A background update must not close the console under the user; it installs on hide."""
+    from redline import tray, update
+
+    rel = update.Release(99, "build-99", "n", "u", "s", "h")
+    installed = []
+    monkeypatch.setattr(update, "check", lambda: (rel, "build 99 is available"))
+    monkeypatch.setattr(update, "can_self_update", lambda: True)
+    monkeypatch.setattr(update, "install", lambda r, extra_args=None, window=None: installed.append((r.build, window)))
+    monkeypatch.setattr(tray.threading, "Timer", lambda *a, **k: type("T", (), {"start": lambda self: None})())
+    monkeypatch.setattr(tray.threading, "Thread", lambda target, args=(), **k: type("T", (), {"start": lambda self: target(*args)})())
+
+    app = tray.TrayApp.__new__(tray.TrayApp)
+    app.monitor = Monitor(collect=lambda a, refresh_tokens=False: [])
+    app.window, app.visible, app.minimized, app.quitting = None, True, False, False
+    app._pending_update, app._notify = None, lambda text: None
+
+    app.check_updates(manual=False, install=True)
+    assert installed == [] and app.monitor.meta["update"]["state"] == "pending"
+    app.hide()
+    assert installed == [(99, {"show": False})]
+
+    installed.clear()
+    app.visible = True
+    app.check_updates(manual=True, install=True)  # clicking the version installs right away
+    assert installed and installed[0][1]["show"] is True
