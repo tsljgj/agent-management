@@ -183,7 +183,7 @@ class WakeJob:
             self.log("warn", f"{a.name}: no browser profile bound, using the default browser "
                              f"(make sure it is signed in to the right Google account, or `bind {a.name} <email>`)")
         helper = browser_helper() if prof else None
-        env = child_env({**a.env(), "REDLINE_ACCOUNT": a.name, "REDLINE_HOME": str(redline_home())})
+        env = child_env({**a.env(), "REDLINE_ACCOUNT": a.key, "REDLINE_HOME": str(redline_home())})
         if helper:
             env["BROWSER"] = helper
         a.home_path.mkdir(parents=True, exist_ok=True)
@@ -244,7 +244,7 @@ class WakeJob:
         if not email:
             return
         for other in load_accounts():
-            if other.name != a.name and other.provider == a.provider and identity(other) == email:
+            if other.key != a.key and other.provider == a.provider and identity(other) == email:
                 self.log("crit", f"{a.name} is logged in as {email} — the same account as {other.name}! "
                                  f"Sign in with the other Google account and run `login {a.name}` again.")
         if prof and prof.email and prof.email.lower() != email.lower():
@@ -290,7 +290,7 @@ _lock = threading.Lock()
 
 
 def start_wake(names: list[str] | None, log: Log, force: bool = False,
-               on_done: Callable[[], None] | None = None) -> str:
+               on_done: Callable[[], None] | None = None, provider: str | None = None) -> str:
     """Run a wake job in the background (one at a time)."""
     global _current
     with _lock:
@@ -298,7 +298,7 @@ def start_wake(names: list[str] | None, log: Log, force: bool = False,
             return "a wake job is already running (use `wake cancel`)"
         accounts = load_accounts()
         if names:
-            accounts = [find_account(accounts, n) for n in names]
+            accounts = [find_account(accounts, n, provider) for n in names]
         if not accounts:
             return "no accounts; run `scan` first"
         _current = WakeJob(accounts, log, force=force, on_done=on_done)

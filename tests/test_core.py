@@ -175,6 +175,6 @@ def test_cli_scan_default_homes(tmp_path, monkeypatch, capsys):
         {"OPENAI_API_KEY": None, "tokens": {"access_token": "x", "id_token": _jwt({"email": "a@b.c"})}}))
     assert cli.main(["scan"]) == 0
     accts = load_accounts()
-    assert [a.name for a in accts] == ["codex"] and accts[0].note == "a@b.c"
+    assert [a.name for a in accts] == ["a@b.c"] and accts[0].note == "a@b.c"
     assert cli.main(["scan"]) == 0  # idempotent
     assert len(load_accounts()) == 1

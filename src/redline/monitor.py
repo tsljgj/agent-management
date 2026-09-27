@@ -49,8 +49,8 @@ class Monitor:
         self.events: deque[dict] = deque(maxlen=200)
         self.next_at = 0.0
         self.meta: dict = {}  # extra status for the console (e.g. {"update": {...}} from the tray)
-        self._last_pct: dict[tuple[str, str], float] = {}
-        self._last_ok: dict[str, Usage] = {}
+        self._last_pct: dict[tuple[str, str, str], float] = {}  # (provider, account, window)
+        self._last_ok: dict[tuple[str, str], Usage] = {}  # (provider, account)
 
     # ------------------------------------------------------------ lifecycle
 
@@ -76,6 +76,14 @@ class Monitor:
         with self._poll_lock:
             if force and time.time() - self.at < FORCE_FLOOR:
                 return
+            try:
+                from .actions import adopt_email_names
+
+                for prov, old, new in adopt_email_names():
+                    self.rename(old, new, prov)
+                    self.log("info", f"{old} -> {new}")
+            except Exception:
+                pass
             try:
                 usages = self._collect(load_accounts(), refresh_tokens=self.refresh_tokens)
             except Exception as e:  # config file broken etc. -- keep the loop alive
@@ -108,9 +116,9 @@ class Monitor:
     def _with_last_good(self, u: Usage) -> Usage:
         """Keep showing an account's last good numbers when a fetch fails (429, offline...)."""
         if u.ok:
-            self._last_ok[u.account] = u
+            self._last_ok[(u.provider, u.account)] = u
             return u
-        prev = self._last_ok.get(u.account)
+        prev = self._last_ok.get((u.provider, u.account))
         if prev is None or not prev.windows:
             return u
         return Usage(
@@ -118,20 +126,22 @@ class Monitor:
             windows=prev.windows, extra=prev.extra, error=u.error, fetched_at=prev.fetched_at, stale=True,
         )
 
-    def rename(self, old: str, new: str) -> None:
+    def rename(self, old: str, new: str, provider: str | None = None) -> None:
         """Carry an account's cached state over to its new name (instant UI, no re-alerts)."""
+        match = lambda p, n: n == old and (provider is None or p == provider)  # noqa: E731
         with self._state_lock:
-            if old in self._last_ok:
-                self._last_ok[new] = self._last_ok.pop(old)
-                self._last_ok[new].account = new
-            for key in [k for k in self._last_pct if k[0] == old]:
-                self._last_pct[(new, key[1])] = self._last_pct.pop(key)
+            for k in [k for k in self._last_ok if match(*k)]:
+                u = self._last_ok.pop(k)
+                u.account = new
+                self._last_ok[(k[0], new)] = u
+            for k in [k for k in self._last_pct if match(k[0], k[1])]:
+                self._last_pct[(k[0], new, k[2])] = self._last_pct.pop(k)
             for u in self.usages:
-                if u.account == old:
+                if match(u.provider, u.account):
                     u.account = new
             accts = self.meta.get("accounts") or {}
-            if old in accts:
-                accts[new] = accts.pop(old)
+            for k in [k for k in accts if match(*k.split(":", 1))]:
+                accts[f"{k.split(':', 1)[0]}:{new}"] = accts.pop(k)
             self.at = time.time()  # makes the console re-render right away
 
     def refresh_now(self) -> None:
@@ -146,7 +156,7 @@ class Monitor:
             for w in u.windows:
                 if w.used_percent is None:
                     continue
-                key = (u.account, w.name)
+                key = (u.provider, u.account, w.name)
                 prev = self._last_pct.get(key)
                 cur = w.used_percent
                 self._last_pct[key] = cur

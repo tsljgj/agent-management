@@ -184,13 +184,13 @@ class TrayApp:
 
     def _account_items(self, make_handler):
         Item = self.pystray.MenuItem
-        by_name = {u.account: u for u in self.monitor.usages}
+        by_name = {f"{u.provider}:{u.account}": u for u in self.monitor.usages}
         items = []
         for a in load_accounts():
-            u = by_name.get(a.name)
+            u = by_name.get(a.key)
             w = next((w for w in u.windows if w.name == "5h"), None) if u and (u.ok or u.stale) else None
             label = f"{a.name}  ({a.provider}{f', 5h {w.used_percent:.0f}%' if w and w.used_percent is not None else ''})"
-            items.append(Item(label, make_handler(a.name)))
+            items.append(Item(label, make_handler(a.key)))
         return items or [Item("no accounts", None, enabled=False)]
 
     def _web(self, name: str):

@@ -209,6 +209,8 @@ async function pull(force) {
 }
 async function action(body, quiet) {
   if (!BOOT.actions) { toast("read-only console", "bad"); return false; }
+  // names are unique per provider: actions from a tab refer to that tab's accounts
+  if (!body.provider && body.action !== "scan" && body.action !== "update") body = {...body, provider: TAB};
   try {
     const r = await api("api/action", {method: "POST", body: JSON.stringify(body)});
     log(r.message, r.ok ? "out" : "error");
@@ -270,7 +272,7 @@ function when(iso) {
   return (today ? t : d.toLocaleDateString(undefined, {weekday: "short"}) + " " + t) + (l > 0 ? `  (in ${span(l)})` : "");
 }
 function details(u) {
-  const info = ((DATA.meta || {}).accounts || {})[u.account] || {};
+  const info = ((DATA.meta || {}).accounts || {})[`${u.provider}:${u.account}`] || {};
   const kv = (k, v, cls = "", wide = false) => `<div${wide ? ' class="wide"' : ""}><span>${esc(k)}</span><b class="${cls}" title="${esc(v)}">${esc(v)}</b></div>`;
   const rows = [kv("email", u.email || info.email || "–", "", true), kv("plan", u.plan || "–"),
     kv("synced", u.fetched_at ? ago((Date.now() - new Date(u.fetched_at)) / 1000) + " ago" + (u.stale ? " (stale)" : "") : "–", u.stale ? "warn" : "")];
@@ -519,11 +521,14 @@ $("#list").addEventListener("click", e => {
   if (!e.target.closest("[data-act]")) {
     openLog(false);
     const c = e.target.closest(".acct");
-    if (c && !editing && !e.target.closest(".det") && !getSelection().toString()) {
+    // the name is for double-click rename; clicking elsewhere on the row expands it.
+    // Toggle in place (no re-render) so a double-click never hits a replaced element.
+    if (c && !editing && !e.target.closest(".det") && !e.target.closest(".nm") && !getSelection().toString()) {
       const n = c.dataset.name;
-      if (DETAILS) { setDetails(false); opened.clear(); }
-      else if (opened.has(n)) opened.delete(n); else opened.add(n);
-      render();
+      if (DETAILS) { setDetails(false); return; }
+      if (opened.has(n)) opened.delete(n); else opened.add(n);
+      c.classList.toggle("open", opened.has(n));
+      requestAnimationFrame(fitHeight);
     }
     return;
   }

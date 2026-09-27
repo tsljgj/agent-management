@@ -22,7 +22,9 @@ HOME_ENV_VARS = {
     "codex": "CODEX_HOME",
 }
 
-_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+# Emails are valid names (the default name *is* the account's email). ":" is reserved
+# for "claude:name" / "codex:name" when the same name exists for both providers.
+_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@+-]*$")
 
 
 def redline_home() -> Path:
@@ -46,6 +48,14 @@ class Account:
     home: str  # the CLAUDE_CONFIG_DIR / CODEX_HOME of this account
     note: str = ""
     browser_profile: str = ""  # e.g. "chrome:Profile 2"; empty = match by email
+    # True: the name follows the account's login email. False: the user named it.
+    # None: written by an older version (decided heuristically, see actions.adopt_email_names).
+    auto_name: bool | None = None
+
+    @property
+    def key(self) -> str:
+        """Unique across providers (names are only unique per provider)."""
+        return f"{self.provider}:{self.name}"
 
     @property
     def home_path(self) -> Path:
@@ -62,7 +72,7 @@ class Account:
 
 def validate_name(name: str) -> None:
     if not _NAME_RE.match(name):
-        raise ValueError(f"invalid account name {name!r} (use letters, digits, . _ -)")
+        raise ValueError(f"invalid account name {name!r} (letters, digits and . _ - @ +)")
 
 
 DEFAULT_SETTINGS = {
@@ -121,8 +131,23 @@ def save_setting(key: str, value) -> None:
     _save_raw(data)
 
 
-def find_account(accounts: list[Account], name: str) -> Account:
-    for a in accounts:
-        if a.name == name:
-            return a
-    raise KeyError(f"no account named {name!r}")
+def split_ref(ref: str, provider: str | None = None) -> tuple[str | None, str]:
+    """ "codex:me@x.com" -> ("codex", "me@x.com"); plain names keep the given provider."""
+    head, sep, rest = ref.partition(":")
+    if sep and head in PROVIDERS:
+        return head, rest
+    return provider or None, ref
+
+
+def find_account(accounts: list[Account], name: str, provider: str | None = None) -> Account:
+    provider, name = split_ref(name, provider)
+    matches = [a for a in accounts if a.name == name and (provider is None or a.provider == provider)]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise KeyError(f"{name!r} exists for both claude and codex; say claude:{name} or codex:{name}")
+    raise KeyError(f"no account named {name!r}" + (f" in {provider}" if provider else ""))
+
+
+def name_taken(accounts: list[Account], provider: str, name: str) -> bool:
+    return any(a.provider == provider and a.name == name for a in accounts)

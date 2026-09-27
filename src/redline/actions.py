@@ -18,7 +18,9 @@ from .config import (
     find_account,
     load_accounts,
     load_removed,
+    name_taken,
     save_accounts,
+    split_ref,
     save_removed,
     validate_name,
 )
@@ -35,7 +37,8 @@ class ActionError(Exception):
     pass
 
 
-def add_account(provider: str, name: str, home: str | None = None, note: str = "") -> Account:
+def add_account(provider: str, name: str, home: str | None = None, note: str = "",
+                auto_name: bool = False) -> Account:
     if provider not in PROVIDERS:
         raise ActionError(f"unknown provider {provider!r} (choose from {', '.join(PROVIDERS)})")
     try:
@@ -43,10 +46,10 @@ def add_account(provider: str, name: str, home: str | None = None, note: str = "
     except ValueError as e:
         raise ActionError(str(e)) from None
     accounts = load_accounts()
-    if any(a.name == name for a in accounts):
-        raise ActionError(f"account {name!r} already exists")
+    if name_taken(accounts, provider, name):
+        raise ActionError(f"{provider} account {name!r} already exists")
     home = home or str(redline_home() / "accounts" / f"{provider}-{name}")
-    acct = Account(name=name, provider=provider, home=home, note=note)
+    acct = Account(name=name, provider=provider, home=home, note=note, auto_name=auto_name)
     acct.home_path.mkdir(parents=True, exist_ok=True)
     accounts.append(acct)
     save_accounts(accounts)
@@ -57,13 +60,14 @@ def add_account(provider: str, name: str, home: str | None = None, note: str = "
 def _forget_removed(acct: Account) -> None:
     """Re-adding an account (same name or same dir) clears its 'removed' record."""
     removed = load_removed()
-    keep = [r for r in removed if r.name != acct.name and _resolved(r.home_path) != _resolved(acct.home_path)]
+    keep = [r for r in removed if r.provider != acct.provider
+            or (r.name != acct.name and _resolved(r.home_path) != _resolved(acct.home_path))]
     if len(keep) != len(removed):
         save_removed(keep)
 
 
 def unique_name(base: str, taken: set[str]) -> str:
-    base = re.sub(r"[^A-Za-z0-9._-]+", "-", base).strip("-._") or "account"
+    base = re.sub(r"[^A-Za-z0-9._@+-]+", "-", base).strip("-._") or "account"
     name, i = base, 2
     while name in taken:
         name, i = f"{base}-{i}", i + 1
@@ -80,7 +84,7 @@ def account_details() -> dict[str, dict]:
     out = {}
     for a in load_accounts():
         p = resolve_profile(a, profs)
-        out[a.name] = {
+        out[a.key] = {
             "home": str(a.home_path),
             "email": identity(a) or (a.note if "@" in a.note else ""),
             "profile": {"spec": p.spec, "name": p.name, "email": p.email, "bound": bool(a.browser_profile)} if p else None,
@@ -129,34 +133,35 @@ def add_from_profile(provider: str, spec: str) -> Account:
     prof = browsers.find_profile(spec)
     if prof is None:
         raise ActionError(f"browser profile {spec!r} not found")
-    taken = {a.name for a in load_accounts()}
-    base = prof.email.split("@")[0] if prof.email else prof.name
-    acct = add_account(provider, unique_name(base, taken), note=prof.email)
+    taken = {a.name for a in load_accounts() if a.provider == provider}
+    base = prof.email or prof.name
+    acct = add_account(provider, unique_name(base, taken), note=prof.email, auto_name=bool(prof.email))
     accounts = load_accounts()
     for a in accounts:
-        if a.name == acct.name:
+        if a.key == acct.key:
             a.browser_profile = prof.spec
     save_accounts(accounts)
     acct.browser_profile = prof.spec
     return acct
 
 
-def remove_account(name: str) -> Account:
+def remove_account(name: str, provider: str | None = None) -> Account:
     """Unregister an account (its login files stay on disk) and keep `scan` from re-adding it."""
     accounts = load_accounts()
     try:
-        acct = find_account(accounts, name)
+        acct = find_account(accounts, name, provider)
     except KeyError as e:
         raise ActionError(e.args[0]) from None
     accounts.remove(acct)
     save_accounts(accounts)
-    removed = [r for r in load_removed() if r.name != acct.name and _resolved(r.home_path) != _resolved(acct.home_path)]
+    removed = [r for r in load_removed() if r.provider != acct.provider
+               or (r.name != acct.name and _resolved(r.home_path) != _resolved(acct.home_path))]
     removed.append(acct)
     save_removed(removed)
     return acct
 
 
-def rename_account(old: str, new: str) -> Account:
+def rename_account(old: str, new: str, provider: str | None = None, auto: bool = False) -> Account:
     """Change an account's display name. Its login dir and browser binding stay the same."""
     new = new.strip()
     try:
@@ -165,21 +170,63 @@ def rename_account(old: str, new: str) -> Account:
         raise ActionError(str(e)) from None
     accounts = load_accounts()
     try:
-        acct = find_account(accounts, old)
+        acct = find_account(accounts, old, provider)
     except KeyError as e:
         raise ActionError(e.args[0]) from None
-    if new == old:
+    if new == acct.name and acct.auto_name == auto:
         return acct
-    if any(a.name == new for a in accounts):
-        raise ActionError(f"an account named {new!r} already exists")
+    if new != acct.name and name_taken(accounts, acct.provider, new):
+        raise ActionError(f"{acct.provider} account {new!r} already exists")
     acct.name = new
+    acct.auto_name = auto  # a hand-picked name sticks; auto names keep following the email
     save_accounts(accounts)
     return acct
 
 
-def restore_account(name: str) -> Account:
+def _looks_auto(a: Account) -> bool:
+    """For configs written before `auto_name` existed: was this name generated by us?"""
+    p = a.provider
+    if re.fullmatch(rf"{p}(-default)?(-\d+)?", a.name) or a.name.startswith(p + "-"):
+        return True
+    email = a.note if "@" in a.note else ""
+    return bool(email) and a.name in (email, email.split("@")[0])
+
+
+def adopt_email_names() -> list[tuple[str, str, str]]:
+    """Rename accounts whose name is still automatic to their login email.
+
+    Returns [(provider, old, new)] so callers (the monitor) can carry state over.
+    """
+    from .providers import identity
+
+    accounts = load_accounts()
+    changed, dirty = [], False
+    for a in accounts:
+        auto = a.auto_name if a.auto_name is not None else _looks_auto(a)
+        if a.auto_name is None:
+            a.auto_name, dirty = auto, True
+        if not auto:
+            continue
+        email = identity(a) or (a.note if "@" in a.note else None)
+        if not email or a.name == email:
+            continue
+        try:
+            validate_name(email)
+        except ValueError:
+            continue
+        if name_taken(accounts, a.provider, email):
+            continue  # another account of this provider already uses that email as its name
+        changed.append((a.provider, a.name, email))
+        a.name, dirty = email, True
+    if dirty:
+        save_accounts(accounts)
+    return changed
+
+
+def restore_account(name: str, provider: str | None = None) -> Account:
     removed = load_removed()
-    match = [r for r in removed if r.name == name]
+    provider, name = split_ref(name, provider)
+    match = [r for r in removed if r.name == name and (provider is None or r.provider == provider)]
     if not match:
         raise ActionError(f"no removed account named {name!r} (see `removed`)")
     acct = match[0]
@@ -187,8 +234,8 @@ def restore_account(name: str) -> Account:
     if any(_resolved(a.home_path) == _resolved(acct.home_path) and a.provider == acct.provider for a in accounts):
         save_removed([r for r in removed if r is not acct])
         raise ActionError(f"{acct.name} is already registered (as another name)")
-    if any(a.name == acct.name for a in accounts):
-        raise ActionError(f"an account named {acct.name!r} already exists")
+    if name_taken(accounts, acct.provider, acct.name):
+        raise ActionError(f"{acct.provider} account {acct.name!r} already exists")
     accounts.append(acct)
     save_accounts(accounts)
     save_removed([r for r in removed if r is not acct])
@@ -208,15 +255,16 @@ def scan(register: bool = True, include_removed: bool = False) -> tuple[list[tup
     known = {(a.provider, _resolved(a.home_path)) for a in accounts}
     if not include_removed:
         known |= {(a.provider, _resolved(a.home_path)) for a in removed}
-    taken = {a.name for a in accounts}
+    taken = {(a.provider, a.name) for a in accounts}
     added, existing = [], []
     for f in discover():
         if (f.provider, _resolved(f.home)) in known:
             existing.append(f)
             continue
-        name = suggest_name(f, taken)
-        taken.add(name)
-        acct = Account(name=name, provider=f.provider, home=str(f.home), note=f.email or "")
+        mine = {n for p, n in taken if p == f.provider}
+        name = unique_name(f.email, mine) if f.email else suggest_name(f, mine)
+        taken.add((f.provider, name))
+        acct = Account(name=name, provider=f.provider, home=str(f.home), note=f.email or "", auto_name=True)
         accounts.append(acct)
         added.append((acct, f))
     if register and added:
@@ -234,12 +282,12 @@ def _resolved(p: Path) -> str:
         return str(p)
 
 
-def bind(name: str, spec: str) -> str:
+def bind(name: str, spec: str, provider: str | None = None) -> str:
     from . import browsers
 
     accounts = load_accounts()
     try:
-        acct = find_account(accounts, name)
+        acct = find_account(accounts, name, provider)
     except KeyError as e:
         raise ActionError(e.args[0]) from None
     if spec in ("", "none", "-"):
@@ -288,9 +336,9 @@ def import_defaults() -> list[Account]:
     return added
 
 
-def get_account(name: str) -> Account:
+def get_account(name: str, provider: str | None = None) -> Account:
     try:
-        return find_account(load_accounts(), name)
+        return find_account(load_accounts(), name, provider)
     except KeyError as e:
         raise ActionError(e.args[0]) from None
 
@@ -333,8 +381,8 @@ def _applescript_escape(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def launch(name: str) -> str:
-    return open_terminal(get_account(name))
+def launch(name: str, provider: str | None = None) -> str:
+    return open_terminal(get_account(name, provider))
 
 
 # ------------------------------------------------------------ console dispatch
@@ -346,14 +394,15 @@ def dispatch(action: str, args: dict) -> str:
         acct = add_account(args.get("provider", ""), args.get("name", ""), note=args.get("note", ""))
         hint = "" if has_credentials(acct) else f"; run `login {acct.name}` to sign in"
         return f"added {acct.provider}:{acct.name} -> {acct.home_path}{hint}"
+    prov = args.get("provider") or None
     if action == "remove":
-        acct = remove_account(args.get("name", ""))
+        acct = remove_account(args.get("name", ""), prov)
         return f"removed {acct.name} (login files kept; `scan` won't re-add it) -- undo: restore {acct.name}"
     if action == "rename":
-        acct = rename_account(args.get("name", ""), args.get("new", ""))
+        acct = rename_account(args.get("name", ""), args.get("new", ""), prov)
         return f"renamed {args.get('name')} -> {acct.name}"
     if action == "restore":
-        acct = restore_account(args.get("name", ""))
+        acct = restore_account(args.get("name", ""), prov)
         return f"restored {acct.name}"
     if action == "removed":
         rs = load_removed()
@@ -370,7 +419,7 @@ def dispatch(action: str, args: dict) -> str:
             return f"added {acct.name} ({acct.note}); run `login {acct.name}`"
         from .login import start_wake
 
-        start_wake([acct.name], args["log"], force=True, on_done=args.get("on_done"))
+        start_wake([acct.key], args["log"], force=True, on_done=args.get("on_done"))
         return f"added {acct.name} · logging in with {acct.note}…"
     if action in ("wake", "login"):
         from .login import start_wake
@@ -379,7 +428,7 @@ def dispatch(action: str, args: dict) -> str:
             raise ActionError("wake needs a log sink")
         names = [args["name"]] if action == "login" else (args.get("names") or None)
         try:
-            return start_wake(names, args["log"], force=action == "login", on_done=args.get("on_done"))
+            return start_wake(names, args["log"], force=action == "login", on_done=args.get("on_done"), provider=prov)
         except KeyError as e:
             raise ActionError(e.args[0]) from None
     if action == "wake-cancel":
@@ -389,10 +438,10 @@ def dispatch(action: str, args: dict) -> str:
     if action == "web":
         from .login import open_web
 
-        acct = get_account(args.get("name", ""))
+        acct = get_account(args.get("name", ""), prov)
         return open_web(acct, args.get("url") or None)
     if action == "bind":
-        return bind(args.get("name", ""), args.get("profile", ""))
+        return bind(args.get("name", ""), args.get("profile", ""), prov)
     if action == "profiles":
         return profiles_text()
     if action == "update":  # the tray overrides this with a check-and-install version
@@ -403,7 +452,7 @@ def dispatch(action: str, args: dict) -> str:
         except Exception as e:
             raise ActionError(f"update check failed: {e}") from None
     if action == "launch":
-        return launch(args.get("name", ""))
+        return launch(args.get("name", ""), prov)
     if action == "list":
         accts = load_accounts()
         return "\n".join(

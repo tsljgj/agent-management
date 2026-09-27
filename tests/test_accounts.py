@@ -135,7 +135,7 @@ def test_scan_registers_once(home):
     make_claude(home / ".claude-a", email="a@x.com")
     make_codex(home / ".codex")
     added, existing = actions.scan()
-    assert sorted(a.name for a, _ in added) == ["claude-a", "codex"] and not existing
+    assert sorted(a.name for a, _ in added) == ["a@x.com", "x@y.com"] and not existing  # named after the login email
     added, existing = actions.scan()
     assert not added and len(existing) == 2
 
@@ -273,7 +273,7 @@ def test_wake_refreshes_expired_and_logs_in_missing(home, monkeypatch):
     logs = []
     results = login.WakeJob(accts, lambda lv, t: logs.append((lv, t))).run()
     assert results == {"ok": "ok", "exp": "refreshed", "new": "logged-in"}
-    assert spawned == [(["claude", "auth", "login", "--claudeai", "--email", "new@gmail.com"], str(new), "new", "Profile 2")]
+    assert spawned == [(["claude", "auth", "login", "--claudeai", "--email", "new@gmail.com"], str(new), "claude:new", "Profile 2")]
     assert json.loads((exp / ".credentials.json").read_text())["claudeAiOauth"]["accessToken"] == "at-refreshed"
     assert any("3/3 online" in t for _, t in logs)
 
@@ -303,30 +303,30 @@ def test_removed_accounts_stay_removed(home):
     make_claude(home / ".claude-exp1", email="e1@x.com")
     make_claude(home / ".claude-keep", email="k@x.com")
     actions.scan()
-    assert sorted(a.name for a in load_accounts()) == ["claude-exp1", "claude-keep"]
+    assert sorted(a.name for a in load_accounts()) == ["e1@x.com", "k@x.com"]
 
-    msg = actions.dispatch("remove", {"name": "claude-exp1"})
-    assert "restore claude-exp1" in msg
-    assert [a.name for a in load_accounts()] == ["claude-keep"]
+    msg = actions.dispatch("remove", {"name": "e1@x.com"})
+    assert "restore e1@x.com" in msg
+    assert [a.name for a in load_accounts()] == ["k@x.com"]
     assert (home / ".claude-exp1" / ".credentials.json").exists()  # files untouched
 
     added, _ = actions.scan()
     assert added == []  # scan does not resurrect it
-    assert "claude-exp1" in actions.dispatch("removed", {})
+    assert "e1@x.com" in actions.dispatch("removed", {})
 
-    actions.dispatch("restore", {"name": "claude-exp1"})
-    assert sorted(a.name for a in load_accounts()) == ["claude-exp1", "claude-keep"]
+    actions.dispatch("restore", {"name": "e1@x.com"})
+    assert sorted(a.name for a in load_accounts()) == ["e1@x.com", "k@x.com"]
     assert actions.dispatch("removed", {}) == "nothing removed"
     with pytest.raises(actions.ActionError):
-        actions.dispatch("restore", {"name": "claude-exp1"})
+        actions.dispatch("restore", {"name": "e1@x.com"})
 
 
 def test_scan_all_brings_back_removed(home):
     make_codex(home / ".codex")
     actions.scan()
-    actions.remove_account("codex")
+    actions.remove_account("x@y.com")
     added, _ = actions.scan(include_removed=True)
-    assert [a.name for a, _ in added] == ["codex"]
+    assert [a.name for a, _ in added] == ["x@y.com"]
     assert actions.dispatch("removed", {}) == "nothing removed"
 
 
@@ -419,10 +419,10 @@ def test_candidates_offer_removed_and_unused_profiles(home):
     (home / ".claude.json").write_text(json.dumps({"oauthAccount": {"emailAddress": "main@gmail.com"}}))
     make_claude(home / ".claude-exp", email="exp@gmail.com")
     actions.scan()
-    actions.remove_account("claude-exp")
+    actions.remove_account("exp@gmail.com")
 
     c = actions.candidates("claude")
-    assert [r["name"] for r in c["removed"]] == ["claude-exp"] and c["removed"][0]["email"] == "exp@gmail.com"
+    assert [r["name"] for r in c["removed"]] == ["exp@gmail.com"] and c["removed"][0]["email"] == "exp@gmail.com"
     # main@ is in use, exp@ is offered as a restore instead, Profile 4 has no Google account
     assert [p["email"] for p in c["profiles"]] == ["work@gmail.com"]
     # codex has nothing yet: every signed-in profile is a candidate
@@ -436,12 +436,15 @@ def test_add_from_profile_binds_and_logs_in(home, monkeypatch):
     monkeypatch.setattr(login, "start_wake", lambda names, log, force=False, on_done=None: started.append((names, force)))
     msg = actions.dispatch("add-profile", {"provider": "codex", "profile": "chrome:Profile 2", "log": lambda *a: None})
     acct = load_accounts()[0]
-    assert (acct.name, acct.provider, acct.browser_profile, acct.note) == \
-        ("zhihao.work", "codex", "chrome:Profile 2", "zhihao.work@gmail.com")
-    assert started == [(["zhihao.work"], True)] and "logging in" in msg
-    # same Google account again -> unique name, no crash
+    assert (acct.name, acct.provider, acct.browser_profile, acct.note, acct.auto_name) == \
+        ("zhihao.work@gmail.com", "codex", "chrome:Profile 2", "zhihao.work@gmail.com", True)
+    assert started == [(["codex:zhihao.work@gmail.com"], True)] and "logging in" in msg
+    # the same Google account for the other provider gets the same name (names are per provider)
     actions.dispatch("add-profile", {"provider": "claude", "profile": "chrome:Profile 2"})
-    assert sorted(a.name for a in load_accounts()) == ["zhihao.work", "zhihao.work-2"]
+    assert sorted(a.key for a in load_accounts()) == ["claude:zhihao.work@gmail.com", "codex:zhihao.work@gmail.com"]
+    # ...and again for the same provider -> suffixed
+    actions.dispatch("add-profile", {"provider": "claude", "profile": "chrome:Profile 2"})
+    assert "zhihao.work@gmail.com-2" in [a.name for a in load_accounts()]
 
 
 def test_readding_a_removed_account_clears_the_tombstone(home):
@@ -494,18 +497,60 @@ def test_monitor_rename_carries_state():
     m = Monitor(collect=lambda a, refresh_tokens=False: [Usage("old", "claude", True, windows=[Window("5h", 50.0)])])
     m.poll()
     m.rename("old", "new")
-    assert m.usages[0].account == "new" and "new" in m._last_ok and ("new", "5h") in m._last_pct
+    assert m.usages[0].account == "new" and ("claude", "new") in m._last_ok and ("claude", "new", "5h") in m._last_pct
 
 
 def test_account_details_in_payload(home):
     make_chrome(home, {"Profile 2": "w@gmail.com"})
     d = make_claude(home / ".claude-w", email="w@gmail.com")
-    save_accounts([Account("w", "claude", str(d)), Account("n", "codex", str(home / "n"))])
+    save_accounts([Account("w", "claude", str(d), auto_name=True), Account("n", "codex", str(home / "n"))])
     m = Monitor(collect=lambda a, refresh_tokens=False: [])
     m.poll()
     acc = m.payload()["meta"]["accounts"]
-    assert acc["w"]["email"] == "w@gmail.com" and acc["w"]["home"] == str(d)
-    assert acc["w"]["profile"] == {"spec": "chrome:Profile 2", "name": "Person 0", "email": "w@gmail.com", "bound": False}
-    assert acc["n"]["profile"] is None
-    m.rename("w", "work")
-    assert "work" in m.payload()["meta"]["accounts"]
+    w = acc["claude:w@gmail.com"]  # auto-named account adopted its login email
+    assert w["email"] == "w@gmail.com" and w["home"] == str(d)
+    assert w["profile"] == {"spec": "chrome:Profile 2", "name": "Person 0", "email": "w@gmail.com", "bound": False}
+    assert acc["codex:n"]["profile"] is None
+    m.rename("w@gmail.com", "work", "claude")
+    assert "claude:work" in m.payload()["meta"]["accounts"]
+
+
+# ------------------------------------------------------------ names = emails
+
+
+def test_legacy_auto_names_become_emails_hand_names_stay(home):
+    a = make_claude(home / ".claude-a", email="a@gmail.com")
+    b = make_claude(home / "b", email="b@gmail.com")
+    c = make_claude(home / "c", email="c@gmail.com")
+    x = make_codex(home / ".codex", email="a@gmail.com")
+    # written by an older version: no auto_name field
+    save_accounts([Account("claude-a", "claude", str(a)), Account("b", "claude", str(b), note="b@gmail.com"),
+                   Account("my-main", "claude", str(c)), Account("codex", "codex", str(x))])
+    changed = actions.adopt_email_names()
+    assert sorted(changed) == [("claude", "b", "b@gmail.com"), ("claude", "claude-a", "a@gmail.com"),
+                               ("codex", "codex", "a@gmail.com")]
+    names = {a.key: a.auto_name for a in load_accounts()}
+    assert names == {"claude:a@gmail.com": True, "claude:b@gmail.com": True,
+                     "claude:my-main": False, "codex:a@gmail.com": True}
+    assert actions.adopt_email_names() == []  # idempotent
+
+
+def test_same_email_both_providers_and_qualified_refs(home):
+    actions.add_account("claude", "me@gmail.com")
+    actions.add_account("codex", "me@gmail.com")
+    with pytest.raises(actions.ActionError, match="claude:me@gmail.com or codex:me@gmail.com"):
+        actions.get_account("me@gmail.com")
+    assert actions.get_account("codex:me@gmail.com").provider == "codex"
+    assert actions.get_account("me@gmail.com", "claude").provider == "claude"
+    actions.dispatch("remove", {"name": "me@gmail.com", "provider": "codex"})
+    assert [a.key for a in load_accounts()] == ["claude:me@gmail.com"]
+    actions.dispatch("restore", {"name": "codex:me@gmail.com"})
+    assert len(load_accounts()) == 2
+
+
+def test_hand_rename_stops_following_email(home):
+    d = make_claude(home / ".claude-z", email="z@gmail.com")
+    save_accounts([Account("z@gmail.com", "claude", str(d), auto_name=True)])
+    actions.rename_account("z@gmail.com", "work")
+    assert load_accounts()[0].auto_name is False
+    assert actions.adopt_email_names() == [] and load_accounts()[0].name == "work"
