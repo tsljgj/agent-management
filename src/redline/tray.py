@@ -406,6 +406,33 @@ def self_test(monitor: Monitor, server: ConsoleServer) -> int:
     return 0 if results.get("ok") else 1
 
 
+def restart_test(out: str, reset_env: bool = True) -> int:
+    """CI check for self-update restarts: start a copy of ourselves the same way the
+    updater does, then exit at once so our unpack dir gets deleted underneath it."""
+    with open(out + ".parent", "w", encoding="utf-8") as f:
+        f.write(getattr(sys, "_MEIPASS", ""))
+    update.launch_detached(sys.executable, ["--self-test-child", out], reset_env=reset_env)
+    return 0
+
+
+def restart_test_child(out: str) -> int:
+    time.sleep(5)  # the parent has exited and cleaned up by now
+    import webview  # noqa: F401  - modules the real app needs, loaded only now
+    from PIL import Image  # noqa: F401
+
+    from .icon import render_icon
+
+    render_icon(50.0)
+    try:
+        parent = open(out + ".parent", encoding="utf-8").read()
+    except OSError:
+        parent = ""
+    mine = getattr(sys, "_MEIPASS", "")
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump({"ok": True, "independent": bool(mine) and mine != parent, "meipass": mine, "parent": parent}, f)
+    return 0
+
+
 def run_tray(interval: int | None = None, refresh_tokens: bool | None = None, self_test_mode: bool = False,
              updated_from: int | None = None, show: bool = False) -> int:
     try:

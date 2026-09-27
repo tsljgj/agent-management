@@ -55,6 +55,23 @@ jobs:
           if ($p.ExitCode -ne 0 -or -not $r.ok -or -not $r.webview) { throw "self-test failed (exit $($p.ExitCode))" }
           if ($r.build -ne ${{ github.run_number }}) { throw "build stamp missing (got $($r.build))" }
 
+      - name: Restart test (what a self-update does)
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $env:REDLINE_HOME = "$PWD\selftest-home"
+          # Diagnostic: relaunch WITHOUT resetting PyInstaller's environment (old updater behaviour)
+          Start-Process dist\redline.exe -ArgumentList "--self-test-restart","$PWD\restart-noreset.json","--no-reset" -Wait
+          Start-Sleep -Seconds 10
+          if (Test-Path restart-noreset.json) { "no-reset: $(Get-Content restart-noreset.json)" } else { "no-reset: child did NOT survive the parent exiting" }
+          # Real check: the updater's relaunch must produce an independent, working instance
+          Start-Process dist\redline.exe -ArgumentList "--self-test-restart","$PWD\restart.json" -Wait
+          Start-Sleep -Seconds 10
+          if (-not (Test-Path restart.json)) { throw "relaunched exe died after the parent exited" }
+          Get-Content restart.json
+          $r = Get-Content restart.json | ConvertFrom-Json
+          if (-not $r.ok -or -not $r.independent) { throw "relaunched exe is not independent" }
+
       - name: Checksum
         shell: pwsh
         run: |

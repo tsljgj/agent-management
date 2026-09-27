@@ -162,3 +162,17 @@ def test_update_button_backend():
         assert json.loads(body) == {"ok": True, "message": "installing build 6"} and len(calls) == 1
     finally:
         s.shutdown()
+
+
+def test_child_env_resets_pyinstaller_state(monkeypatch):
+    import sys as _sys
+
+    from redline.procenv import child_env
+
+    monkeypatch.setenv("_PYI_APPLICATION_HOME_DIR", "C:/Temp/_MEI123")
+    monkeypatch.setenv("_PYI_PARENT_PROCESS_LEVEL", "1")
+    monkeypatch.setenv("_MEIPASS2", "C:/Temp/_MEI123")
+    monkeypatch.setattr(_sys, "frozen", True, raising=False)
+    env = child_env({"CLAUDE_CONFIG_DIR": "x"})
+    assert not any(k.startswith(("_PYI_", "_MEIPASS")) for k in env)
+    assert env["PYINSTALLER_RESET_ENVIRONMENT"] == "1" and env["CLAUDE_CONFIG_DIR"] == "x"

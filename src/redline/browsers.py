@@ -169,7 +169,9 @@ def open_in_profile(profile: Profile, url: str) -> None:
         raise FileNotFoundError(f"{profile.browser} executable not found")
     kwargs = {"start_new_session": True} if sys.platform != "win32" else {
         "creationflags": getattr(subprocess, "DETACHED_PROCESS", 0)}
+    from .procenv import child_env
+
     subprocess.Popen(
         [b.exe, f"--profile-directory={profile.directory}", url],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kwargs,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=child_env(), **kwargs,
     )

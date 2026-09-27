@@ -27,6 +27,7 @@ from typing import Callable
 from . import browsers
 from .config import Account, find_account, load_accounts, redline_home
 from .models import ProviderError
+from .procenv import child_env
 from .providers import identity, load_fingerprint, refresh_account, token_state
 
 LOGIN_TIMEOUT = 300
@@ -182,7 +183,7 @@ class WakeJob:
             self.log("warn", f"{a.name}: no browser profile bound, using the default browser "
                              f"(make sure it is signed in to the right Google account, or `bind {a.name} <email>`)")
         helper = browser_helper() if prof else None
-        env = {**os.environ, **a.env(), "REDLINE_ACCOUNT": a.name, "REDLINE_HOME": str(redline_home())}
+        env = child_env({**a.env(), "REDLINE_ACCOUNT": a.name, "REDLINE_HOME": str(redline_home())})
         if helper:
             env["BROWSER"] = helper
         a.home_path.mkdir(parents=True, exist_ok=True)

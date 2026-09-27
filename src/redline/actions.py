@@ -22,6 +22,7 @@ from .config import (
     save_removed,
     validate_name,
 )
+from .procenv import child_env
 from .providers import has_credentials
 
 LOGIN_COMMANDS = {
@@ -303,7 +304,7 @@ def open_terminal(acct: Account, argv: list[str] | None = None, extra_env: dict 
     acct.home_path.mkdir(parents=True, exist_ok=True)
     if shutil.which(argv[0]) is None:
         raise ActionError(f"{argv[0]!r} not found on PATH")
-    env = {**os.environ, **acct.env(), **(extra_env or {})}
+    env = child_env({**acct.env(), **(extra_env or {})})
     cwd = str(Path.home())
     title = f"redline: {acct.name}"
 

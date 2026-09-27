@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from . import __version__, actions
 from .config import PROVIDERS, Account, find_account, load_accounts, save_accounts
 from .models import Usage
+from .procenv import child_env
 from .providers import fetch_usage, has_credentials
 from .render import render_table
 
@@ -175,7 +176,7 @@ def _exec_with_account(acct: Account, argv: list[str]) -> int:
     if exe is None:
         print(f"{argv[0]!r} not found on PATH", file=sys.stderr)
         return 127
-    env = {**os.environ, **acct.env()}
+    env = child_env(acct.env())
     os.execvpe(exe, argv, env)
     return 0  # unreachable
 
@@ -225,7 +226,12 @@ def cmd_serve(args) -> int:
 
 
 def cmd_tray(args) -> int:
-    from .tray import run_tray
+    from .tray import restart_test, restart_test_child, run_tray
+
+    if args.self_test_restart:
+        return restart_test(args.self_test_restart, reset_env=not args.no_reset)
+    if args.self_test_child:
+        return restart_test_child(args.self_test_child)
 
     return run_tray(interval=args.interval, refresh_tokens=True if args.refresh_tokens else None,
                     self_test_mode=args.self_test, updated_from=args.updated_from, show=args.show)
@@ -332,6 +338,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--refresh-tokens", action="store_true", help=refresh_help)
     s.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
     s.add_argument("--updated-from", type=int, default=None, help=argparse.SUPPRESS)
+    s.add_argument("--self-test-restart", metavar="OUT", help=argparse.SUPPRESS)
+    s.add_argument("--self-test-child", metavar="OUT", help=argparse.SUPPRESS)
+    s.add_argument("--no-reset", action="store_true", help=argparse.SUPPRESS)
     s.add_argument("--show", action="store_true", help="open the console window right away")
     s.set_defaults(func=cmd_tray)
     return p

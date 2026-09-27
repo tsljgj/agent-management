@@ -24,6 +24,7 @@ from pathlib import Path
 
 from ._build import BUILD
 from .models import ProviderError
+from .procenv import child_env
 
 REPO = "tsljgj/agent-management"
 LATEST_API = f"https://api.github.com/repos/{REPO}/releases/latest"
@@ -117,9 +118,15 @@ def install(rel: Release, extra_args: list[str] | None = None) -> None:
     except OSError:
         os.replace(old, exe)
         raise
+    launch_detached(str(exe), ["--updated-from", str(BUILD), *(extra_args or [])])
+
+
+def launch_detached(exe: str, args: list[str], reset_env: bool = True) -> None:
+    """Start `exe` as an independent process that outlives us (see procenv)."""
     flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    subprocess.Popen([str(exe), "--updated-from", str(BUILD), *(extra_args or [])],
-                     creationflags=flags, close_fds=True)
+    env = child_env() if reset_env else dict(os.environ)
+    subprocess.Popen([exe, *args], env=env, creationflags=flags, close_fds=True,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def cleanup_old() -> None:
