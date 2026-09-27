@@ -1,0 +1,81 @@
+"""Account registry, stored as JSON in $AGENTMAN_HOME/config.json (default ~/.agentman)."""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+PROVIDERS = ("claude", "codex")
+
+# Where each CLI keeps its state when no override env var is set.
+DEFAULT_HOMES = {
+    "claude": "~/.claude",
+    "codex": "~/.codex",
+}
+
+# Env var each CLI reads to relocate its state directory (=> one dir per account).
+HOME_ENV_VARS = {
+    "claude": "CLAUDE_CONFIG_DIR",
+    "codex": "CODEX_HOME",
+}
+
+_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def agentman_home() -> Path:
+    return Path(os.environ.get("AGENTMAN_HOME", "~/.agentman")).expanduser()
+
+
+def config_path() -> Path:
+    return agentman_home() / "config.json"
+
+
+@dataclass
+class Account:
+    name: str
+    provider: str
+    home: str  # the CLAUDE_CONFIG_DIR / CODEX_HOME of this account
+    note: str = ""
+
+    @property
+    def home_path(self) -> Path:
+        return Path(self.home).expanduser()
+
+    @property
+    def is_default_home(self) -> bool:
+        return self.home_path == Path(DEFAULT_HOMES[self.provider]).expanduser()
+
+    def env(self) -> dict[str, str]:
+        """Env vars that point the provider's CLI at this account."""
+        return {HOME_ENV_VARS[self.provider]: str(self.home_path)}
+
+
+def validate_name(name: str) -> None:
+    if not _NAME_RE.match(name):
+        raise ValueError(f"invalid account name {name!r} (use letters, digits, . _ -)")
+
+
+def load_accounts() -> list[Account]:
+    path = config_path()
+    if not path.exists():
+        return []
+    data = json.loads(path.read_text())
+    return [Account(**a) for a in data.get("accounts", [])]
+
+
+def save_accounts(accounts: list[Account]) -> None:
+    path = config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"accounts": [asdict(a) for a in accounts]}, indent=2) + "\n")
+    tmp.replace(path)
+
+
+def find_account(accounts: list[Account], name: str) -> Account:
+    for a in accounts:
+        if a.name == name:
+            return a
+    raise KeyError(f"no account named {name!r}")
