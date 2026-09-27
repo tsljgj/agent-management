@@ -8,132 +8,124 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#07090b; --fg:#cfe9ee; --dim:#5a6f75; --faint:#1b2429; --line:#141c20;
+  --bg:#07090b; --fg:#d6eef2; --dim:#50646a; --faint:#182126; --line:#11181c;
   --acc:#00e5ff; --red:#ff2e63; --ok:#3dff9e; --warn:#ffb020;
   --mono:"JetBrains Mono","Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
-body{background:var(--bg);color:var(--fg);font:12px/1.5 var(--mono);display:flex;flex-direction:column;
+body{background:var(--bg);color:var(--fg);font:13px/1.4 var(--mono);display:flex;flex-direction:column;
   overflow:hidden;user-select:none;-webkit-font-smoothing:antialiased}
-body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9;
-  background:repeating-linear-gradient(0deg,rgba(255,255,255,.018) 0 1px,transparent 1px 3px)}
 body::before{content:"";position:fixed;left:0;right:0;top:0;height:1px;z-index:10;
-  background:linear-gradient(90deg,transparent,var(--acc) 30%,var(--red) 70%,transparent);box-shadow:0 0 12px var(--acc)}
-#rain{position:fixed;inset:0;opacity:.08;pointer-events:none;display:none}
-.rain #rain{display:block}
+  background:linear-gradient(90deg,transparent,var(--acc) 35%,var(--red) 65%,transparent);box-shadow:0 0 10px var(--acc)}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9;
+  background:repeating-linear-gradient(0deg,rgba(255,255,255,.015) 0 1px,transparent 1px 3px)}
 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+[title]{cursor:default}
 ::selection{background:var(--acc);color:var(--bg)}
 
-/* top bar: logo · tabs · clock · window buttons */
-header{display:flex;align-items:stretch;gap:18px;padding:0 8px 0 16px;height:40px;border-bottom:1px solid var(--line)}
-.logo{align-self:center;font-weight:800;letter-spacing:.2em;color:#fff}
+/* header */
+header{display:flex;align-items:center;gap:20px;height:48px;padding:0 10px 0 18px;border-bottom:1px solid var(--line)}
+.logo{font-weight:800;letter-spacing:.2em;color:#fff}
 .logo b{color:var(--red);text-shadow:0 0 8px var(--red)}
-.tab{position:relative;letter-spacing:.16em;color:var(--dim);padding:0 2px;display:flex;align-items:center;gap:7px}
+.tab{height:48px;position:relative;letter-spacing:.14em;color:var(--dim)}
 .tab:hover{color:var(--fg)}
-.tab.on{color:var(--acc)}
-.tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:var(--acc);box-shadow:0 0 8px var(--acc)}
-.tab i{font-style:normal;color:var(--dim)}
-.tab .dot{width:5px;height:5px;border-radius:50%;background:var(--faint)}
+.tab.on{color:#fff}
+.tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--acc);box-shadow:0 0 10px var(--acc)}
+.tab sup{font-size:10px;margin-left:3px;color:var(--dim)}
+.tab.hot sup{color:var(--red)}
 .sp{flex:1}
-#clock{align-self:center;color:var(--dim)}
-.win{display:none;align-self:center;width:24px;height:24px;color:var(--dim)}
-.win:hover{color:#fff}.win.x:hover{color:var(--red)}
-.native .win{display:block}
+.hb{height:30px;min-width:30px;padding:0 6px;color:var(--dim);font-size:13px}
+.hb:hover{color:var(--acc)}
+#age{font-size:11px}
+#age.old{color:var(--warn)}
+#wake{display:none;color:var(--warn)}
+#wake.on{display:block}
+#plus{font-size:20px;line-height:1;color:var(--acc)}
+.win{display:none}.native .win{display:block}
+.win.x:hover{color:var(--red)}
+.noact .act{display:none!important}
 
-/* status line */
-.status{display:flex;align-items:center;gap:14px;padding:7px 16px;color:var(--dim);border-bottom:1px solid var(--line)}
-.status b{color:var(--fg);font-weight:400}
-.status .off{color:var(--red)}
-.tools{margin-left:auto;display:flex;gap:4px}
-.ic{width:26px;height:22px;color:var(--dim);border:1px solid transparent}
-.ic:hover{color:var(--acc);border-color:var(--faint)}
-.noact .ic.act,.noact .ra{display:none}
-
-/* accounts */
-main{flex:1;overflow-y:auto;padding:4px 0}
+/* account rows: name · 5h · 7d · actions */
+main{flex:1;overflow-y:auto}
 main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(--faint)}
-.acct{padding:10px 16px 9px;border-bottom:1px solid var(--line);position:relative;transition:opacity .2s,transform .2s}
-.acct:hover{background:rgba(0,229,255,.025)}
-.acct.gone{opacity:0;transform:translateX(24px)}
-.l1{display:flex;align-items:baseline;gap:10px;min-width:0}
-.nm{color:#fff;font-weight:600}
-.best .nm::before{content:"▸ ";color:var(--acc)}
-.who{color:var(--dim);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.plan{color:var(--dim);letter-spacing:.08em}
-.age{color:var(--dim);min-width:34px;text-align:right}
-.age.stale{color:var(--warn)}
-.ra{display:flex;gap:10px;opacity:.28;transition:opacity .15s}
+.acct{display:grid;grid-template-columns:minmax(70px,1fr) 150px 150px 58px;align-items:center;gap:14px;
+  height:54px;padding:0 10px 0 18px;border-bottom:1px solid var(--line);transition:opacity .2s,transform .2s}
+.acct:hover{background:rgba(0,229,255,.03)}
+.acct.gone{opacity:0;transform:translateX(20px)}
+.nm{color:#fff;font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.best .nm{color:var(--acc)}
+.stale .nm::after{content:" ·";color:var(--warn)}
+.m{display:grid;grid-template-columns:18px 1fr 46px;align-items:center;gap:8px}
+.m .k{font-size:10px;color:var(--dim)}
+.bar{height:4px;background:var(--faint);position:relative}
+.bar i{position:absolute;left:0;top:0;bottom:0;background:var(--c);box-shadow:0 0 6px var(--c)}
+.m .v{text-align:right;font-weight:600;color:var(--c)}
+.m.max .bar{background:var(--red)}
+.m.max .bar i{display:none}
+.m.max .v{color:var(--red);font-weight:400;font-size:12px}
+.stale .m{opacity:.4}
+.need{grid-column:2/4;display:flex;gap:12px;align-items:center;color:var(--dim);overflow:hidden;white-space:nowrap}
+.need button{color:var(--acc);font-weight:600}
+.need span{overflow:hidden;text-overflow:ellipsis;font-size:11px}
+.ra{display:flex;justify-content:flex-end;gap:2px;opacity:0;transition:opacity .15s}
 .acct:hover .ra{opacity:1}
-.ra button{color:var(--dim)}
+.ra button{width:24px;height:24px;color:var(--dim)}
 .ra button:hover{color:var(--acc)}
 .ra .del:hover,.ra .del.arm{color:var(--red)}
-.ra .del.arm{opacity:1}
-.l2{display:grid;grid-template-columns:1fr 1fr;gap:4px 22px;margin-top:6px}
-.w{display:grid;grid-template-columns:20px 1fr 34px 50px;align-items:center;gap:8px;min-width:0}
-.wn{color:var(--dim)}
-.bar{display:grid;grid-template-columns:repeat(20,1fr);gap:2px;height:6px}
-.bar i{background:var(--faint)}
-.bar i.on{background:var(--c);box-shadow:0 0 4px var(--c)}
-.pct{text-align:right;color:var(--c);font-weight:600}
-.rt{text-align:right;color:var(--dim);white-space:nowrap}
-/* a spent window: solid red bar, "MAX" instead of a number, no animation */
-.w.max .bar i{background:var(--red);box-shadow:none}
-.w.max .pct{color:var(--bg);background:var(--red);text-align:center;font-weight:800;letter-spacing:.06em}
-.w.max .rt{color:var(--fg)}
-.l3{margin-top:4px;color:var(--dim);display:flex;gap:14px;flex-wrap:wrap}
-.l3 b{font-weight:400;color:var(--fg)}
-.err{margin-top:5px;color:var(--red);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.err button{color:var(--acc);margin-left:8px}
-.stale .bar i.on{opacity:.4;box-shadow:none}.stale .pct{opacity:.55}
-.empty{padding:28px 16px;color:var(--dim);line-height:1.9}
-.empty code{color:var(--acc)}
-.empty pre{color:var(--fg);margin-bottom:14px;line-height:1.15}
+.ra .del.arm{width:auto;padding:0 4px}
+.empty{padding:48px 18px;color:var(--dim);text-align:center;line-height:2}
+.empty button{color:var(--acc);font-size:15px}
 
-/* log + prompt */
-#log{max-height:0;overflow-y:auto;transition:max-height .2s;border-top:1px solid var(--line);background:rgba(0,0,0,.35);user-select:text}
-.logopen #log{max-height:150px;padding:6px 16px}
+/* add sheet */
+#sheet{position:fixed;left:0;right:0;top:48px;bottom:0;background:var(--bg);z-index:15;display:none;flex-direction:column}
+#sheet.on{display:flex}
+.sh{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 8px;color:var(--dim);letter-spacing:.14em;font-size:11px}
+.opt{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:12px 18px;border-bottom:1px solid var(--line)}
+.opt:hover{background:rgba(0,229,255,.05)}
+.opt .i{width:16px;color:var(--acc);text-align:center}
+.opt .t{color:#fff;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.opt .s{color:var(--dim);font-size:11px;white-space:nowrap}
+.opt.restore .i{color:var(--warn)}
+.opt input{flex:1;background:none;border:0;border-bottom:1px solid var(--faint);outline:0;color:#fff;font:inherit;padding:2px 0}
+.opt input:focus{border-color:var(--acc)}
+
+/* command line (log only shows while you use it) */
+#log{max-height:0;overflow-y:auto;transition:max-height .2s;background:rgba(0,0,0,.4);user-select:text;font-size:12px}
+.logopen #log{max-height:170px;padding:8px 18px;border-top:1px solid var(--line)}
 #log div{white-space:pre-wrap;word-break:break-word;color:var(--dim)}
-#log .t{color:var(--faint);margin-right:8px}
 .out{color:var(--acc)!important}.ok{color:var(--ok)!important}.warn{color:var(--warn)!important}
 .crit,.error{color:var(--red)!important}.echo{color:var(--fg)!important}.sys{color:var(--fg)!important}
-#last{padding:4px 16px 0;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;min-height:18px}
-.logopen #last{display:none}
-.prompt{display:flex;gap:8px;padding:6px 16px 10px;align-items:center}
+.prompt{display:flex;gap:10px;align-items:center;padding:10px 18px 12px;border-top:1px solid var(--line)}
 .ps{color:var(--red)}
-#cmd{flex:1;background:none;border:0;outline:0;color:#fff;font:inherit;caret-color:var(--acc);min-width:0}
+#cmd{flex:1;background:none;border:0;outline:0;color:#fff;font:inherit;caret-color:var(--acc)}
 #cmd::placeholder{color:var(--faint)}
-#toast{position:fixed;left:16px;right:16px;top:48px;padding:8px 12px;border-left:2px solid var(--red);background:#12070b;
-  color:var(--red);opacity:0;transform:translateY(-6px);transition:.2s;pointer-events:none;z-index:20}
+#toast{position:fixed;left:18px;right:18px;bottom:56px;padding:9px 12px;background:#0d1417;border-left:2px solid var(--acc);
+  color:var(--fg);font-size:12px;opacity:0;transform:translateY(6px);transition:.2s;pointer-events:none;z-index:20;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #toast.show{opacity:1;transform:none}
-#toast.good{border-color:var(--ok);color:var(--ok);background:#06120c}
-@media (max-width:460px){.l2{grid-template-columns:1fr}.plan{display:none}}
+#toast.bad{border-color:var(--red);color:var(--red)}
+#toast.good{border-color:var(--ok)}
+@media (max-width:480px){.acct{grid-template-columns:minmax(60px,1fr) 118px 118px 0}.ra{display:none}.m{grid-template-columns:16px 1fr 40px;gap:6px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
-<canvas id="rain"></canvas>
 <header class="pywebview-drag-region">
   <div class="logo">REDLINE<b>//</b></div>
-  <button class="tab" data-tab="claude"><span class="dot"></span>CLAUDE <i id="nClaude">0</i></button>
-  <button class="tab" data-tab="codex"><span class="dot"></span>CODEX <i id="nCodex">0</i></button>
+  <button class="tab" data-tab="claude">CLAUDE<sup id="nclaude"></sup></button>
+  <button class="tab" data-tab="codex">CODEX<sup id="ncodex"></sup></button>
   <div class="sp"></div>
-  <div id="clock">--:--</div>
-  <button class="win" id="bmin" title="minimize">_</button>
-  <button class="win x" id="bhide" title="hide to tray (Esc)">×</button>
+  <button class="hb act" id="wake" title="some accounts need a login — wake them">⚡</button>
+  <button class="hb" id="age" title="sync now">⟳</button>
+  <button class="hb act" id="plus" title="add account">+</button>
+  <button class="hb win" id="bmin" title="minimize">_</button>
+  <button class="hb win x" id="bhide" title="hide (Esc)">×</button>
 </header>
-<div class="status">
-  <span id="sync">syncing…</span>
-  <div class="tools">
-    <button class="ic" id="bSync" title="sync now">⟳</button>
-    <button class="ic act" id="bScan" title="scan this computer for accounts">⌕</button>
-    <button class="ic act" id="bWake" title="wake all: refresh tokens, log in the rest">⚡</button>
-  </div>
-</div>
 <main id="list"></main>
-<div id="last"></div>
+<div id="sheet"></div>
 <div id="log"></div>
-<div class="prompt"><span class="ps">›</span><input id="cmd" autocomplete="off" spellcheck="false" placeholder="help"></div>
+<div class="prompt"><span class="ps">›</span><input id="cmd" autocomplete="off" spellcheck="false" placeholder=""></div>
 <div id="toast"></div>
 <script>
 const BOOT = /*__BOOT__*/{};
@@ -154,28 +146,26 @@ async function api(path, opts = {}) {
 async function pull(force) {
   try {
     const d = await api(`api/usage?since=${lastEvent}${force ? "&force=1" : ""}`);
-    setLink(true);
+    linkOk = true;
     for (const e of d.events) {
       lastEvent = Math.max(lastEvent, e.id);
-      log(e.text, e.level, new Date(e.ts));
-      if (e.alert) toast(e.text, e.level === "ok");
+      log(e.text, e.level);
+      if (e.alert || /^(wake done|updated|installing)/.test(e.text) || / logged in| login failed| no login /.test(e.text))
+        toast(e.text, e.level === "crit" || e.level === "error" ? "bad" : e.level === "ok" ? "good" : "");
     }
     DATA = d;
     if (d.fetched_at !== lastFetched) { lastFetched = d.fetched_at; render(); }
-  } catch (e) { setLink(false); }
+  } catch (e) { linkOk = false; tick(); }
 }
-async function action(body) {
-  if (!BOOT.actions) return log("actions are disabled on this server", "error");
+async function action(body, quiet) {
+  if (!BOOT.actions) { toast("read-only console", "bad"); return false; }
   try {
     const r = await api("api/action", {method: "POST", body: JSON.stringify(body)});
     log(r.message, r.ok ? "out" : "error");
-    if (["add", "remove", "restore", "scan", "bind"].includes(body.action)) setTimeout(() => pull(false), 1200);
+    if (!quiet || !r.ok) toast(r.message.split("\n").pop(), r.ok ? "" : "bad");
+    if (["add", "add-profile", "remove", "restore", "scan", "bind"].includes(body.action)) setTimeout(() => pull(false), 1200);
     return r.ok;
-  } catch (e) { log("action failed: " + e.message, "error"); }
-}
-function setLink(ok) {
-  if (ok === linkOk) return; linkOk = ok;
-  log(ok ? "link restored" : "link lost, retrying", ok ? "ok" : "error");
+  } catch (e) { log("failed: " + e.message, "error"); toast("failed: " + e.message, "bad"); return false; }
 }
 
 /* ---------- formatting ---------- */
@@ -184,166 +174,187 @@ const spent = p => p != null && p >= 99.5;
 function span(s) {
   s = Math.max(0, Math.floor(s));
   const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
-  return d ? `${d}d${pad(h)}h` : `${pad(h)}:${pad(m)}`;
+  return d ? `${d}d${h}h` : h ? `${h}:${pad(m)}` : `${m}m`;
 }
-function ago(s) {
-  s = Math.max(0, Math.floor(s));
-  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h`;
-}
-const until = iso => iso ? ((new Date(iso) - Date.now()) / 1000 > 0 ? "↻" + span((new Date(iso) - Date.now()) / 1000) : "↻now") : "";
-const pct = p => p == null ? "?" : spent(p) ? "MAX" : Math.round(p) + "%";
-function bar(p) {
-  const k = p == null ? 0 : Math.min(20, Math.floor(Math.max(0, p) / 5));   // floor: a bar is never fuller than the usage
-  return `<div class="bar">${Array.from({length: 20}, (_, i) => `<i${i < k ? ' class="on"' : ""}></i>`).join("")}</div>`;
-}
+const ago = s => (s = Math.max(0, Math.floor(s))) < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h`;
+const left = iso => iso ? (new Date(iso) - Date.now()) / 1000 : null;
 const short = u => u.windows.find(w => w.name === "5h") || u.windows[0];
 function best(provider) {
   const c = DATA.usages.filter(u => u.ok && u.provider === provider && u.windows.length && !u.windows.some(w => spent(w.used_percent)));
   c.sort((a, b) => (short(a)?.used_percent ?? 999) - (short(b)?.used_percent ?? 999));
   return c[0];
 }
+const needsLogin = u => !u.ok && !u.stale;
 
 /* ---------- render ---------- */
+function meter(w, label) {
+  if (!w) return `<div class="m"><span class="k">${label}</span><div class="bar"></div><span class="v" style="--c:var(--dim)">–</span></div>`;
+  const p = w.used_percent, when = left(w.resets_at);
+  const tip = `${w.name} ${p == null ? "?" : Math.round(p) + "%"}${w.resets_at ? " · resets " + new Date(w.resets_at).toLocaleString() : ""}`;
+  if (spent(p)) return `<div class="m max" title="${esc(tip)}"><span class="k">${label}</span><div class="bar"></div>
+    <span class="v" data-reset="${esc(w.resets_at || "")}">${when != null ? "↻" + span(when) : "MAX"}</span></div>`;
+  const width = p == null ? 0 : Math.min(100, Math.max(0, p));
+  return `<div class="m" style="--c:${lvl(p)}" title="${esc(tip)}"><span class="k">${label}</span>
+    <div class="bar"><i style="width:${width}%"></i></div><span class="v">${p == null ? "?" : Math.floor(p) + "%"}</span></div>`;
+}
 function row(u, bestName) {
   const n = esc(u.account);
-  const main = [u.windows.find(w => w.name === "5h"), u.windows.find(w => w.name === "7d")].filter(Boolean);
-  if (!main.length) main.push(...u.windows.slice(0, 2));
-  const rest = u.windows.filter(w => !main.includes(w));
-  const age = u.stale ? `<span class="age stale" data-ago="${esc(u.fetched_at)}" data-pre="stale ">stale</span>`
-            : u.ok ? `<span class="age" data-ago="${esc(u.fetched_at)}" data-pre=""></span>` : `<span class="age"></span>`;
-  let h = `<div class="acct${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}" data-name="${n}">
-    <div class="l1"><span class="nm">${n}</span><span class="who" title="${esc(u.email)}">${esc(u.email || "")}</span>
-    ${u.plan ? `<span class="plan">${esc(u.plan)}</span>` : ""}${age}
-    <span class="ra"><button data-act="web" title="open in this account's browser profile">web</button><button data-act="jack" title="terminal as this account">jack</button><button class="del" data-act="del" title="remove (click twice)">✕</button></span></div>`;
-  if (main.length) h += `<div class="l2">` + main.map(w => `<div class="w${spent(w.used_percent) ? " max" : ""}" style="--c:${lvl(w.used_percent)}">
-      <span class="wn">${esc(w.name)}</span>${bar(w.used_percent)}<span class="pct">${pct(w.used_percent)}</span>
-      <span class="rt" data-reset="${esc(w.resets_at || "")}" title="${w.resets_at ? "resets " + new Date(w.resets_at).toLocaleString() : ""}">${until(w.resets_at)}</span></div>`).join("") + `</div>`;
-  const extra = rest.map(w => `${esc(w.name)} <b style="color:${lvl(w.used_percent)}">${pct(w.used_percent)}</b>`)
-    .concat(Object.entries(u.extra || {}).map(([k, v]) => `${esc(k)} <b>${esc(v)}</b>`));
-  if (extra.length) h += `<div class="l3">${extra.map(x => `<span>${x}</span>`).join("")}</div>`;
-  if (!u.ok) h += `<div class="err" title="${esc(u.error)}">! ${esc(u.error)}${u.stale ? "" : `<button data-act="login">login</button>`}</div>`;
-  return h + `</div>`;
+  const extra = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${Math.round(w.used_percent)}%`)
+    .concat(Object.entries(u.extra || {}).map(([k, v]) => `${k} ${v}`));
+  const tip = [u.email, u.plan, ...extra, u.stale ? "stale: " + u.error : ""].filter(Boolean).join(" · ");
+  const body = needsLogin(u)
+    ? `<div class="need"><button class="act" data-act="login">login ›</button><span title="${esc(u.error)}">${esc(shortErr(u.error))}</span></div>`
+    : meter(u.windows.find(w => w.name === "5h"), "5h") + meter(u.windows.find(w => w.name === "7d"), "7d");
+  return `<div class="acct${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}" data-name="${n}">
+    <div class="nm" title="${esc(tip)}">${n}</div>${body}
+    <div class="ra act"><button data-act="web" title="open ${u.provider === "codex" ? "chatgpt.com" : "claude.ai"} in its Chrome profile">↗</button><button data-act="jack" title="terminal as ${n}">›_</button><button class="del" data-act="del" title="remove">✕</button></div></div>`;
+}
+function shortErr(e) {
+  e = String(e || "");
+  if (/not logged in/.test(e)) return "not logged in";
+  if (/expired/.test(e)) return "token expired";
+  if (/unauthorized/.test(e)) return "signed out";
+  if (/rate limited/.test(e)) return "rate limited";
+  if (/network/.test(e)) return "offline";
+  return e.split(/[;:(]/)[0];
 }
 function render() {
   const us = DATA.usages || [];
   for (const p of ["claude", "codex"]) {
     const mine = us.filter(u => u.provider === p);
-    $(`#n${p[0].toUpperCase() + p.slice(1)}`).textContent = mine.length;
-    const peak = Math.max(-1, ...mine.filter(u => u.ok || u.stale).map(short).filter(Boolean).map(w => w.used_percent ?? -1));
-    const bad = mine.some(u => !u.ok && !u.stale);
-    const dot = document.querySelector(`.tab[data-tab="${p}"] .dot`);
-    dot.style.background = bad ? "var(--red)" : peak < 0 ? "var(--faint)" : lvl(peak);
-    dot.style.boxShadow = peak >= 90 || bad ? "0 0 6px var(--red)" : "none";
+    $("#n" + p).textContent = mine.length || "";
+    const hot = mine.some(u => needsLogin(u) || u.windows.some(w => w.name === "5h" && w.used_percent >= 90));
+    document.querySelector(`.tab[data-tab="${p}"]`).classList.toggle("hot", hot);
   }
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.tab === TAB));
   const mine = us.filter(u => u.provider === TAB);
-  if (!DATA.fetched_at && !mine.length) { $("#list").innerHTML = `<div class="empty">scanning…</div>`; return; }
+  const waiting = mine.filter(needsLogin).length;
+  $("#wake").classList.toggle("on", waiting > 0);
+  $("#wake").textContent = waiting ? `⚡${waiting}` : "⚡";
   if (!mine.length) {
-    $("#list").innerHTML = `<div class="empty"><pre>█▀█ █▀▀ █▀▄ █░░ █ █▄░█ █▀▀
-█▀▄ ██▄ █▄▀ █▄▄ █ █░▀█ ██▄</pre>no ${TAB} accounts yet.<br>
-› <code>scan</code>  find logins on this computer<br>› <code>add ${TAB} &lt;name&gt;</code>  then <code>login &lt;name&gt;</code></div>`;
+    $("#list").innerHTML = DATA.fetched_at || us.length
+      ? `<div class="empty">no ${TAB} accounts<br><button class="act" id="emptyAdd">+ add one</button></div>`
+      : `<div class="empty">…</div>`;
+    const b = $("#emptyAdd"); if (b) b.onclick = openSheet;
     return;
   }
   const b = best(TAB);
   $("#list").innerHTML = mine.map(u => row(u, mine.length > 1 ? b?.account : null)).join("");
   tick();
 }
-function setTab(t) { TAB = t === "codex" ? "codex" : "claude"; store.set("redline.tab", TAB); render(); }
+function setTab(t) { TAB = t === "codex" ? "codex" : "claude"; store.set("redline.tab", TAB); closeSheet(); render(); }
 function tick() {
-  const n = new Date();
-  $("#clock").textContent = `${pad(n.getHours())}:${pad(n.getMinutes())}`;
-  document.querySelectorAll("[data-reset]").forEach(el => { el.textContent = until(el.dataset.reset); });
-  document.querySelectorAll("[data-ago]").forEach(el => { el.textContent = el.dataset.pre + ago((Date.now() - new Date(el.dataset.ago)) / 1000); });
-  if (DATA.fetched_at) {
-    const at = new Date(DATA.fetched_at * 1000), left = (DATA.next_at || 0) - Date.now() / 1000;
-    $("#sync").innerHTML = `synced <b>${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}</b> · ${ago(Date.now() / 1000 - DATA.fetched_at)} ago`
-      + (DATA.next_at ? ` · next <b>${left > 0 ? span(left) : "now"}</b>` : "")
-      + (linkOk ? "" : ` · <span class="off">offline</span>`);
-  }
+  document.querySelectorAll("[data-reset]").forEach(el => { const l = left(el.dataset.reset); if (l != null) el.textContent = "↻" + span(l); });
+  const a = $("#age");
+  if (!DATA.fetched_at) return;
+  const s = Date.now() / 1000 - DATA.fetched_at, at = new Date(DATA.fetched_at * 1000);
+  a.textContent = linkOk ? ago(s) : "offline";
+  a.classList.toggle("old", !linkOk || s > 600);
+  const nx = (DATA.next_at || 0) - Date.now() / 1000;
+  a.title = `synced ${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}` + (DATA.next_at ? ` · next in ${span(nx)}` : "") + " · click to sync now";
 }
 
-/* ---------- log ---------- */
-function log(text, level = "info", when = new Date()) {
-  const el = $("#log"), t = `${pad(when.getHours())}:${pad(when.getMinutes())}:${pad(when.getSeconds())}`;
+/* ---------- add sheet ---------- */
+async function openSheet() {
+  const sh = $("#sheet");
+  sh.innerHTML = `<div class="sh"><span>ADD ${TAB.toUpperCase()} ACCOUNT</span><button class="hb" data-x="close">esc</button></div><div class="opt"><span class="s">loading…</span></div>`;
+  sh.classList.add("on");
+  let c = {removed: [], profiles: []};
+  try { c = await api(`api/candidates?provider=${TAB}`); } catch (e) {}
+  const opts = [];
+  for (const r of c.removed) opts.push(`<button class="opt restore" data-x="restore" data-v="${esc(r.name)}"><span class="i">↺</span><span class="t">${esc(r.name)}</span><span class="s">${esc(r.email || "")} · removed</span></button>`);
+  for (const p of c.profiles) opts.push(`<button class="opt" data-x="profile" data-v="${esc(p.spec)}"><span class="i">◉</span><span class="t">${esc(p.email)}</span><span class="s">${esc(p.browser)} · ${esc(p.name)}</span></button>`);
+  opts.push(`<button class="opt" data-x="scan"><span class="i">⌕</span><span class="t">scan this computer</span><span class="s">existing logins</span></button>`);
+  opts.push(`<div class="opt"><span class="i">+</span><input id="newName" placeholder="other: type a name, Enter" spellcheck="false"></div>`);
+  sh.innerHTML = `<div class="sh"><span>ADD ${TAB.toUpperCase()} ACCOUNT</span><button class="hb" data-x="close">esc</button></div>` + opts.join("");
+  $("#newName").addEventListener("keydown", async e => {
+    if (e.key !== "Enter" || !e.target.value.trim()) return;
+    const name = e.target.value.trim(); closeSheet();
+    if (await action({action: "add", provider: TAB, name}, true)) action({action: "login", name});
+  });
+}
+function closeSheet() { $("#sheet").classList.remove("on"); }
+$("#sheet").addEventListener("click", async e => {
+  const b = e.target.closest("[data-x]"); if (!b) return;
+  const x = b.dataset.x, v = b.dataset.v;
+  if (x === "close") return closeSheet();
+  closeSheet();
+  if (x === "restore") action({action: "restore", name: v});
+  if (x === "profile") action({action: "add-profile", provider: TAB, profile: v});
+  if (x === "scan") action({action: "scan"});
+});
+
+/* ---------- log / toast ---------- */
+function log(text, level = "info") {
+  const el = $("#log");
   for (const line of String(text).split("\n")) {
-    const d = document.createElement("div");
-    d.innerHTML = `<span class="t">${t}</span><span class="${esc(level)}">${esc(line)}</span>`;
-    el.appendChild(d);
+    const d = document.createElement("div"); d.className = level; d.textContent = line; el.appendChild(d);
   }
   while (el.children.length > 300) el.firstChild.remove();
   el.scrollTop = el.scrollHeight;
-  $("#last").innerHTML = `<span class="${esc(level)}">${esc(String(text).split("\n").pop())}</span>`;
 }
 const openLog = on => document.body.classList.toggle("logopen", on);
 let toastT;
-function toast(text, good) {
-  const t = $("#toast"); t.textContent = text; t.className = "show" + (good ? " good" : "");
-  clearTimeout(toastT); toastT = setTimeout(() => t.className = good ? "good" : "", 4000);
+function toast(text, kind = "") {
+  const t = $("#toast"); t.textContent = text; t.className = "show " + kind;
+  clearTimeout(toastT); toastT = setTimeout(() => t.className = kind, 3500);
 }
 
-/* ---------- commands ---------- */
+/* ---------- commands (for keyboard people; everything is also a button) ---------- */
 const HELP = [
-  ["claude | codex", "switch tab (Alt+1/2)"], ["ls", "accounts in this tab"], ["r | sync", "sync now"],
-  ["scan [all]", "find logins on this PC"], ["wake [names|cancel]", "refresh / log in (tab)"],
-  ["login <name>", "log in via its Chrome"], ["web <name>", "open its web page"],
-  ["jack <name>", "terminal as <name>"], ["best", "most 5h headroom"],
-  ["rm <name..> -y", "remove (files kept)"], ["removed", "list removed"], ["restore <name>", "undo a removal"],
-  ["add <claude|codex> <n>", "new isolated account"], ["profiles", "Chrome profiles"],
-  ["bind <name> <email>", "pin a Chrome profile"], ["update", "check for a new build"], ["rain | clear | hide", ""],
+  ["claude | codex", "switch tab (Alt+1/2)"], ["add", "open the + panel"], ["add <name>", "new account, then log in"],
+  ["login <name>", "log in via its Chrome"], ["wake", "log in / refresh this tab"], ["web <name>", "open its web page"],
+  ["jack <name>", "terminal as <name>"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
+  ["scan [all]", "find logins on this PC"], ["bind <name> <email>", "pin a Chrome profile"], ["ls | r | update | clear", ""],
 ];
-const COMMANDS = ["help","claude","codex","ls","sync","scan","wake","login","web","jack","best","rm","removed","restore","add","profiles","bind","update","rain","clear","hide"];
+const COMMANDS = ["help","claude","codex","add","login","wake","web","jack","rm","restore","removed","scan","bind","profiles","ls","sync","update","clear","hide"];
 const tabNames = () => DATA.usages.filter(u => u.provider === TAB).map(u => u.account);
 const hist = []; let hi = 0;
 async function run(line) {
   const [c, ...a] = line.trim().split(/\s+/);
   if (!c) return;
-  log("› " + line.trim(), "echo");
-  const need = usage => { if (!a[0]) { log("usage: " + usage, "error"); return false; } return true; };
+  openLog(true); log("› " + line.trim(), "echo");
+  const need = u => { if (!a[0]) { log("usage: " + u, "error"); return false; } return true; };
   switch (c.toLowerCase()) {
-    case "help": case "?": openLog(true); HELP.forEach(([k, v]) => log(k.padEnd(26) + v, "out")); break;
-    case "claude": case "codex": setTab(c.toLowerCase()); break;
-    case "ls": openLog(true);
-      DATA.usages.filter(u => u.provider === TAB).forEach(u => log(`${u.account.padEnd(18)} ${u.ok || u.stale
-        ? u.windows.map(w => `${w.name} ${pct(w.used_percent)}`).join("  ") : "! " + u.error}`, u.ok ? "out" : "warn")); break;
-    case "r": case "sync": case "refresh": await pull(true); log("synced", "ok"); break;
-    case "scan": case "import": openLog(true); log("scanning…", "sys"); await action({action: "scan", all: a[0] === "all"}); break;
-    case "wake":
-      openLog(true);
-      if (a[0] === "cancel") { await action({action: "wake-cancel"}); break; }
-      if (!a.length && !tabNames().length) { log(`no ${TAB} accounts`, "warn"); break; }
-      await action({action: "wake", names: a.length ? a : tabNames()}); break;
-    case "login": if (need("login <name>")) { openLog(true); await action({action: "login", name: a[0]}); } break;
-    case "web": if (need("web <name>")) await action({action: "web", name: a[0]}); break;
-    case "jack": case "run": if (need("jack <name>")) await action({action: "launch", name: a[0]}); break;
-    case "best": { const b = best(TAB); log(b ? `${b.account} · 5h ${pct(short(b)?.used_percent)}` : `no ${TAB} account with headroom`, b ? "ok" : "warn"); break; }
+    case "help": case "?": HELP.forEach(([k, v]) => log(k.padEnd(22) + v, "out")); break;
+    case "claude": case "codex": setTab(c.toLowerCase()); openLog(false); break;
+    case "add":
+      if (!a[0]) { openLog(false); openSheet(); break; }
+      { const [prov, name] = a.length > 1 ? [a[0], a[1]] : [TAB, a[0]];
+        if (await action({action: "add", provider: prov, name}, true)) { setTab(prov); action({action: "login", name}); } }
+      break;
+    case "login": if (need("login <name>")) await action({action: "login", name: a[0]}); break;
+    case "wake": if (a[0] === "cancel") await action({action: "wake-cancel"});
+      else await action({action: "wake", names: a.length ? a : tabNames()}); break;
+    case "web": if (need("web <name>")) await action({action: "web", name: a[0]}, true); break;
+    case "jack": case "run": if (need("jack <name>")) await action({action: "launch", name: a[0]}, true); break;
     case "rm": case "remove": {
       const names = a.filter(x => x !== "-y");
       if (!names.length) { log("usage: rm <name..> -y", "error"); break; }
-      if (!a.includes("-y")) { log(`confirm: rm ${names.join(" ")} -y   (login files stay on disk)`, "warn"); break; }
-      for (const n of names) await action({action: "remove", name: n});
-      break;
+      if (!a.includes("-y")) { log(`confirm: rm ${names.join(" ")} -y`, "warn"); break; }
+      for (const n of names) await action({action: "remove", name: n}); break;
     }
-    case "removed": openLog(true); await action({action: "removed"}); break;
     case "restore": case "undo": if (need("restore <name>")) await action({action: "restore", name: a[0]}); break;
-    case "add": if (a.length < 2) { log("usage: add <claude|codex> <name>", "error"); break; }
-      await action({action: "add", provider: a[0], name: a[1]}); setTab(a[0]); break;
-    case "profiles": openLog(true); await action({action: "profiles"}); break;
+    case "removed": await action({action: "removed"}, true); break;
+    case "scan": await action({action: "scan", all: a[0] === "all"}); break;
     case "bind": if (a.length < 2) { log("usage: bind <name> <google email | Profile 2 | none>", "error"); break; }
       await action({action: "bind", name: a[0], profile: a.slice(1).join(" ")}); break;
-    case "update": openLog(true); await action({action: "update"}); break;
-    case "rain": setRain(a[0] ? a[0] !== "off" : !rainOn); break;
-    case "clear": case "cls": $("#log").innerHTML = ""; $("#last").innerHTML = ""; break;
+    case "profiles": await action({action: "profiles"}, true); break;
+    case "ls": DATA.usages.filter(u => u.provider === TAB).forEach(u => log(`${u.account.padEnd(18)} ${u.email || ""}  ${
+      u.windows.map(w => `${w.name} ${Math.round(w.used_percent)}%`).join(" ") || u.error}`, "out")); break;
+    case "r": case "sync": await pull(true); log("synced", "ok"); break;
+    case "update": await action({action: "update"}); break;
+    case "clear": case "cls": $("#log").innerHTML = ""; openLog(false); break;
     case "hide": case "exit": hideWindow(); break;
-    default: log(`unknown: ${c}  (help)`, "error");
+    default: log(`unknown: ${c} (help)`, "error");
   }
 }
 function complete(input) {
   const parts = input.value.split(/\s+/), cur = parts[parts.length - 1].toLowerCase();
-  const pool = parts.length === 1 ? COMMANDS : parts[0] === "add" && parts.length === 2 ? ["claude", "codex"]
-    : parts[0] === "scan" ? ["all"] : parts[0] === "wake" ? ["cancel", ...tabNames()] : DATA.usages.map(u => u.account);
+  const pool = parts.length === 1 ? COMMANDS : parts[0] === "scan" ? ["all"] : DATA.usages.map(u => u.account);
   const hits = pool.filter(x => x.toLowerCase().startsWith(cur));
   if (hits.length === 1) { parts[parts.length - 1] = hits[0]; input.value = parts.join(" ") + " "; }
-  else if (hits.length > 1) log(hits.join("  "), "out");
+  else if (hits.length > 1) { openLog(true); log(hits.join("  "), "out"); }
 }
 
 /* ---------- events ---------- */
@@ -355,30 +366,37 @@ $("#cmd").addEventListener("keydown", e => {
   else if (e.key === "Tab") { e.preventDefault(); complete(el); }
 });
 document.addEventListener("keydown", e => {
-  if (e.key === "Escape") { if (document.body.classList.contains("logopen")) openLog(false); else hideWindow(); return; }
+  if (e.key === "Escape") {
+    if ($("#sheet").classList.contains("on")) closeSheet();
+    else if (document.body.classList.contains("logopen")) openLog(false);
+    else hideWindow();
+    return;
+  }
   if (e.altKey && (e.key === "1" || e.key === "2")) { setTab(e.key === "1" ? "claude" : "codex"); return; }
-  if (document.activeElement !== $("#cmd") && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) $("#cmd").focus();
+  if (document.activeElement.tagName !== "INPUT" && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) $("#cmd").focus();
 });
 document.querySelectorAll(".tab").forEach(t => t.onclick = () => setTab(t.dataset.tab));
-$("#last").onclick = () => openLog(true);
-$("#bSync").onclick = () => run("sync");
-$("#bScan").onclick = () => run("scan");
-$("#bWake").onclick = () => run("wake");
+$("#age").onclick = async () => { $("#age").textContent = "…"; await pull(true); };
+$("#plus").onclick = () => $("#sheet").classList.contains("on") ? closeSheet() : openSheet();
+$("#wake").onclick = () => action({action: "wake", names: DATA.usages.filter(u => u.provider === TAB && needsLogin(u)).map(u => u.account)});
 $("#list").addEventListener("click", e => {
-  const b = e.target.closest("[data-act]"); if (!b) return;
-  const card = b.closest(".acct"), name = card.dataset.name;
+  if (!e.target.closest("[data-act]")) { openLog(false); return; }
+  const b = e.target.closest("[data-act]"), card = b.closest(".acct"), name = card.dataset.name;
   if (b.dataset.act === "del") {
-    if (!b.classList.contains("arm")) {   // first click arms, second click removes
-      b.classList.add("arm"); b.textContent = "remove?";
+    if (!b.classList.contains("arm")) {   // first click arms, second removes
+      b.classList.add("arm"); b.textContent = "sure?";
       setTimeout(() => { b.classList.remove("arm"); b.textContent = "✕"; }, 3000);
       return;
     }
     card.classList.add("gone");
-    log(`› rm ${name}`, "echo");
-    action({action: "remove", name}).then(ok => { if (!ok) card.classList.remove("gone"); });
+    action({action: "remove", name}, true).then(ok => {
+      if (ok) toast(`removed ${name} · type "restore ${name}" or use + to undo`);
+      else card.classList.remove("gone");
+    });
     return;
   }
-  run(`${b.dataset.act} ${name}`);
+  const map = {web: "web", jack: "launch", login: "login"};
+  action({action: map[b.dataset.act], name}, b.dataset.act !== "login");
 });
 
 /* ---------- native window (pywebview) ---------- */
@@ -388,23 +406,10 @@ window.addEventListener("pywebviewready", () => document.body.classList.add("nat
 $("#bhide").onclick = hideWindow;
 $("#bmin").onclick = () => native() && window.pywebview.api.minimize();
 
-/* ---------- rain (off by default) ---------- */
-const cv = $("#rain"), cx = cv.getContext("2d"), G = "ｱｲｳｴｵｶｷｸｹｺ0123456789ABCDEF<>/\\|=+";
-let drops = [], rainOn = store.get("redline.rain", "0") === "1", lastF = 0;
-function sizeRain() { cv.width = innerWidth; cv.height = innerHeight; drops = Array(Math.ceil(cv.width / 14)).fill(0).map(() => Math.random() * -60); }
-function frame(t) {
-  requestAnimationFrame(frame);
-  if (!rainOn || document.hidden || t - lastF < 60) return; lastF = t;
-  cx.fillStyle = "rgba(7,9,11,.2)"; cx.fillRect(0, 0, cv.width, cv.height); cx.font = "13px monospace"; cx.fillStyle = "#00e5ff";
-  drops.forEach((y, i) => { cx.fillText(G[Math.random() * G.length | 0], i * 14, y * 14); drops[i] = y * 14 > cv.height && Math.random() > .975 ? 0 : y + 1; });
-}
-function setRain(on) { rainOn = on; store.set("redline.rain", on ? "1" : "0"); document.body.classList.toggle("rain", on); }
-addEventListener("resize", sizeRain); sizeRain(); setRain(rainOn); requestAnimationFrame(frame);
-
 /* ---------- boot ---------- */
 if (!BOOT.actions) document.body.classList.add("noact");
-log(`redline ${BOOT.version || ""}${BOOT.build ? " · build " + BOOT.build : ""} · type help`, "sys");
-render(); pull(false); setInterval(() => pull(false), 5000); setInterval(tick, 1000); tick();
+log(`redline ${BOOT.version || ""}${BOOT.build ? " · build " + BOOT.build : ""} · help`, "sys");
+render(); pull(false); setInterval(() => pull(false), 5000); setInterval(tick, 1000);
 setTimeout(() => $("#cmd").focus(), 200);
 </script>
 </body></html>

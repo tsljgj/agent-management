@@ -48,29 +48,28 @@ redline web claude-work                     # 在该 profile 里打开 claude.ai
 ## 控制台
 
 ```
-REDLINE//   ● CLAUDE 4   ● CODEX 2                                05:34
-synced 05:34:34 · 3s ago · next 01:48                        ⟳  ⌕  ⚡
-claude-work  zhihao.work@gmail.com          max 20x   3s   web jack ✕
-5h ▮▮▮▮▮▮▮▮▯▯▯▯▯▯▯▯▯▯▯▯  42%  ↻02:12    7d ▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▯▯▯▯▯  76%  ↻2d23h
-claude-main  zhihao@gmail.com                max 5x   3s   web jack ✕
-5h ▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮  MAX  ↻00:39    7d ▮▮▮▮▯▯▯▯▯▯▯▯▯▯▯▯▯▯▯▯  20%  ↻4d23h
-› _
+REDLINE//   CLAUDE⁴   CODEX¹                           ⚡1   8s   +
+work        5h ━━━━━━──────  42%    7d ━━━━━━━━━──  76%
+main        5h ━━━━━━━━━━━━  ↻38m   7d ━━─────────  20%
+alt         5h ━───────────   8%    7d ━━━━━───────  44%
+lab         login ›  token expired
+›
 ```
 
-- 标签页前的小圆点表示这一页的最坏状态：绿、黄、红分别对应用量 <70%、70–90%、≥90%，有账号出错时也是红色。
-- `▸` 标出当前页 5h 剩余额度最多的账号。
-- 每行末尾的 `web` / `jack` / `✕` 平时是暗的，鼠标移上去才亮。
-  - `web`：在该账号的 Chrome profile 里打开网页。
-  - `jack`：开一个以该账号运行的终端。
-  - `✕`：删除，需要点两次确认。
-- 日志平时只显示最后一行，点它或者输入命令会展开，按 Esc 收起。再按一次 Esc 把窗口收回托盘。
-
-```
-claude | codex                切换标签页（Alt+1 / Alt+2）
-scan [all] / wake [names|cancel] / login <name> / web <name> / jack <name>
-rm <name..> -y / removed / restore <name>
-best / add <claude|codex> <name> / profiles / bind <name> <email> / update / rain / clear / hide
-```
+- 每个账号一行，只显示名字和 5h、7d 两条进度。邮箱、套餐、opus 等额外额度、重置时间都放在鼠标悬停的提示里。
+- 额度用完时，整条变成纯红，数字位置显示**什么时候恢复**，比如 `↻38m`。
+- 青色的名字表示当前页 5h 剩余额度最多的账号。
+- 右上角：
+  - `⚡N`：只在有账号需要登录时出现，点一下把它们都登录上。
+  - `8s`：距上次同步的时间，悬停可以看到同步时刻和下次同步倒计时，点击立即同步。
+  - `+`：添加账号。
+- `+` 面板里可以：
+  - 恢复删掉的账号；
+  - 选一个还没用过的 Chrome Google 账号，直接新建、绑定并登录；
+  - 扫描本机已有的登录；
+  - 或者输入一个名字新建账号。
+- 鼠标悬停在某一行上，末尾会出现 `↗`（在它的 Chrome 里打开网页）、`›_`（开终端）和 `✕`（删除，需要点两次）。
+- 底部的 `›` 是命令行，给喜欢用键盘的人，所有操作也都有按钮。输入命令时才会展开日志，按 Esc 收起。输入 `help` 可以看全部命令。
 
 托盘右键菜单包括：
 

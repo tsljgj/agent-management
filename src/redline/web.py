@@ -97,6 +97,14 @@ class ConsoleServer:
                 parts = urlsplit(self.path)
                 if parts.path == "/":
                     return self._send(200, server.page(), "text/html; charset=utf-8")
+                if parts.path == "/api/candidates":
+                    if not self._authed():
+                        return self._json(401, {"error": "missing token"})
+                    prov = (parse_qs(parts.query).get("provider") or ["claude"])[0]
+                    try:
+                        return self._json(200, actions.candidates(prov))
+                    except actions.ActionError as e:
+                        return self._json(400, {"error": str(e)})
                 if parts.path == "/api/usage":
                     if not self._authed():
                         return self._json(401, {"error": "missing token"})
@@ -123,7 +131,7 @@ class ConsoleServer:
                         raise ValueError("body must be an object")
                     for k in ("log", "on_done"):  # never accept callables from the client
                         body.pop(k, None)
-                    if body.get("action") in ("wake", "login"):
+                    if body.get("action") in ("wake", "login", "add-profile"):
                         mon = server.monitor
                         body["log"] = lambda level, text: mon.log(level, text, alert=level == "crit")
                         body["on_done"] = lambda: mon.poll()
@@ -134,7 +142,7 @@ class ConsoleServer:
                     return self._json(200, {"ok": False, "message": str(e)})
                 except (json.JSONDecodeError, OSError, ValueError) as e:
                     return self._json(200, {"ok": False, "message": f"{type(e).__name__}: {e}"})
-                if body.get("action") in ("add", "remove", "restore", "import", "scan", "bind"):
+                if body.get("action") in ("add", "add-profile", "remove", "restore", "import", "scan", "bind"):
                     threading.Thread(target=server.monitor.poll, daemon=True).start()
                 return self._json(200, {"ok": True, "message": msg})
 

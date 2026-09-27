@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -48,6 +49,76 @@ def add_account(provider: str, name: str, home: str | None = None, note: str = "
     acct.home_path.mkdir(parents=True, exist_ok=True)
     accounts.append(acct)
     save_accounts(accounts)
+    _forget_removed(acct)
+    return acct
+
+
+def _forget_removed(acct: Account) -> None:
+    """Re-adding an account (same name or same dir) clears its 'removed' record."""
+    removed = load_removed()
+    keep = [r for r in removed if r.name != acct.name and _resolved(r.home_path) != _resolved(acct.home_path)]
+    if len(keep) != len(removed):
+        save_removed(keep)
+
+
+def unique_name(base: str, taken: set[str]) -> str:
+    base = re.sub(r"[^A-Za-z0-9._-]+", "-", base).strip("-._") or "account"
+    name, i = base, 2
+    while name in taken:
+        name, i = f"{base}-{i}", i + 1
+    return name
+
+
+def candidates(provider: str) -> dict:
+    """What the console's `+` panel offers for this provider.
+
+    removed:  accounts the user removed earlier (one click restores them)
+    profiles: browser profiles whose Google account isn't used by any account of this provider yet
+    """
+    from . import browsers
+    from .login import resolve_profile
+    from .providers import identity
+
+    if provider not in PROVIDERS:
+        raise ActionError(f"unknown provider {provider!r}")
+    accounts = [a for a in load_accounts() if a.provider == provider]
+    used_emails, used_specs = set(), set()
+    profs = browsers.all_profiles()
+    for a in accounts:
+        for e in (identity(a), a.note if "@" in a.note else None):
+            if e:
+                used_emails.add(e.lower())
+        p = resolve_profile(a, profs)
+        if p:
+            used_specs.add(p.spec)
+    removed = [
+        {"name": r.name, "email": identity(r) or (r.note if "@" in r.note else ""), "logged_in": has_credentials(r)}
+        for r in load_removed() if r.provider == provider
+    ]
+    removed_emails = {r["email"].lower() for r in removed if r["email"]}
+    profiles = [
+        p.to_dict() for p in profs
+        if p.email and p.email.lower() not in used_emails | removed_emails and p.spec not in used_specs
+    ]
+    return {"provider": provider, "removed": removed, "profiles": profiles}
+
+
+def add_from_profile(provider: str, spec: str) -> Account:
+    """New account for the Google account signed in to browser profile `spec`, bound to it."""
+    from . import browsers
+
+    prof = browsers.find_profile(spec)
+    if prof is None:
+        raise ActionError(f"browser profile {spec!r} not found")
+    taken = {a.name for a in load_accounts()}
+    base = prof.email.split("@")[0] if prof.email else prof.name
+    acct = add_account(provider, unique_name(base, taken), note=prof.email)
+    accounts = load_accounts()
+    for a in accounts:
+        if a.name == acct.name:
+            a.browser_profile = prof.spec
+    save_accounts(accounts)
+    acct.browser_profile = prof.spec
     return acct
 
 
@@ -73,6 +144,9 @@ def restore_account(name: str) -> Account:
         raise ActionError(f"no removed account named {name!r} (see `removed`)")
     acct = match[0]
     accounts = load_accounts()
+    if any(_resolved(a.home_path) == _resolved(acct.home_path) and a.provider == acct.provider for a in accounts):
+        save_removed([r for r in removed if r is not acct])
+        raise ActionError(f"{acct.name} is already registered (as another name)")
     if any(a.name == acct.name for a in accounts):
         raise ActionError(f"an account named {acct.name!r} already exists")
     accounts.append(acct)
@@ -247,6 +321,14 @@ def dispatch(action: str, args: dict) -> str:
         lines.append(f"scan: {len(added)} new, {len(existing)} already registered or removed"
                      + ("" if args.get("all") else "  (`scan all` also brings back removed ones)"))
         return "\n".join(lines)
+    if action == "add-profile":
+        acct = add_from_profile(args.get("provider", ""), args.get("profile", ""))
+        if args.get("log") is None:
+            return f"added {acct.name} ({acct.note}); run `login {acct.name}`"
+        from .login import start_wake
+
+        start_wake([acct.name], args["log"], force=True, on_done=args.get("on_done"))
+        return f"added {acct.name} · logging in with {acct.note}…"
     if action in ("wake", "login"):
         from .login import start_wake
 

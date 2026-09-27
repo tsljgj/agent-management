@@ -407,3 +407,64 @@ def test_update_install_swaps_and_verifies(tmp_path, monkeypatch):
     with pytest.raises(ProviderError):
         update.install(update.Release(10, "build-10", "n", "u", "s", "h"))
     assert exe.read_bytes() == payload and not (tmp_path / "redline.exe.download").exists()
+
+
+# ------------------------------------------------------------ "+" panel
+
+
+def test_candidates_offer_removed_and_unused_profiles(home):
+    make_chrome(home, {"Default": "main@gmail.com", "Profile 2": "work@gmail.com", "Profile 3": "exp@gmail.com",
+                       "Profile 4": ""})
+    make_claude(home / ".claude", email="main@gmail.com", cached_email=False)
+    (home / ".claude.json").write_text(json.dumps({"oauthAccount": {"emailAddress": "main@gmail.com"}}))
+    make_claude(home / ".claude-exp", email="exp@gmail.com")
+    actions.scan()
+    actions.remove_account("claude-exp")
+
+    c = actions.candidates("claude")
+    assert [r["name"] for r in c["removed"]] == ["claude-exp"] and c["removed"][0]["email"] == "exp@gmail.com"
+    # main@ is in use, exp@ is offered as a restore instead, Profile 4 has no Google account
+    assert [p["email"] for p in c["profiles"]] == ["work@gmail.com"]
+    # codex has nothing yet: every signed-in profile is a candidate
+    assert sorted(p["email"] for p in actions.candidates("codex")["profiles"]) == ["exp@gmail.com", "main@gmail.com",
+                                                                                   "work@gmail.com"]
+
+
+def test_add_from_profile_binds_and_logs_in(home, monkeypatch):
+    make_chrome(home, {"Profile 2": "zhihao.work@gmail.com"})
+    started = []
+    monkeypatch.setattr(login, "start_wake", lambda names, log, force=False, on_done=None: started.append((names, force)))
+    msg = actions.dispatch("add-profile", {"provider": "codex", "profile": "chrome:Profile 2", "log": lambda *a: None})
+    acct = load_accounts()[0]
+    assert (acct.name, acct.provider, acct.browser_profile, acct.note) == \
+        ("zhihao.work", "codex", "chrome:Profile 2", "zhihao.work@gmail.com")
+    assert started == [(["zhihao.work"], True)] and "logging in" in msg
+    # same Google account again -> unique name, no crash
+    actions.dispatch("add-profile", {"provider": "claude", "profile": "chrome:Profile 2"})
+    assert sorted(a.name for a in load_accounts()) == ["zhihao.work", "zhihao.work-2"]
+
+
+def test_readding_a_removed_account_clears_the_tombstone(home):
+    actions.add_account("claude", "work")
+    actions.remove_account("work")
+    assert actions.dispatch("removed", {}) != "nothing removed"
+    actions.add_account("claude", "work")  # same name + same dir
+    assert actions.dispatch("removed", {}) == "nothing removed"
+    added, existing = actions.scan()
+    assert [a.name for a in load_accounts()] == ["work"]
+
+
+def test_candidates_endpoint(home):
+    from redline.web import TOKEN_HEADER, ConsoleServer
+    import urllib.request
+
+    make_chrome(home, {"Default": "a@gmail.com"})
+    m = Monitor(collect=lambda a, refresh_tokens=False: [])
+    s = ConsoleServer(m, "127.0.0.1", 0).start_background()
+    try:
+        req = urllib.request.Request(s.url + "api/candidates?provider=codex", headers={TOKEN_HEADER: s.token})
+        with urllib.request.urlopen(req, timeout=5) as r:
+            doc = json.loads(r.read())
+        assert doc["profiles"][0]["email"] == "a@gmail.com"
+    finally:
+        s.shutdown()
