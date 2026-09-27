@@ -1,14 +1,20 @@
 name: windows-tray
 
+# Every green push to main or a claude/* branch is published as a GitHub release
+# tagged build-<run_number>; installed exes pick it up through the self-updater.
 on:
   push:
-    branches: ["**"]
+    branches: ["main", "claude/**"]
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: windows-tray-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -19,6 +25,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Stamp build number
+        shell: pwsh
+        run: |
+          @"
+          # Written by CI.
+          BUILD = ${{ github.run_number }}
+          COMMIT = "${{ github.sha }}"
+          "@ | Set-Content -Encoding utf8 src/redline/_build.py
 
       - name: Unit tests
         run: |
@@ -33,18 +48,47 @@ jobs:
         shell: pwsh
         run: |
           $env:REDLINE_SELFTEST_OUT = "$PWD\selftest.json"
+          $env:REDLINE_HOME = "$PWD\selftest-home"
           $p = Start-Process dist\redline.exe -ArgumentList "--self-test" -Wait -PassThru
           Get-Content selftest.json
           $r = Get-Content selftest.json | ConvertFrom-Json
           if ($p.ExitCode -ne 0 -or -not $r.ok -or -not $r.webview) { throw "self-test failed (exit $($p.ExitCode))" }
+          if ($r.build -ne ${{ github.run_number }}) { throw "build stamp missing (got $($r.build))" }
+
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $h = (Get-FileHash dist\redline.exe -Algorithm SHA256).Hash.ToLower()
+          "$h  redline.exe" | Set-Content -NoNewline -Encoding ascii dist\redline.exe.sha256
+          Get-Content dist\redline.exe.sha256
 
       - uses: actions/upload-artifact@v4
         with:
           name: redline-windows
-          path: dist/redline.exe
+          path: |
+            dist/redline.exe
+            dist/redline.exe.sha256
 
-      - name: Attach to release
+      - name: Publish release (auto-update channel)
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/claude/'))
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: redline build ${{ github.run_number }}
+          body: |
+            ${{ github.event.head_commit.message }}
+
+            branch `${{ github.ref_name }}` · commit ${{ github.sha }}
+          make_latest: true
+          files: |
+            dist/redline.exe
+            dist/redline.exe.sha256
+
+      - name: Attach to versioned release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/redline.exe
+          files: |
+            dist/redline.exe
+            dist/redline.exe.sha256

@@ -16,7 +16,9 @@ from .config import (
     redline_home,
     find_account,
     load_accounts,
+    load_removed,
     save_accounts,
+    save_removed,
     validate_name,
 )
 from .providers import has_credentials
@@ -50,6 +52,7 @@ def add_account(provider: str, name: str, home: str | None = None, note: str = "
 
 
 def remove_account(name: str) -> Account:
+    """Unregister an account (its login files stay on disk) and keep `scan` from re-adding it."""
     accounts = load_accounts()
     try:
         acct = find_account(accounts, name)
@@ -57,18 +60,40 @@ def remove_account(name: str) -> Account:
         raise ActionError(e.args[0]) from None
     accounts.remove(acct)
     save_accounts(accounts)
+    removed = [r for r in load_removed() if r.name != acct.name and _resolved(r.home_path) != _resolved(acct.home_path)]
+    removed.append(acct)
+    save_removed(removed)
     return acct
 
 
-def scan(register: bool = True) -> tuple[list[tuple[Account, "Found"]], list["Found"]]:
+def restore_account(name: str) -> Account:
+    removed = load_removed()
+    match = [r for r in removed if r.name == name]
+    if not match:
+        raise ActionError(f"no removed account named {name!r} (see `removed`)")
+    acct = match[0]
+    accounts = load_accounts()
+    if any(a.name == acct.name for a in accounts):
+        raise ActionError(f"an account named {acct.name!r} already exists")
+    accounts.append(acct)
+    save_accounts(accounts)
+    save_removed([r for r in removed if r is not acct])
+    return acct
+
+
+def scan(register: bool = True, include_removed: bool = False) -> tuple[list[tuple[Account, "Found"]], list["Found"]]:
     """Discover account dirs on this machine; register the new ones.
 
-    Returns (newly added, already registered).
+    Accounts the user removed are skipped unless include_removed.
+    Returns (newly added, already registered or removed).
     """
     from .discover import discover, suggest_name
 
     accounts = load_accounts()
+    removed = load_removed()
     known = {(a.provider, _resolved(a.home_path)) for a in accounts}
+    if not include_removed:
+        known |= {(a.provider, _resolved(a.home_path)) for a in removed}
     taken = {a.name for a in accounts}
     added, existing = [], []
     for f in discover():
@@ -82,6 +107,9 @@ def scan(register: bool = True) -> tuple[list[tuple[Account, "Found"]], list["Fo
         added.append((acct, f))
     if register and added:
         save_accounts(accounts)
+        if include_removed:
+            back = {(a.provider, _resolved(a.home_path)) for a, _ in added}
+            save_removed([r for r in removed if (r.provider, _resolved(r.home_path)) not in back])
     return added, existing
 
 
@@ -206,11 +234,18 @@ def dispatch(action: str, args: dict) -> str:
         return f"added {acct.provider}:{acct.name} -> {acct.home_path}{hint}"
     if action == "remove":
         acct = remove_account(args.get("name", ""))
-        return f"removed {acct.name} (files kept in {acct.home_path})"
+        return f"removed {acct.name} (login files kept; `scan` won't re-add it) -- undo: restore {acct.name}"
+    if action == "restore":
+        acct = restore_account(args.get("name", ""))
+        return f"restored {acct.name}"
+    if action == "removed":
+        rs = load_removed()
+        return "\n".join(f"{r.name:<18} {r.provider:<6} {r.note or '':<30} {r.home_path}" for r in rs) or "nothing removed"
     if action in ("import", "scan"):
-        added, existing = scan()
+        added, existing = scan(include_removed=bool(args.get("all")))
         lines = [f"+ {a.name:<18} {a.provider:<6} {f.email or '?':<30} {f.home}" for a, f in added]
-        lines.append(f"scan: {len(added)} new, {len(existing)} already registered")
+        lines.append(f"scan: {len(added)} new, {len(existing)} already registered or removed"
+                     + ("" if args.get("all") else "  (`scan all` also brings back removed ones)"))
         return "\n".join(lines)
     if action in ("wake", "login"):
         from .login import start_wake
@@ -235,6 +270,13 @@ def dispatch(action: str, args: dict) -> str:
         return bind(args.get("name", ""), args.get("profile", ""))
     if action == "profiles":
         return profiles_text()
+    if action == "update":  # the tray overrides this with a check-and-install version
+        from . import update
+
+        try:
+            return update.check()[1]
+        except Exception as e:
+            raise ActionError(f"update check failed: {e}") from None
     if action == "launch":
         return launch(args.get("name", ""))
     if action == "list":

@@ -68,6 +68,7 @@ def validate_name(name: str) -> None:
 DEFAULT_SETTINGS = {
     "auto_refresh": True,  # tray/serve: refresh expired tokens (with the CLI's lock) and write them back
     "interval": 120,
+    "auto_update": True,  # packaged exe: install new GitHub releases automatically
 }
 
 
@@ -94,6 +95,18 @@ def load_accounts() -> list[Account]:
 def save_accounts(accounts: list[Account]) -> None:
     data = _load_raw()
     data["accounts"] = [asdict(a) for a in accounts]
+    _save_raw(data)
+
+
+def load_removed() -> list[Account]:
+    """Accounts the user removed; `scan` must not bring them back."""
+    fields = set(Account.__dataclass_fields__)
+    return [Account(**{k: v for k, v in a.items() if k in fields}) for a in _load_raw().get("removed", [])]
+
+
+def save_removed(removed: list[Account]) -> None:
+    data = _load_raw()
+    data["removed"] = [asdict(a) for a in removed]
     _save_raw(data)
 
 

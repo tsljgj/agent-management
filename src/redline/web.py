@@ -16,6 +16,7 @@ from importlib import resources
 from urllib.parse import parse_qs, urlsplit
 
 from . import __version__, actions
+from ._build import BUILD
 from .monitor import Monitor
 
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
@@ -29,13 +30,14 @@ def console_html() -> str:
 
 class ConsoleServer:
     def __init__(self, monitor: Monitor, host: str = "127.0.0.1", port: int = 0, allow_actions: bool | None = None,
-                 extra_boot: dict | None = None):
+                 extra_boot: dict | None = None, extra_actions: dict | None = None):
         self.monitor = monitor
         self.token = secrets.token_urlsafe(24)
         self.loopback = host in LOOPBACK
         # Actions spawn processes on *this* machine: only offer them on a loopback bind.
         self.allow_actions = self.loopback if allow_actions is None else allow_actions
         self.extra_boot = extra_boot or {}
+        self.extra_actions = extra_actions or {}  # action name -> fn(body) -> message (tray-only features)
         self.httpd = ThreadingHTTPServer((host, port), self._handler())
         self.host = host
         self.port = self.httpd.server_address[1]
@@ -50,6 +52,7 @@ class ConsoleServer:
             "token": self.token,
             "actions": self.allow_actions,
             "version": __version__,
+            "build": BUILD,
             "platform": sys.platform,
             **self.extra_boot,
         }
@@ -124,12 +127,14 @@ class ConsoleServer:
                         mon = server.monitor
                         body["log"] = lambda level, text: mon.log(level, text, alert=level == "crit")
                         body["on_done"] = lambda: mon.poll()
-                    msg = actions.dispatch(str(body.get("action", "")), body)
+                    name = str(body.get("action", ""))
+                    handler = server.extra_actions.get(name)
+                    msg = handler(body) if handler else actions.dispatch(name, body)
                 except actions.ActionError as e:
                     return self._json(200, {"ok": False, "message": str(e)})
                 except (json.JSONDecodeError, OSError, ValueError) as e:
                     return self._json(200, {"ok": False, "message": f"{type(e).__name__}: {e}"})
-                if body.get("action") in ("add", "remove", "import", "scan", "bind"):
+                if body.get("action") in ("add", "remove", "restore", "import", "scan", "bind"):
                     threading.Thread(target=server.monitor.poll, daemon=True).start()
                 return self._json(200, {"ok": True, "message": msg})
 

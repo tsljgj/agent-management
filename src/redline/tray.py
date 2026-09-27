@@ -11,17 +11,19 @@ import json
 import os
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 import webbrowser
 
-from . import actions, autostart
+from . import actions, autostart, update
+from ._build import BUILD
 from .config import load_accounts, load_settings, redline_home, save_setting
 from .models import Usage
 from .monitor import Monitor
 from .web import TOKEN_HEADER, ConsoleServer
 
-WIN_W, WIN_H = 520, 760
+WIN_W, WIN_H = 520, 620
 TOOLTIP_MAX = 120  # Windows caps tray tooltips at 128 chars
 
 
@@ -129,10 +131,20 @@ class TrayApp:
                     checked=lambda _: autostart.is_enabled(),
                     visible=autostart.supported(),
                 ),
+                Item(lambda _: f"Check for updates (build {BUILD})" if BUILD else "Check for updates",
+                     lambda: threading.Thread(target=self.check_updates, args=(True,), daemon=True).start(),
+                     visible=update.is_packaged()),
+                Item(
+                    "Auto-update",
+                    self._toggle_auto_update,
+                    checked=lambda _: load_settings()["auto_update"],
+                    visible=update.is_packaged(),
+                ),
                 Item("Quit", self.quit),
             ),
         )
         monitor.listeners.append(self.on_update)
+        server.extra_actions["update"] = self._update_action
 
     # ------------------------------------------------------------ menu
 
@@ -239,6 +251,53 @@ class TrayApp:
         self.hide()
         return False  # cancel the close; keep living in the tray
 
+    # ------------------------------------------------------------ self-update
+
+    UPDATE_EVERY = 6 * 3600
+
+    def _update_loop(self):
+        time.sleep(45)  # let the first sync finish
+        while not self.quitting:
+            self.check_updates(manual=False)
+            time.sleep(self.UPDATE_EVERY)
+
+    def check_updates(self, manual: bool = False, install: bool | None = None) -> str:
+        try:
+            rel, status = update.check()
+        except Exception as e:
+            status = f"update check failed: {e}"
+            if manual:
+                self.monitor.log("warn", status)
+                self._notify(status)
+            return status
+        if rel is None:
+            if manual:
+                self.monitor.log("info", status)
+                self._notify(status)
+            return status
+        want = load_settings()["auto_update"] if install is None else install
+        if not (want and update.can_self_update()):
+            self.monitor.log("sys", status + "  (type `update` to install)")
+            self._notify(f"redline build {rel.build} is available")
+            return status
+        self.monitor.log("sys", f"installing build {rel.build}…")
+        self._notify(f"Updating redline to build {rel.build}…")
+        try:
+            update.install(rel, extra_args=["--show"] if self.visible else [])
+        except Exception as e:
+            msg = f"update failed: {e}"
+            self.monitor.log("error", msg)
+            self._notify(msg)
+            return msg
+        threading.Timer(0.5, self.quit).start()  # the new exe is already starting
+        return f"installing build {rel.build}, restarting…"
+
+    def _update_action(self, body: dict) -> str:
+        return self.check_updates(manual=True, install=True)
+
+    def _toggle_auto_update(self, icon=None, item=None):
+        save_setting("auto_update", not load_settings()["auto_update"])
+
     def quit(self, icon=None, item=None):
         self.quitting = True
         self.monitor.stop()
@@ -256,7 +315,15 @@ class TrayApp:
         except Exception:
             return None, None
 
-    def run(self) -> int:
+    def run(self, updated_from: int | None = None, show: bool = False) -> int:
+        threading.Thread(target=update.cleanup_old, daemon=True).start()
+        if updated_from is not None:
+            self.monitor.log("ok", f"updated: build {updated_from} -> {BUILD}")
+            self._notify(f"redline updated to build {BUILD}")
+        if update.is_packaged():
+            threading.Thread(target=self._update_loop, name="redline-update", daemon=True).start()
+        if show:
+            threading.Timer(1.5, self.show).start()
         if not load_accounts():  # first launch: pick up whatever is already on this machine
             try:
                 actions.scan()
@@ -275,7 +342,7 @@ class TrayApp:
             height=WIN_H,
             x=x,
             y=y,
-            min_size=(380, 480),
+            min_size=(380, 360),
             hidden=True,
             frameless=True,
             easy_drag=False,
@@ -317,6 +384,7 @@ def self_test(monitor: Monitor, server: ConsoleServer) -> int:
         with urllib.request.urlopen(req, timeout=5) as r:
             results["api"] = "usages" in json.loads(r.read())
         results["ok"] = all(v is True for k, v in results.items() if k != "webview")
+        results["build"] = BUILD
     except Exception as e:  # report instead of crashing (no console in --noconsole builds)
         results["ok"] = False
         results["error"] = f"{type(e).__name__}: {e}"
@@ -330,7 +398,8 @@ def self_test(monitor: Monitor, server: ConsoleServer) -> int:
     return 0 if results.get("ok") else 1
 
 
-def run_tray(interval: int | None = None, refresh_tokens: bool | None = None, self_test_mode: bool = False) -> int:
+def run_tray(interval: int | None = None, refresh_tokens: bool | None = None, self_test_mode: bool = False,
+             updated_from: int | None = None, show: bool = False) -> int:
     try:
         import pystray  # noqa: F401
         from PIL import Image  # noqa: F401
@@ -352,7 +421,13 @@ def run_tray(interval: int | None = None, refresh_tokens: bool | None = None, se
         return self_test(monitor, server)
 
     lock = _single_instance()
+    # Right after a self-update the old process may still be exiting: wait for it.
+    for _ in range(30 if updated_from is not None else 0):
+        if lock is not None:
+            break
+        time.sleep(0.5)
+        lock = _single_instance()
     if lock is None:
         _message_box("redline is already running in the system tray.")
         return 0
-    return TrayApp(monitor, server, webview).run()
+    return TrayApp(monitor, server, webview).run(updated_from=updated_from, show=show)

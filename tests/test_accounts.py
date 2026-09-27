@@ -294,3 +294,116 @@ def test_wake_flags_duplicate_identity(home, monkeypatch):
     logs = []
     login.WakeJob([accts[1]], lambda lv, t: logs.append((lv, t))).run()
     assert any(lv == "crit" and "same account as a" in t for lv, t in logs)
+
+
+# ------------------------------------------------------------ remove / restore
+
+
+def test_removed_accounts_stay_removed(home):
+    make_claude(home / ".claude-exp1", email="e1@x.com")
+    make_claude(home / ".claude-keep", email="k@x.com")
+    actions.scan()
+    assert sorted(a.name for a in load_accounts()) == ["claude-exp1", "claude-keep"]
+
+    msg = actions.dispatch("remove", {"name": "claude-exp1"})
+    assert "restore claude-exp1" in msg
+    assert [a.name for a in load_accounts()] == ["claude-keep"]
+    assert (home / ".claude-exp1" / ".credentials.json").exists()  # files untouched
+
+    added, _ = actions.scan()
+    assert added == []  # scan does not resurrect it
+    assert "claude-exp1" in actions.dispatch("removed", {})
+
+    actions.dispatch("restore", {"name": "claude-exp1"})
+    assert sorted(a.name for a in load_accounts()) == ["claude-exp1", "claude-keep"]
+    assert actions.dispatch("removed", {}) == "nothing removed"
+    with pytest.raises(actions.ActionError):
+        actions.dispatch("restore", {"name": "claude-exp1"})
+
+
+def test_scan_all_brings_back_removed(home):
+    make_codex(home / ".codex")
+    actions.scan()
+    actions.remove_account("codex")
+    added, _ = actions.scan(include_removed=True)
+    assert [a.name for a, _ in added] == ["codex"]
+    assert actions.dispatch("removed", {}) == "nothing removed"
+
+
+def test_cli_rm_many_and_restore(home, capsys):
+    for n in ("a", "b", "c"):
+        actions.add_account("claude", n)
+    assert cli.main(["rm", "a", "b"]) == 0
+    assert [a.name for a in load_accounts()] == ["c"]
+    assert cli.main(["restore", "b"]) == 0
+    assert sorted(a.name for a in load_accounts()) == ["b", "c"]
+
+
+# ------------------------------------------------------------ self-update
+
+
+def test_update_check_logic(monkeypatch):
+    from redline import update
+
+    monkeypatch.setattr(update, "is_packaged", lambda: False)
+    rel, msg = update.check()
+    assert rel is None and "source" in msg
+
+    monkeypatch.setattr(update, "is_packaged", lambda: True)
+    monkeypatch.setattr(update, "BUILD", 7)
+    doc = {"tag_name": "build-9", "name": "redline build 9", "html_url": "h", "assets": [
+        {"name": "redline.exe", "browser_download_url": "https://x/redline.exe"},
+        {"name": "redline.exe.sha256", "browser_download_url": "https://x/redline.exe.sha256"}]}
+    monkeypatch.setattr(update, "_get", lambda url, timeout=20: json.dumps(doc).encode())
+    rel, msg = update.check()
+    assert rel.build == 9 and rel.exe_url.endswith("redline.exe") and "7 -> 9" in msg
+
+    doc["tag_name"] = "build-7"
+    assert update.check() == (None, "up to date (build 7)")
+    doc["tag_name"] = "v1.0"
+    assert update.check()[0] is None
+    doc["tag_name"] = "build-10"
+    doc["assets"] = doc["assets"][:1]  # no checksum published -> never install
+    assert update.check()[0] is None
+
+
+def test_update_install_refuses_outside_packaged_windows(monkeypatch):
+    from redline import update
+    from redline.models import ProviderError
+
+    monkeypatch.setattr(update, "can_self_update", lambda: False)
+    with pytest.raises(ProviderError):
+        update.install(update.Release(9, "build-9", "n", "u", "s", "h"))
+
+
+def test_update_install_swaps_and_verifies(tmp_path, monkeypatch):
+    import hashlib
+    import subprocess
+    import sys as _sys
+
+    from redline import update
+    from redline.models import ProviderError
+
+    exe = tmp_path / "redline.exe"
+    exe.write_bytes(b"old build")
+    payload = b"new build"
+    monkeypatch.setattr(update, "can_self_update", lambda: True)
+    monkeypatch.setattr(_sys, "executable", str(exe))
+    monkeypatch.setattr(update, "_get", lambda url, timeout=20: (hashlib.sha256(payload).hexdigest() + "  redline.exe").encode())
+
+    def fake_download(url, dest):
+        dest.write_bytes(payload)
+        return hashlib.sha256(payload).hexdigest()
+
+    monkeypatch.setattr(update, "_download", fake_download)
+    launched = []
+    monkeypatch.setattr(subprocess, "Popen", lambda args, **kw: launched.append(args))
+    update.install(update.Release(9, "build-9", "n", "u", "s", "h"))
+    assert exe.read_bytes() == payload and (tmp_path / "redline.exe.old").read_bytes() == b"old build"
+    assert launched and launched[0][0] == str(exe) and "--updated-from" in launched[0]
+
+    # a corrupted download must leave the current exe alone
+    monkeypatch.setattr(update, "_download", lambda url, dest: dest.write_bytes(b"evil") or "bad")
+    with pytest.raises(ProviderError):
+        update.install(update.Release(10, "build-10", "n", "u", "s", "h"))
+    assert exe.read_bytes() == payload and not (tmp_path / "redline.exe.download").exists()

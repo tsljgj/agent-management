@@ -53,7 +53,7 @@ def cmd_scan(args) -> int:
             state = "logged in" if f.logged_in else "no token"
             print(f"{f.provider:<6} {state:<9} {f.email or '?':<32} {f.home}  [{f.source}]")
         return 0
-    added, existing = actions.scan()
+    added, existing = actions.scan(include_removed=args.all)
     for a, f in added:
         print(f"+ {a.name:<18} {a.provider:<6} {f.email or '?':<32} {f.home}")
     print(f"{len(added)} new, {len(existing)} already registered")
@@ -110,11 +110,25 @@ def cmd_list(args) -> int:
 
 
 def cmd_remove(args) -> int:
-    accounts = load_accounts()
-    acct = find_account(accounts, args.name)
-    accounts.remove(acct)
-    save_accounts(accounts)
-    print(f"removed {acct.name!r} from the registry (its directory {acct.home_path} was kept)")
+    for name in args.names:
+        try:
+            acct = actions.remove_account(name)
+        except actions.ActionError as e:
+            print(e, file=sys.stderr)
+            return 1
+        print(f"removed {acct.name!r} (files in {acct.home_path} kept; `scan` won't re-add it; undo: redline restore {acct.name})")
+    return 0
+
+
+def cmd_restore(args) -> int:
+    if not args.name:
+        print(actions.dispatch("removed", {}))
+        return 0
+    try:
+        print(f"restored {actions.restore_account(args.name).name}")
+    except actions.ActionError as e:
+        print(e, file=sys.stderr)
+        return 1
     return 0
 
 
@@ -204,7 +218,7 @@ def cmd_tray(args) -> int:
     from .tray import run_tray
 
     return run_tray(interval=args.interval, refresh_tokens=True if args.refresh_tokens else None,
-                    self_test_mode=args.self_test)
+                    self_test_mode=args.self_test, updated_from=args.updated_from, show=args.show)
 
 
 # ---------------------------------------------------------------- parser
@@ -224,6 +238,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("scan", aliases=["import"], help="find Claude/Codex accounts on this machine and register them")
     s.add_argument("--dry-run", action="store_true", help="only list what would be registered")
+    s.add_argument("--all", action="store_true", help="also re-add accounts you removed")
     s.set_defaults(func=cmd_scan)
 
     s = sub.add_parser("wake", help="bring all (or given) accounts online: refresh expired tokens, log in the rest")
@@ -247,9 +262,13 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("list", aliases=["ls"], help="list registered accounts")
     s.set_defaults(func=cmd_list)
 
-    s = sub.add_parser("remove", aliases=["rm"], help="unregister an account (keeps its files)")
-    s.add_argument("name")
+    s = sub.add_parser("remove", aliases=["rm"], help="unregister accounts (keeps their files; scan won't re-add them)")
+    s.add_argument("names", nargs="+")
     s.set_defaults(func=cmd_remove)
+
+    s = sub.add_parser("restore", help="bring back a removed account (no name: list removed ones)")
+    s.add_argument("name", nargs="?")
+    s.set_defaults(func=cmd_restore)
 
     refresh_help = (
         "if an access token has expired, refresh it and write the new tokens back to the "
@@ -297,6 +316,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("-n", "--interval", type=int, default=None, help="seconds between upstream fetches")
     s.add_argument("--refresh-tokens", action="store_true", help=refresh_help)
     s.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
+    s.add_argument("--updated-from", type=int, default=None, help=argparse.SUPPRESS)
+    s.add_argument("--show", action="store_true", help="open the console window right away")
     s.set_defaults(func=cmd_tray)
     return p
 

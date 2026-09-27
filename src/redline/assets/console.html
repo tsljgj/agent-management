@@ -2,222 +2,153 @@
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>REDLINE // console</title>
+<title>REDLINE//</title>
 <link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Orbitron:wght@600;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#030507; --panel:rgba(6,14,18,.82); --line:rgba(0,240,255,.22); --line-hot:rgba(0,240,255,.6);
-  --cyan:#00f0ff; --mag:#ff2bd6; --amber:#ffb000; --green:#39ff88; --red:#ff3b5c;
-  --text:#c9f6ff; --dim:#5e7f8a; --faint:#1b2b31;
-  --mono:"JetBrains Mono","Cascadia Mono","Cascadia Code",Consolas,"SF Mono",Menlo,monospace;
-  --disp:"Orbitron","JetBrains Mono",Consolas,monospace;
+  --bg:#07090b; --fg:#cfe9ee; --dim:#5a6f75; --faint:#1b2429; --line:#141c20;
+  --acc:#00e5ff; --red:#ff2e63; --ok:#3dff9e; --warn:#ffb020;
+  --mono:"JetBrains Mono","Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
-body{background:var(--bg);color:var(--text);font:12.5px/1.45 var(--mono);overflow:hidden;
-  display:flex;flex-direction:column;user-select:none;-webkit-font-smoothing:antialiased}
-::selection{background:var(--mag);color:#000}
-#rain{position:fixed;inset:0;z-index:0;opacity:.13;pointer-events:none}
-body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
-  background:linear-gradient(rgba(0,240,255,.035) 1px,transparent 1px) 0 0/100% 28px,
-             linear-gradient(90deg,rgba(0,240,255,.035) 1px,transparent 1px) 0 0/28px 100%,
-             radial-gradient(ellipse at 50% -10%,rgba(0,240,255,.10),transparent 60%),
-             radial-gradient(ellipse at 110% 110%,rgba(255,43,214,.10),transparent 55%)}
-body::after{content:"";position:fixed;inset:0;z-index:50;pointer-events:none;
-  background:repeating-linear-gradient(0deg,rgba(0,0,0,.22) 0 1px,transparent 1px 3px);mix-blend-mode:multiply}
-.frame{position:fixed;inset:0;z-index:60;pointer-events:none;border:1px solid var(--line-hot);
-  box-shadow:inset 0 0 24px rgba(0,240,255,.12)}
-body>*:not(#rain){position:relative;z-index:1}
+body{background:var(--bg);color:var(--fg);font:12px/1.5 var(--mono);display:flex;flex-direction:column;
+  overflow:hidden;user-select:none;-webkit-font-smoothing:antialiased}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9;
+  background:repeating-linear-gradient(0deg,rgba(255,255,255,.018) 0 1px,transparent 1px 3px)}
+body::before{content:"";position:fixed;left:0;right:0;top:0;height:1px;z-index:10;
+  background:linear-gradient(90deg,transparent,var(--acc) 30%,var(--red) 70%,transparent);box-shadow:0 0 12px var(--acc)}
+#rain{position:fixed;inset:0;opacity:.08;pointer-events:none;display:none}
+.rain #rain{display:block}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+::selection{background:var(--acc);color:var(--bg)}
 
-/* ---------- title bar ---------- */
-header{display:flex;align-items:center;gap:10px;padding:9px 10px 8px 14px;border-bottom:1px solid var(--line);
-  background:linear-gradient(90deg,rgba(0,240,255,.10),rgba(255,43,214,.06) 60%,transparent)}
-.logo{font:800 13px/1 var(--disp);letter-spacing:.18em;color:var(--cyan);text-shadow:0 0 8px rgba(0,240,255,.8);
-  position:relative;white-space:nowrap}
-.logo b{color:var(--red);text-shadow:0 0 8px rgba(255,59,92,.9)}
-.logo.glitch::before,.logo.glitch::after{content:attr(data-t);position:absolute;inset:0;overflow:hidden;opacity:0;background:var(--bg)}
-.logo.glitch::before{color:var(--mag);transform:translate(2px,0);clip-path:inset(0 0 55% 0);animation:gl 2.6s infinite steps(1)}
-.logo.glitch::after{color:var(--cyan);transform:translate(-2px,0);clip-path:inset(55% 0 0 0);animation:gl 3.1s infinite steps(1) reverse}
-@keyframes gl{0%,95%,98%,100%{opacity:0}96%{opacity:1;transform:translate(3px,-1px)}97%{opacity:1;transform:translate(-3px,1px)}}
-.sub{color:var(--dim);font-size:10.5px;letter-spacing:.12em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.spacer{flex:1}
-.led{display:flex;align-items:center;gap:6px;font-size:10.5px;letter-spacing:.14em;color:var(--green)}
-.led i{width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor;animation:blink 1.6s infinite}
-.led.bad{color:var(--red)}
-@keyframes blink{50%{opacity:.35}}
-#clock{color:var(--dim);font-size:11px;min-width:58px;text-align:right}
-.wbtn{display:none;background:none;border:1px solid var(--line);color:var(--dim);width:24px;height:22px;
-  font:600 12px/1 var(--mono);cursor:pointer}
-.wbtn:hover{color:var(--bg);background:var(--cyan);border-color:var(--cyan)}
-.wbtn.x:hover{background:var(--red);border-color:var(--red)}
-.native .wbtn{display:block}
+/* top bar: logo · tabs · clock · window buttons */
+header{display:flex;align-items:stretch;gap:18px;padding:0 8px 0 16px;height:40px;border-bottom:1px solid var(--line)}
+.logo{align-self:center;font-weight:800;letter-spacing:.2em;color:#fff}
+.logo b{color:var(--red);text-shadow:0 0 8px var(--red)}
+.tab{position:relative;letter-spacing:.16em;color:var(--dim);padding:0 2px;display:flex;align-items:center;gap:7px}
+.tab:hover{color:var(--fg)}
+.tab.on{color:var(--acc)}
+.tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:var(--acc);box-shadow:0 0 8px var(--acc)}
+.tab i{font-style:normal;color:var(--dim)}
+.tab .dot{width:5px;height:5px;border-radius:50%;background:var(--faint)}
+.sp{flex:1}
+#clock{align-self:center;color:var(--dim)}
+.win{display:none;align-self:center;width:24px;height:24px;color:var(--dim)}
+.win:hover{color:#fff}.win.x:hover{color:var(--red)}
+.native .win{display:block}
 
-/* ---------- hero stats ---------- */
-.hero{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));border-bottom:1px solid var(--line)}
-.stat{padding:8px 12px;border-right:1px solid var(--line);min-width:0}
-.stat:last-child{border-right:0}
-.stat .k{font-size:9.5px;letter-spacing:.2em;color:var(--dim)}
-.stat .v{font:800 17px/1.3 var(--disp);color:var(--cyan);text-shadow:0 0 10px rgba(0,240,255,.55);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.stat .v small{font:600 10.5px var(--mono);color:var(--dim);text-shadow:none;margin-left:4px}
+/* status line */
+.status{display:flex;align-items:center;gap:14px;padding:7px 16px;color:var(--dim);border-bottom:1px solid var(--line)}
+.status b{color:var(--fg);font-weight:400}
+.status .off{color:var(--red)}
+.tools{margin-left:auto;display:flex;gap:4px}
+.ic{width:26px;height:22px;color:var(--dim);border:1px solid transparent}
+.ic:hover{color:var(--acc);border-color:var(--faint)}
+.noact .ic.act,.noact .ra{display:none}
 
-/* ---------- nodes ---------- */
-main{flex:1;overflow-y:auto;padding:12px;display:grid;gap:12px;align-content:start;
-  grid-template-columns:repeat(auto-fill,minmax(330px,1fr))}
-main::-webkit-scrollbar,#log::-webkit-scrollbar{width:6px}
-main::-webkit-scrollbar-thumb,#log::-webkit-scrollbar-thumb{background:var(--faint)}
-.node{--c:var(--cyan);position:relative;background:var(--panel);padding:12px 14px 12px;
-  border:1px solid var(--line);clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,14px 100%,0 calc(100% - 14px));
-}
-.intro .node{animation:in .35s ease-out both}
-.node::before{content:"";position:absolute;left:0;top:0;width:3px;height:100%;background:var(--c);box-shadow:0 0 12px var(--c)}
-.node.claude{--c:var(--amber)} .node.codex{--c:var(--cyan)} .node.fault{--c:var(--red)}
-.node .btn.web{color:var(--mag);border-color:var(--mag)}
-.node .btn.web:hover{background:var(--mag);color:var(--bg);box-shadow:0 0 14px var(--mag)}
-@keyframes in{from{opacity:0;transform:translateY(6px)}}
-.nh{display:flex;align-items:baseline;gap:8px}
-.idx{color:var(--dim);font-size:10.5px}
-.prov{font:800 9.5px var(--disp);letter-spacing:.2em;color:var(--bg);background:var(--c);padding:2px 6px}
-.nm{font:800 14px var(--mono);color:#fff;letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.plan{margin-left:auto;font-size:10px;letter-spacing:.16em;color:var(--c);border:1px solid var(--c);padding:1px 6px;white-space:nowrap}
-.who{color:var(--dim);font-size:11px;margin:3px 0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.win{display:grid;grid-template-columns:62px 1fr 42px;align-items:center;gap:8px;margin:5px 0 1px}
-.wn{font-size:10.5px;letter-spacing:.12em;color:var(--text);text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bar{display:grid;grid-template-columns:repeat(24,1fr);gap:2px;height:11px}
-.bar i{background:var(--faint);transform:skewX(-18deg)}
-.bar i.on{background:var(--b);box-shadow:0 0 6px var(--b)}
-.bar i.tip{animation:tip 1s infinite}
-@keyframes tip{50%{opacity:.35}}
-.pct{font:800 13px var(--disp);text-align:right;color:var(--b);text-shadow:0 0 8px var(--b)}
-.rs{grid-column:2/4;font-size:10px;color:var(--dim);letter-spacing:.08em;margin-top:-1px}
-.rs b{color:var(--text);font-weight:600}
-.extra{font-size:10.5px;color:var(--dim);margin-top:6px}
-.extra b{color:var(--mag);font-weight:600}
-.err{color:var(--red);font-size:11px;margin:4px 0 2px;word-break:break-word;text-shadow:0 0 6px rgba(255,59,92,.5)}
-.err::before{content:"!! FAULT  ";font-weight:800;letter-spacing:.14em}
-.acts{display:flex;gap:6px;margin-top:10px}
-.btn{font:600 10.5px var(--mono);letter-spacing:.14em;color:var(--c);background:transparent;border:1px solid var(--c);
-  padding:4px 10px;cursor:pointer;text-transform:uppercase}
-.btn:hover{background:var(--c);color:var(--bg);box-shadow:0 0 14px var(--c)}
-.btn.ghost{color:var(--dim);border-color:var(--faint)}
-.btn.ghost:hover{background:var(--faint);color:var(--text);box-shadow:none}
-.noact .btn{display:none}
-.empty{grid-column:1/-1;padding:18px 16px;border:1px dashed var(--line);color:var(--dim);background:var(--panel)}
-.empty pre{color:var(--cyan);text-shadow:0 0 8px rgba(0,240,255,.6);font:12px/1.2 var(--mono);margin-bottom:12px}
-.empty code{color:var(--mag)}
+/* accounts */
+main{flex:1;overflow-y:auto;padding:4px 0}
+main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(--faint)}
+.acct{padding:10px 16px 9px;border-bottom:1px solid var(--line);position:relative;transition:opacity .2s,transform .2s}
+.acct:hover{background:rgba(0,229,255,.025)}
+.acct.gone{opacity:0;transform:translateX(24px)}
+.l1{display:flex;align-items:baseline;gap:10px;min-width:0}
+.nm{color:#fff;font-weight:600}
+.best .nm::before{content:"▸ ";color:var(--acc)}
+.who{color:var(--dim);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plan{color:var(--dim);letter-spacing:.08em}
+.age{color:var(--dim);min-width:34px;text-align:right}
+.age.stale{color:var(--warn)}
+.ra{display:flex;gap:10px;opacity:.28;transition:opacity .15s}
+.acct:hover .ra{opacity:1}
+.ra button{color:var(--dim)}
+.ra button:hover{color:var(--acc)}
+.ra .del:hover,.ra .del.arm{color:var(--red)}
+.ra .del.arm{opacity:1}
+.l2{display:grid;grid-template-columns:1fr 1fr;gap:4px 22px;margin-top:6px}
+.w{display:grid;grid-template-columns:20px 1fr 34px 50px;align-items:center;gap:8px;min-width:0}
+.wn{color:var(--dim)}
+.bar{display:grid;grid-template-columns:repeat(20,1fr);gap:2px;height:6px}
+.bar i{background:var(--faint)}
+.bar i.on{background:var(--c);box-shadow:0 0 4px var(--c)}
+.pct{text-align:right;color:var(--c);font-weight:600}
+.rt{text-align:right;color:var(--dim);white-space:nowrap}
+/* a spent window: solid red bar, "MAX" instead of a number, no animation */
+.w.max .bar i{background:var(--red);box-shadow:none}
+.w.max .pct{color:var(--bg);background:var(--red);text-align:center;font-weight:800;letter-spacing:.06em}
+.w.max .rt{color:var(--fg)}
+.l3{margin-top:4px;color:var(--dim);display:flex;gap:14px;flex-wrap:wrap}
+.l3 b{font-weight:400;color:var(--fg)}
+.err{margin-top:5px;color:var(--red);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.err button{color:var(--acc);margin-left:8px}
+.stale .bar i.on{opacity:.4;box-shadow:none}.stale .pct{opacity:.55}
+.empty{padding:28px 16px;color:var(--dim);line-height:1.9}
+.empty code{color:var(--acc)}
+.empty pre{color:var(--fg);margin-bottom:14px;line-height:1.15}
 
-/* ---------- sync strip / toolbar ---------- */
-.sync{display:flex;align-items:center;gap:10px;padding:6px 12px;border-bottom:1px solid var(--line);
-  background:rgba(0,0,0,.35);font-size:10.5px;letter-spacing:.08em;color:var(--dim);flex-wrap:wrap}
-.sync b{color:var(--text);font-weight:600}
-.sync .hot{color:var(--amber)}
-.sync .tools{margin-left:auto;display:flex;gap:5px}
-.tb{font:600 10px var(--mono);letter-spacing:.12em;color:var(--cyan);background:transparent;border:1px solid var(--line);
-  padding:3px 8px;cursor:pointer;text-transform:uppercase;white-space:nowrap}
-.tb:hover{border-color:var(--cyan);background:rgba(0,240,255,.12);box-shadow:0 0 10px rgba(0,240,255,.35)}
-.tb.on{background:var(--cyan);color:var(--bg);border-color:var(--cyan)}
-.tb.hot{color:var(--mag);border-color:rgba(255,43,214,.45)}
-.tb.hot:hover{background:rgba(255,43,214,.15);box-shadow:0 0 10px rgba(255,43,214,.45)}
-.noact .tb.act{display:none}
-
-/* ---------- list view (all accounts at a glance) ---------- */
-main.list{grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:8px}
-.row{--c:var(--cyan);position:relative;background:var(--panel);border:1px solid var(--line);padding:7px 10px 7px 13px;min-width:0;overflow:hidden}
-.row::before{content:"";position:absolute;left:0;top:0;width:3px;height:100%;background:var(--c);box-shadow:0 0 10px var(--c)}
-.row.claude{--c:var(--amber)} .row.codex{--c:var(--cyan)} .row.fault{--c:var(--red)}
-.intro .row{animation:in .3s ease-out both}
-.rh{display:flex;align-items:center;gap:7px;min-width:0}
-.rh .nm{font-size:13px}
-.rh .who{margin:0;flex:1;min-width:0}
-.rh .plan{margin-left:0;font-size:9.5px;padding:0 5px}
-.age{font-size:10px;color:var(--dim);white-space:nowrap}
-.age.stale{color:var(--amber)}
-.mini{font:600 9.5px var(--mono);letter-spacing:.1em;color:var(--c);background:transparent;border:1px solid var(--c);
-  padding:1px 6px;cursor:pointer;white-space:nowrap}
-.mini:hover{background:var(--c);color:var(--bg);box-shadow:0 0 10px var(--c)}
-.mini.web{color:var(--mag);border-color:var(--mag)}
-.mini.web:hover{background:var(--mag);color:var(--bg);box-shadow:0 0 10px var(--mag)}
-.noact .mini{display:none}
-.rw{display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;margin-top:5px}
-.mw{display:grid;grid-template-columns:22px minmax(40px,1fr) 34px 58px;align-items:center;gap:5px;min-width:0}
-.mw .wn{font-size:10px}
-.mw .bar{grid-template-columns:repeat(16,1fr);height:9px}
-.mw .pct{font-size:12px}
-.mw .rt{font-size:9.5px;color:var(--dim);white-space:nowrap;text-align:right}
-.mw .rt b{color:var(--text);font-weight:600}
-.chips{font-size:10px;color:var(--dim);margin-top:3px;display:flex;gap:10px;flex-wrap:wrap}
-.chips b{color:var(--text);font-weight:600}
-.chips i{font-style:normal;color:var(--mag)}
-.row .err{font-size:10.5px;margin:4px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.stale .bar i.on{opacity:.45;box-shadow:none}
-.stale .pct{opacity:.6}
-@media (max-width:560px){main.list{grid-template-columns:1fr}.rh .plan{display:none}.sync .tools{margin-left:0}}
-@media (max-width:420px){.rw{grid-template-columns:1fr}}
-
-/* ---------- log + prompt ---------- */
-#log{height:118px;overflow-y:auto;padding:6px 12px;border-top:1px solid var(--line);background:rgba(0,0,0,.45);
-  font-size:11px;user-select:text}
-#log div{white-space:pre-wrap;word-break:break-word}
-#log .t{color:var(--faint);margin-right:6px}
-#log .info{color:var(--dim)} #log .ok{color:var(--green)} #log .warn{color:var(--amber)}
-#log .crit,#log .error{color:var(--red)} #log .echo{color:var(--text)} #log .out{color:var(--cyan)} #log .sys{color:var(--mag)}
-.prompt{display:flex;align-items:center;gap:8px;padding:8px 12px 10px;border-top:1px solid var(--line);background:rgba(0,0,0,.6)}
-.ps{color:var(--green);white-space:nowrap;text-shadow:0 0 6px rgba(57,255,136,.6)}
-.ps b{color:var(--cyan)}
-#cmd{flex:1;background:none;border:0;outline:0;color:#fff;font:12.5px var(--mono);caret-color:var(--mag);min-width:0}
+/* log + prompt */
+#log{max-height:0;overflow-y:auto;transition:max-height .2s;border-top:1px solid var(--line);background:rgba(0,0,0,.35);user-select:text}
+.logopen #log{max-height:150px;padding:6px 16px}
+#log div{white-space:pre-wrap;word-break:break-word;color:var(--dim)}
+#log .t{color:var(--faint);margin-right:8px}
+.out{color:var(--acc)!important}.ok{color:var(--ok)!important}.warn{color:var(--warn)!important}
+.crit,.error{color:var(--red)!important}.echo{color:var(--fg)!important}.sys{color:var(--fg)!important}
+#last{padding:4px 16px 0;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;min-height:18px}
+.logopen #last{display:none}
+.prompt{display:flex;gap:8px;padding:6px 16px 10px;align-items:center}
+.ps{color:var(--red)}
+#cmd{flex:1;background:none;border:0;outline:0;color:#fff;font:inherit;caret-color:var(--acc);min-width:0}
 #cmd::placeholder{color:var(--faint)}
-#toast{position:fixed;left:50%;top:48px;transform:translate(-50%,-20px);opacity:0;z-index:70;pointer-events:none;
-  padding:8px 14px;border:1px solid var(--red);color:var(--red);background:rgba(20,0,6,.92);font-weight:800;letter-spacing:.12em;
-  box-shadow:0 0 22px rgba(255,59,92,.45);transition:.25s;white-space:nowrap;max-width:92vw;overflow:hidden;text-overflow:ellipsis}
-#toast.show{opacity:1;transform:translate(-50%,0)}
-#toast.ok{border-color:var(--green);color:var(--green);background:rgba(0,20,8,.92);box-shadow:0 0 22px rgba(57,255,136,.4)}
-@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
-@media (max-width:380px){main{grid-template-columns:1fr}.sub{display:none}}
+#toast{position:fixed;left:16px;right:16px;top:48px;padding:8px 12px;border-left:2px solid var(--red);background:#12070b;
+  color:var(--red);opacity:0;transform:translateY(-6px);transition:.2s;pointer-events:none;z-index:20}
+#toast.show{opacity:1;transform:none}
+#toast.good{border-color:var(--ok);color:var(--ok);background:#06120c}
+@media (max-width:460px){.l2{grid-template-columns:1fr}.plan{display:none}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
 <canvas id="rain"></canvas>
-<div class="frame"></div>
 <header class="pywebview-drag-region">
-  <div class="logo glitch" data-t="REDLINE//">REDLINE<b>//</b></div>
-  <div class="sub">NETRUNNER CONSOLE</div>
-  <div class="spacer"></div>
-  <div class="led" id="led"><i></i><span>LINK</span></div>
-  <div id="clock">--:--:--</div>
-  <button class="wbtn" id="bmin" title="Minimize">_</button>
-  <button class="wbtn x" id="bhide" title="Hide to tray (Esc)">×</button>
+  <div class="logo">REDLINE<b>//</b></div>
+  <button class="tab" data-tab="claude"><span class="dot"></span>CLAUDE <i id="nClaude">0</i></button>
+  <button class="tab" data-tab="codex"><span class="dot"></span>CODEX <i id="nCodex">0</i></button>
+  <div class="sp"></div>
+  <div id="clock">--:--</div>
+  <button class="win" id="bmin" title="minimize">_</button>
+  <button class="win x" id="bhide" title="hide to tray (Esc)">×</button>
 </header>
-<section class="hero" id="hero"></section>
-<section class="sync">
-  <span>SYNC <b id="syncAt">--:--:--</b> <span id="syncAgo"></span></span>
-  <span>NEXT <b id="syncNext">--</b></span>
-  <span id="autoRef" title="expired tokens are refreshed automatically"></span>
+<div class="status">
+  <span id="sync">syncing…</span>
   <div class="tools">
-    <button class="tb" id="vList" title="all accounts at a glance">≡ LIST</button>
-    <button class="tb" id="vCards" title="big cards">▦ CARDS</button>
-    <button class="tb" id="bSync" title="refresh now (r)">⟳ SYNC</button>
-    <button class="tb act" id="bScan" title="find accounts on this computer">⌕ SCAN</button>
-    <button class="tb hot act" id="bWake" title="refresh expired tokens and log in every account">⚡ WAKE ALL</button>
+    <button class="ic" id="bSync" title="sync now">⟳</button>
+    <button class="ic act" id="bScan" title="scan this computer for accounts">⌕</button>
+    <button class="ic act" id="bWake" title="wake all: refresh tokens, log in the rest">⚡</button>
   </div>
-</section>
-<main id="grid"></main>
+</div>
+<main id="list"></main>
+<div id="last"></div>
 <div id="log"></div>
-<div class="prompt"><span class="ps">redline@<b>local</b>:~$</span>
-  <input id="cmd" autocomplete="off" spellcheck="false" placeholder="type `help`"></div>
+<div class="prompt"><span class="ps">›</span><input id="cmd" autocomplete="off" spellcheck="false" placeholder="help"></div>
 <div id="toast"></div>
 <script>
 const BOOT = /*__BOOT__*/{};
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const pad = n => String(n).padStart(2, "0");
-let DATA = {usages: [], fetched_at: 0}, lastEvent = 0, lastFetched = -1, linkOk = true;
+const store = {get(k, d) { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } },
+               set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }};
+let DATA = {usages: []}, lastEvent = 0, lastFetched = -1, linkOk = true;
+let TAB = store.get("redline.tab", "claude");
 
-/* ---------------- api ---------------- */
+/* ---------- api ---------- */
 async function api(path, opts = {}) {
-  const r = await fetch(path, {...opts, headers: {"X-Redline-Token": BOOT.token, "Content-Type": "application/json", ...(opts.headers||{})}});
-  if (!r.ok && r.status !== 200) throw new Error("HTTP " + r.status);
+  const r = await fetch(path, {...opts, headers: {"X-Redline-Token": BOOT.token, "Content-Type": "application/json"}});
+  if (!r.ok) throw new Error("HTTP " + r.status);
   return r.json();
 }
 async function pull(force) {
@@ -229,11 +160,8 @@ async function pull(force) {
       log(e.text, e.level, new Date(e.ts));
       if (e.alert) toast(e.text, e.level === "ok");
     }
-    if (d.fetched_at !== lastFetched) {
-      const first = !DATA.fetched_at && d.fetched_at;
-      lastFetched = d.fetched_at; DATA = d; render();
-      if (first) { $("#grid").classList.add("intro"); setTimeout(() => $("#grid").classList.remove("intro"), 1500); }
-    }
+    DATA = d;
+    if (d.fetched_at !== lastFetched) { lastFetched = d.fetched_at; render(); }
   } catch (e) { setLink(false); }
 }
 async function action(body) {
@@ -241,144 +169,100 @@ async function action(body) {
   try {
     const r = await api("api/action", {method: "POST", body: JSON.stringify(body)});
     log(r.message, r.ok ? "out" : "error");
-    if (r.ok && ["add","remove","scan","bind"].includes(body.action)) setTimeout(() => pull(false), 1500);
+    if (["add", "remove", "restore", "scan", "bind"].includes(body.action)) setTimeout(() => pull(false), 1200);
+    return r.ok;
   } catch (e) { log("action failed: " + e.message, "error"); }
 }
 function setLink(ok) {
   if (ok === linkOk) return; linkOk = ok;
-  $("#led").classList.toggle("bad", !ok); $("#led span").textContent = ok ? "LINK" : "NO LINK";
-  log(ok ? "uplink restored" : "uplink lost -- retrying", ok ? "ok" : "error");
+  log(ok ? "link restored" : "link lost, retrying", ok ? "ok" : "error");
 }
 
-/* ---------------- render ---------------- */
-const colorFor = p => p == null ? "var(--dim)" : p >= 90 ? "var(--red)" : p >= 70 ? "var(--amber)" : "var(--green)";
-let VIEW = "list";
-try { VIEW = localStorage.getItem("redline.view") || "list"; } catch (e) {}
-function span(sec) {
-  sec = Math.max(0, Math.floor(sec));
-  const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60), x = sec % 60;
-  return d ? `${d}D ${pad(h)}H` : h ? `${pad(h)}:${pad(m)}:${pad(x)}` : `${pad(m)}:${pad(x)}`;
+/* ---------- formatting ---------- */
+const lvl = p => p == null ? "var(--dim)" : p >= 90 ? "var(--red)" : p >= 70 ? "var(--warn)" : "var(--ok)";
+const spent = p => p != null && p >= 99.5;
+function span(s) {
+  s = Math.max(0, Math.floor(s));
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? `${d}d${pad(h)}h` : `${pad(h)}:${pad(m)}`;
 }
-function ago(sec) {
-  sec = Math.max(0, Math.floor(sec));
-  return sec < 60 ? `${sec}s` : sec < 3600 ? `${Math.floor(sec / 60)}m` : `${Math.floor(sec / 3600)}h${pad(Math.floor(sec % 3600 / 60))}m`;
+function ago(s) {
+  s = Math.max(0, Math.floor(s));
+  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h`;
 }
-function countdown(iso, compact) {
-  if (!iso) return "";
-  const s = (new Date(iso) - Date.now()) / 1000;
-  if (s <= 0) return "<b>RESETTING</b>";
-  return (compact ? "T-<b>" : "RESET T-<b>") + span(s) + "</b>";
+const until = iso => iso ? ((new Date(iso) - Date.now()) / 1000 > 0 ? "↻" + span((new Date(iso) - Date.now()) / 1000) : "↻now") : "";
+const pct = p => p == null ? "?" : spent(p) ? "MAX" : Math.round(p) + "%";
+function bar(p) {
+  const k = p == null ? 0 : Math.min(20, Math.floor(Math.max(0, p) / 5));   // floor: a bar is never fuller than the usage
+  return `<div class="bar">${Array.from({length: 20}, (_, i) => `<i${i < k ? ' class="on"' : ""}></i>`).join("")}</div>`;
 }
-function bar(p, n = 24) {
-  const k = p == null ? 0 : Math.round(Math.min(100, Math.max(0, p)) / 100 * n);
-  let h = "";
-  for (let i = 0; i < n; i++) h += `<i class="${i < k ? "on" : ""}${i === k - 1 && p >= 90 ? " tip" : ""}"></i>`;
-  return `<div class="bar">${h}</div>`;
-}
-function short(u) { return u.windows.find(w => w.name === "5h") || u.windows[0]; }
-const live = u => u.ok || u.stale;
+const short = u => u.windows.find(w => w.name === "5h") || u.windows[0];
 function best(provider) {
-  const c = DATA.usages.filter(u => u.ok && u.provider === provider && u.windows.length &&
-    !u.windows.some(w => w.used_percent >= 100));
+  const c = DATA.usages.filter(u => u.ok && u.provider === provider && u.windows.length && !u.windows.some(w => spent(w.used_percent)));
   c.sort((a, b) => (short(a)?.used_percent ?? 999) - (short(b)?.used_percent ?? 999));
   return c[0];
 }
-const pctTxt = p => p == null ? "?" : Math.round(p);
-const ageOf = u => (Date.now() - new Date(u.fetched_at)) / 1000;
-function acctButtons(u, cls) {
+
+/* ---------- render ---------- */
+function row(u, bestName) {
   const n = esc(u.account);
-  return `<button class="${cls} web" data-act="web" data-name="${n}" title="open ${u.provider === "codex" ? "chatgpt.com" : "claude.ai"} in this account's browser profile">◉ web</button>` +
-    `<button class="${cls}" data-act="${u.ok || u.stale ? "jack" : "login"}" data-name="${n}" title="${u.ok || u.stale ? "open a terminal as this account" : "log in"}">${u.ok || u.stale ? "⏵ jack in" : "⚡ login"}</button>`;
-}
-function hero(us) {
-  const peaks = us.filter(live).map(short).filter(Boolean).map(w => w.used_percent).filter(v => v != null);
-  const peak = peaks.length ? Math.max(...peaks) : null;
-  let h = `<div class="stat"><div class="k">NODES</div><div class="v">${us.filter(u => u.ok).length}<small>/ ${us.length}</small></div></div>
-    <div class="stat"><div class="k">PEAK 5H</div><div class="v" style="color:${colorFor(peak)};text-shadow:0 0 10px ${colorFor(peak)}">${peak == null ? "--" : Math.round(peak) + "%"}</div></div>`;
-  for (const p of ["claude", "codex"]) {
-    if (!us.some(u => u.provider === p)) continue;
-    const b = best(p);
-    h += `<div class="stat"><div class="k">BEST ${p.toUpperCase()}</div><div class="v" title="${esc(b?.account)}">${b ? esc(b.account) : "--"}${b ? `<small>${Math.round(short(b)?.used_percent ?? 0)}%</small>` : ""}</div></div>`;
-  }
-  $("#hero").innerHTML = h;
-}
-function rowHTML(u, i) {
   const main = [u.windows.find(w => w.name === "5h"), u.windows.find(w => w.name === "7d")].filter(Boolean);
   if (!main.length) main.push(...u.windows.slice(0, 2));
   const rest = u.windows.filter(w => !main.includes(w));
-  const age = u.stale ? `<span class="age stale" data-ago="${esc(u.fetched_at)}" data-pre="STALE ">STALE ${ago(ageOf(u))}</span>`
-    : u.ok ? `<span class="age" data-ago="${esc(u.fetched_at)}" data-pre="⟳">⟳${ago(ageOf(u))}</span>` : "";
-  let h = `<div class="row ${esc(u.provider)} ${u.ok ? "" : "fault"} ${u.stale ? "stale" : ""}" style="animation-delay:${i * 50}ms">
-    <div class="rh"><span class="idx">${pad(i + 1)}</span><span class="prov">${esc(u.provider.toUpperCase())}</span>
-    <span class="nm">${esc(u.account)}</span><span class="who" title="${esc(u.email)}">${esc(u.email || "")}</span>
-    ${u.plan ? `<span class="plan">${esc(String(u.plan).toUpperCase())}</span>` : ""}${age}${acctButtons(u, "mini")}</div>`;
-  if (main.length) {
-    h += `<div class="rw">` + main.map(w => `<div class="mw" style="--b:${colorFor(w.used_percent)}">
-      <span class="wn">${esc(w.name.toUpperCase())}</span>${bar(w.used_percent, 16)}<span class="pct">${pctTxt(w.used_percent)}%</span>
-      <span class="rt" data-reset="${esc(w.resets_at || "")}" data-compact="1" title="${w.resets_at ? new Date(w.resets_at).toLocaleString() : ""}">${countdown(w.resets_at, true)}</span></div>`).join("") + `</div>`;
-  }
-  const chips = rest.map(w => `<span>${esc(w.name.toUpperCase())} <b style="color:${colorFor(w.used_percent)}">${pctTxt(w.used_percent)}%</b></span>`)
-    .concat(Object.entries(u.extra || {}).map(([k, v]) => `<span>${esc(k)} <i>${esc(v)}</i></span>`));
-  if (chips.length) h += `<div class="chips">${chips.join("")}</div>`;
-  if (!u.ok) h += `<div class="err" title="${esc(u.error)}">${esc(u.error)}</div>`;
-  return h + "</div>";
-}
-function cardHTML(u, i) {
-  let h = `<div class="node ${esc(u.provider)} ${u.ok ? "" : "fault"} ${u.stale ? "stale" : ""}" style="animation-delay:${i * 60}ms">
-    <div class="nh"><span class="idx">${pad(i + 1)}</span><span class="prov">${esc(u.provider.toUpperCase())}</span>
-    <span class="nm">${esc(u.account)}</span>${u.plan ? `<span class="plan">${esc(String(u.plan).toUpperCase())}</span>` : ""}</div>
-    <div class="who">${esc(u.email || (u.ok ? "unknown identity" : "--"))}</div>`;
-  if (!u.ok) h += `<div class="err">${esc(u.error)}</div>`;
-  for (const w of u.windows) {
-    h += `<div class="win" style="--b:${colorFor(w.used_percent)}"><span class="wn" title="${esc(w.name)}">${esc(w.name)}</span>${bar(w.used_percent)}
-      <span class="pct">${pctTxt(w.used_percent)}%</span>
-      <span class="rs" data-reset="${esc(w.resets_at || "")}">${countdown(w.resets_at)}</span></div>`;
-  }
-  for (const [k, v] of Object.entries(u.extra || {})) h += `<div class="extra">${esc(k)} <b>${esc(v)}</b></div>`;
-  return h + `<div class="acts">${acctButtons(u, "btn")}</div></div>`;
+  const age = u.stale ? `<span class="age stale" data-ago="${esc(u.fetched_at)}" data-pre="stale ">stale</span>`
+            : u.ok ? `<span class="age" data-ago="${esc(u.fetched_at)}" data-pre=""></span>` : `<span class="age"></span>`;
+  let h = `<div class="acct${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}" data-name="${n}">
+    <div class="l1"><span class="nm">${n}</span><span class="who" title="${esc(u.email)}">${esc(u.email || "")}</span>
+    ${u.plan ? `<span class="plan">${esc(u.plan)}</span>` : ""}${age}
+    <span class="ra"><button data-act="web" title="open in this account's browser profile">web</button><button data-act="jack" title="terminal as this account">jack</button><button class="del" data-act="del" title="remove (click twice)">✕</button></span></div>`;
+  if (main.length) h += `<div class="l2">` + main.map(w => `<div class="w${spent(w.used_percent) ? " max" : ""}" style="--c:${lvl(w.used_percent)}">
+      <span class="wn">${esc(w.name)}</span>${bar(w.used_percent)}<span class="pct">${pct(w.used_percent)}</span>
+      <span class="rt" data-reset="${esc(w.resets_at || "")}" title="${w.resets_at ? "resets " + new Date(w.resets_at).toLocaleString() : ""}">${until(w.resets_at)}</span></div>`).join("") + `</div>`;
+  const extra = rest.map(w => `${esc(w.name)} <b style="color:${lvl(w.used_percent)}">${pct(w.used_percent)}</b>`)
+    .concat(Object.entries(u.extra || {}).map(([k, v]) => `${esc(k)} <b>${esc(v)}</b>`));
+  if (extra.length) h += `<div class="l3">${extra.map(x => `<span>${x}</span>`).join("")}</div>`;
+  if (!u.ok) h += `<div class="err" title="${esc(u.error)}">! ${esc(u.error)}${u.stale ? "" : `<button data-act="login">login</button>`}</div>`;
+  return h + `</div>`;
 }
 function render() {
-  const us = DATA.usages;
-  hero(us);
-  $("#grid").className = VIEW === "list" ? "list" : "";
-  $("#vList").classList.toggle("on", VIEW === "list"); $("#vCards").classList.toggle("on", VIEW !== "list");
-  $("#autoRef").innerHTML = DATA.auto_refresh ? "AUTO-REFRESH <b>ON</b>" : "AUTO-REFRESH <b class=hot>OFF</b>";
-  if (!us.length && !DATA.fetched_at) {
-    $("#grid").innerHTML = `<div class="empty">SCANNING NODES<span class="led" style="display:inline-flex;margin-left:8px"><i></i></span></div>`;
+  const us = DATA.usages || [];
+  for (const p of ["claude", "codex"]) {
+    const mine = us.filter(u => u.provider === p);
+    $(`#n${p[0].toUpperCase() + p.slice(1)}`).textContent = mine.length;
+    const peak = Math.max(-1, ...mine.filter(u => u.ok || u.stale).map(short).filter(Boolean).map(w => w.used_percent ?? -1));
+    const bad = mine.some(u => !u.ok && !u.stale);
+    const dot = document.querySelector(`.tab[data-tab="${p}"] .dot`);
+    dot.style.background = bad ? "var(--red)" : peak < 0 ? "var(--faint)" : lvl(peak);
+    dot.style.boxShadow = peak >= 90 || bad ? "0 0 6px var(--red)" : "none";
+  }
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.tab === TAB));
+  const mine = us.filter(u => u.provider === TAB);
+  if (!DATA.fetched_at && !mine.length) { $("#list").innerHTML = `<div class="empty">scanning…</div>`; return; }
+  if (!mine.length) {
+    $("#list").innerHTML = `<div class="empty"><pre>█▀█ █▀▀ █▀▄ █░░ █ █▄░█ █▀▀
+█▀▄ ██▄ █▄▀ █▄▄ █ █░▀█ ██▄</pre>no ${TAB} accounts yet.<br>
+› <code>scan</code>  find logins on this computer<br>› <code>add ${TAB} &lt;name&gt;</code>  then <code>login &lt;name&gt;</code></div>`;
     return;
   }
-  if (!us.length) {
-    $("#grid").innerHTML = `<div class="empty"><pre> █▀█ █▀▀ █▀▄ █░░ █ █▄░█ █▀▀
- █▀▄ ██▄ █▄▀ █▄▄ █ █░▀█ ██▄</pre>
-      NO NODES REGISTERED.<br><br>
-      &gt; <code>scan</code> &nbsp;— find every Claude / Codex login on this computer<br>
-      &gt; <code>wake</code> &nbsp;— bring them all online (refresh / log in)<br>
-      &gt; <code>add claude work</code> &nbsp;— new isolated account, then <code>login work</code></div>`;
-    return;
-  }
-  $("#grid").innerHTML = us.map(VIEW === "list" ? rowHTML : cardHTML).join("");
+  const b = best(TAB);
+  $("#list").innerHTML = mine.map(u => row(u, mine.length > 1 ? b?.account : null)).join("");
   tick();
 }
-function setView(v) {
-  VIEW = v === "cards" ? "cards" : "list";
-  try { localStorage.setItem("redline.view", VIEW); } catch (e) {}
-  render();
-}
+function setTab(t) { TAB = t === "codex" ? "codex" : "claude"; store.set("redline.tab", TAB); render(); }
 function tick() {
   const n = new Date();
-  $("#clock").textContent = `${pad(n.getHours())}:${pad(n.getMinutes())}:${pad(n.getSeconds())}`;
-  document.querySelectorAll("[data-reset]").forEach(el => { el.innerHTML = countdown(el.dataset.reset, el.dataset.compact); });
+  $("#clock").textContent = `${pad(n.getHours())}:${pad(n.getMinutes())}`;
+  document.querySelectorAll("[data-reset]").forEach(el => { el.textContent = until(el.dataset.reset); });
   document.querySelectorAll("[data-ago]").forEach(el => { el.textContent = el.dataset.pre + ago((Date.now() - new Date(el.dataset.ago)) / 1000); });
   if (DATA.fetched_at) {
-    const at = new Date(DATA.fetched_at * 1000);
-    $("#syncAt").textContent = `${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`;
-    $("#syncAgo").textContent = `(${ago(Date.now() / 1000 - DATA.fetched_at)} ago)`;
-    const left = (DATA.next_at || 0) - Date.now() / 1000;
-    $("#syncNext").textContent = DATA.next_at ? (left > 0 ? span(left) : "now") : "--";
+    const at = new Date(DATA.fetched_at * 1000), left = (DATA.next_at || 0) - Date.now() / 1000;
+    $("#sync").innerHTML = `synced <b>${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}</b> · ${ago(Date.now() / 1000 - DATA.fetched_at)} ago`
+      + (DATA.next_at ? ` · next <b>${left > 0 ? span(left) : "now"}</b>` : "")
+      + (linkOk ? "" : ` · <span class="off">offline</span>`);
   }
 }
 
-/* ---------------- log / toast ---------------- */
+/* ---------- log ---------- */
 function log(text, level = "info", when = new Date()) {
   const el = $("#log"), t = `${pad(when.getHours())}:${pad(when.getMinutes())}:${pad(when.getSeconds())}`;
   for (const line of String(text).split("\n")) {
@@ -386,157 +270,141 @@ function log(text, level = "info", when = new Date()) {
     d.innerHTML = `<span class="t">${t}</span><span class="${esc(level)}">${esc(line)}</span>`;
     el.appendChild(d);
   }
-  while (el.children.length > 400) el.firstChild.remove();
+  while (el.children.length > 300) el.firstChild.remove();
   el.scrollTop = el.scrollHeight;
+  $("#last").innerHTML = `<span class="${esc(level)}">${esc(String(text).split("\n").pop())}</span>`;
 }
-let toastTimer;
-function toast(text, ok) {
-  const t = $("#toast"); t.textContent = (ok ? "▲ " : "⚠ ") + text.toUpperCase();
-  t.className = "show" + (ok ? " ok" : ""); clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.className = ok ? "ok" : "", 4200);
+const openLog = on => document.body.classList.toggle("logopen", on);
+let toastT;
+function toast(text, good) {
+  const t = $("#toast"); t.textContent = text; t.className = "show" + (good ? " good" : "");
+  clearTimeout(toastT); toastT = setTimeout(() => t.className = good ? "good" : "", 4000);
 }
 
-/* ---------------- command line ---------------- */
+/* ---------- commands ---------- */
 const HELP = [
-  ["help", "this list"], ["ls", "list nodes (accounts)"], ["refresh | r", "force a sync now"],
-  ["scan", "find every Claude/Codex login on this computer"],
-  ["wake [names..]", "bring accounts online: refresh tokens, log in the rest"], ["wake cancel", "stop a running wake"],
-  ["login <name>", "log in again (browser opens in its Chrome profile)"],
-  ["web <name>", "open claude.ai / chatgpt.com in its Chrome profile"],
-  ["jack <name>", "open a terminal running claude/codex as <name>"],
-  ["profiles", "list Chrome/Edge profiles + their Google accounts"],
-  ["bind <name> <email|profile>", "pin an account to a browser profile"],
-  ["best [claude|codex]", "node with the most 5h headroom"],
-  ["add <claude|codex> <name>", "register a new isolated account"], ["rm <name> -y", "unregister (files are kept)"],
-  ["view list|cards", "compact list or big cards"], ["rain [on|off]", "toggle digital rain"],
-  ["clear", "clear this log"], ["hide | exit", "back to the tray  (Esc)"],
+  ["claude | codex", "switch tab (Alt+1/2)"], ["ls", "accounts in this tab"], ["r | sync", "sync now"],
+  ["scan [all]", "find logins on this PC"], ["wake [names|cancel]", "refresh / log in (tab)"],
+  ["login <name>", "log in via its Chrome"], ["web <name>", "open its web page"],
+  ["jack <name>", "terminal as <name>"], ["best", "most 5h headroom"],
+  ["rm <name..> -y", "remove (files kept)"], ["removed", "list removed"], ["restore <name>", "undo a removal"],
+  ["add <claude|codex> <n>", "new isolated account"], ["profiles", "Chrome profiles"],
+  ["bind <name> <email>", "pin a Chrome profile"], ["update", "check for a new build"], ["rain | clear | hide", ""],
 ];
-const COMMANDS = ["help","ls","refresh","scan","wake","login","web","jack","profiles","bind","best","add","rm","view","rain","clear","hide"];
+const COMMANDS = ["help","claude","codex","ls","sync","scan","wake","login","web","jack","best","rm","removed","restore","add","profiles","bind","update","rain","clear","hide"];
+const tabNames = () => DATA.usages.filter(u => u.provider === TAB).map(u => u.account);
 const hist = []; let hi = 0;
 async function run(line) {
   const [c, ...a] = line.trim().split(/\s+/);
   if (!c) return;
-  log("$ " + line.trim(), "echo");
+  log("› " + line.trim(), "echo");
+  const need = usage => { if (!a[0]) { log("usage: " + usage, "error"); return false; } return true; };
   switch (c.toLowerCase()) {
-    case "help": case "?":
-      HELP.forEach(([k, v]) => log(k.padEnd(26) + v, "out")); break;
-    case "ls":
-      if (!DATA.usages.length) { log("no nodes", "out"); break; }
-      DATA.usages.forEach(u => {
-        const w = u.windows.map(w => `${w.name}:${w.used_percent == null ? "?" : Math.round(w.used_percent)}%`).join(" ");
-        log(`${u.account.padEnd(16)} ${u.provider.padEnd(6)} ${u.ok ? w : "FAULT"}`, u.ok ? "out" : "error");
-      }); break;
-    case "refresh": case "r": log("forcing sync...", "sys"); await pull(true); break;
-    case "best": {
-      const provs = a.length ? a : [...new Set(DATA.usages.map(u => u.provider))];
-      if (!provs.length) log("no nodes", "warn");
-      for (const p of provs) {
-        const b = best(p);
-        log(b ? `best ${p}: ${b.account} (5h ${Math.round(short(b)?.used_percent ?? 0)}%) -> jack ${b.account}` : `no healthy ${p} node`, b ? "ok" : "warn");
-      } break;
-    }
-    case "jack": case "run": case "open":
-      if (!a[0]) { log("usage: jack <name>", "error"); break; } await action({action: "launch", name: a[0]}); break;
-    case "login":
-      if (!a[0]) { log("usage: login <name>", "error"); break; } await action({action: "login", name: a[0]}); break;
-    case "web": case "www": case "browse":
-      if (!a[0]) { log("usage: web <name>", "error"); break; } await action({action: "web", name: a[0]}); break;
-    case "scan": case "import": log("scanning this computer for accounts...", "sys"); await action({action: "scan"}); break;
+    case "help": case "?": openLog(true); HELP.forEach(([k, v]) => log(k.padEnd(26) + v, "out")); break;
+    case "claude": case "codex": setTab(c.toLowerCase()); break;
+    case "ls": openLog(true);
+      DATA.usages.filter(u => u.provider === TAB).forEach(u => log(`${u.account.padEnd(18)} ${u.ok || u.stale
+        ? u.windows.map(w => `${w.name} ${pct(w.used_percent)}`).join("  ") : "! " + u.error}`, u.ok ? "out" : "warn")); break;
+    case "r": case "sync": case "refresh": await pull(true); log("synced", "ok"); break;
+    case "scan": case "import": openLog(true); log("scanning…", "sys"); await action({action: "scan", all: a[0] === "all"}); break;
     case "wake":
+      openLog(true);
       if (a[0] === "cancel") { await action({action: "wake-cancel"}); break; }
-      await action({action: "wake", names: a}); break;
-    case "profiles": await action({action: "profiles"}); break;
-    case "bind":
-      if (a.length < 2) { log("usage: bind <name> <google email | Profile 2 | none>", "error"); break; }
+      if (!a.length && !tabNames().length) { log(`no ${TAB} accounts`, "warn"); break; }
+      await action({action: "wake", names: a.length ? a : tabNames()}); break;
+    case "login": if (need("login <name>")) { openLog(true); await action({action: "login", name: a[0]}); } break;
+    case "web": if (need("web <name>")) await action({action: "web", name: a[0]}); break;
+    case "jack": case "run": if (need("jack <name>")) await action({action: "launch", name: a[0]}); break;
+    case "best": { const b = best(TAB); log(b ? `${b.account} · 5h ${pct(short(b)?.used_percent)}` : `no ${TAB} account with headroom`, b ? "ok" : "warn"); break; }
+    case "rm": case "remove": {
+      const names = a.filter(x => x !== "-y");
+      if (!names.length) { log("usage: rm <name..> -y", "error"); break; }
+      if (!a.includes("-y")) { log(`confirm: rm ${names.join(" ")} -y   (login files stay on disk)`, "warn"); break; }
+      for (const n of names) await action({action: "remove", name: n});
+      break;
+    }
+    case "removed": openLog(true); await action({action: "removed"}); break;
+    case "restore": case "undo": if (need("restore <name>")) await action({action: "restore", name: a[0]}); break;
+    case "add": if (a.length < 2) { log("usage: add <claude|codex> <name>", "error"); break; }
+      await action({action: "add", provider: a[0], name: a[1]}); setTab(a[0]); break;
+    case "profiles": openLog(true); await action({action: "profiles"}); break;
+    case "bind": if (a.length < 2) { log("usage: bind <name> <google email | Profile 2 | none>", "error"); break; }
       await action({action: "bind", name: a[0], profile: a.slice(1).join(" ")}); break;
-    case "view": setView(a[0] || (VIEW === "list" ? "cards" : "list")); break;
-    case "add":
-      if (a.length < 2) { log("usage: add <claude|codex> <name>", "error"); break; }
-      await action({action: "add", provider: a[0], name: a[1], note: a.slice(2).join(" ")}); break;
-    case "rm": case "remove":
-      if (!a[0]) { log("usage: rm <name> -y", "error"); break; }
-      if (!a.includes("-y")) { log(`this unregisters ${a[0]} (its login files stay on disk). confirm with: rm ${a[0]} -y`, "warn"); break; }
-      await action({action: "remove", name: a[0]}); break;
-    case "rain": setRain(a[0] ? a[0] !== "off" : !rainOn); log("rain " + (rainOn ? "on" : "off"), "out"); break;
-    case "clear": case "cls": $("#log").innerHTML = ""; break;
-    case "hide": case "exit": case "quit": hideWindow(); break;
-    case "sudo": log("nice try.", "sys"); break;
-    default: log(`command not found: ${c}  (try help)`, "error");
+    case "update": openLog(true); await action({action: "update"}); break;
+    case "rain": setRain(a[0] ? a[0] !== "off" : !rainOn); break;
+    case "clear": case "cls": $("#log").innerHTML = ""; $("#last").innerHTML = ""; break;
+    case "hide": case "exit": hideWindow(); break;
+    default: log(`unknown: ${c}  (help)`, "error");
   }
 }
 function complete(input) {
   const parts = input.value.split(/\s+/), cur = parts[parts.length - 1].toLowerCase();
-  const pool = parts.length === 1 ? COMMANDS
-    : parts[0] === "add" && parts.length === 2 ? ["claude", "codex"]
-    : parts[0] === "best" ? ["claude", "codex"] : parts[0] === "view" ? ["list", "cards"]
-    : parts[0] === "wake" ? ["cancel", ...DATA.usages.map(u => u.account)] : DATA.usages.map(u => u.account);
+  const pool = parts.length === 1 ? COMMANDS : parts[0] === "add" && parts.length === 2 ? ["claude", "codex"]
+    : parts[0] === "scan" ? ["all"] : parts[0] === "wake" ? ["cancel", ...tabNames()] : DATA.usages.map(u => u.account);
   const hits = pool.filter(x => x.toLowerCase().startsWith(cur));
   if (hits.length === 1) { parts[parts.length - 1] = hits[0]; input.value = parts.join(" ") + " "; }
   else if (hits.length > 1) log(hits.join("  "), "out");
 }
+
+/* ---------- events ---------- */
 $("#cmd").addEventListener("keydown", e => {
   const el = e.target;
   if (e.key === "Enter") { const v = el.value; if (v.trim()) { hist.push(v); hi = hist.length; } el.value = ""; run(v); }
   else if (e.key === "ArrowUp") { if (hi > 0) el.value = hist[--hi]; e.preventDefault(); }
   else if (e.key === "ArrowDown") { hi = Math.min(hist.length, hi + 1); el.value = hist[hi] || ""; e.preventDefault(); }
   else if (e.key === "Tab") { e.preventDefault(); complete(el); }
-  else if (e.key === "l" && e.ctrlKey) { e.preventDefault(); $("#log").innerHTML = ""; }
 });
 document.addEventListener("keydown", e => {
-  if (e.key === "Escape") return hideWindow();
-  if (document.activeElement !== $("#cmd") && e.key.length === 1 && !e.ctrlKey && !e.metaKey) $("#cmd").focus();
+  if (e.key === "Escape") { if (document.body.classList.contains("logopen")) openLog(false); else hideWindow(); return; }
+  if (e.altKey && (e.key === "1" || e.key === "2")) { setTab(e.key === "1" ? "claude" : "codex"); return; }
+  if (document.activeElement !== $("#cmd") && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) $("#cmd").focus();
 });
-$("#grid").addEventListener("click", e => {
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => setTab(t.dataset.tab));
+$("#last").onclick = () => openLog(true);
+$("#bSync").onclick = () => run("sync");
+$("#bScan").onclick = () => run("scan");
+$("#bWake").onclick = () => run("wake");
+$("#list").addEventListener("click", e => {
   const b = e.target.closest("[data-act]"); if (!b) return;
-  run(`${b.dataset.act} ${b.dataset.name}`);
+  const card = b.closest(".acct"), name = card.dataset.name;
+  if (b.dataset.act === "del") {
+    if (!b.classList.contains("arm")) {   // first click arms, second click removes
+      b.classList.add("arm"); b.textContent = "remove?";
+      setTimeout(() => { b.classList.remove("arm"); b.textContent = "✕"; }, 3000);
+      return;
+    }
+    card.classList.add("gone");
+    log(`› rm ${name}`, "echo");
+    action({action: "remove", name}).then(ok => { if (!ok) card.classList.remove("gone"); });
+    return;
+  }
+  run(`${b.dataset.act} ${name}`);
 });
 
-/* ---------------- native window (pywebview) ---------------- */
-function native() { return window.pywebview && window.pywebview.api; }
+/* ---------- native window (pywebview) ---------- */
+const native = () => window.pywebview && window.pywebview.api;
 function hideWindow() { if (native()) window.pywebview.api.hide(); }
 window.addEventListener("pywebviewready", () => document.body.classList.add("native"));
 $("#bhide").onclick = hideWindow;
-$("#vList").onclick = () => setView("list");
-$("#vCards").onclick = () => setView("cards");
-$("#bSync").onclick = () => run("refresh");
-$("#bScan").onclick = () => run("scan");
-$("#bWake").onclick = () => run("wake");
 $("#bmin").onclick = () => native() && window.pywebview.api.minimize();
 
-/* ---------------- digital rain ---------------- */
-const cv = $("#rain"), cx = cv.getContext("2d"), GLYPHS = "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄ0123456789ABCDEF<>/\\|=+*";
-let drops = [], rainOn = true, lastFrame = 0;
+/* ---------- rain (off by default) ---------- */
+const cv = $("#rain"), cx = cv.getContext("2d"), G = "ｱｲｳｴｵｶｷｸｹｺ0123456789ABCDEF<>/\\|=+";
+let drops = [], rainOn = store.get("redline.rain", "0") === "1", lastF = 0;
 function sizeRain() { cv.width = innerWidth; cv.height = innerHeight; drops = Array(Math.ceil(cv.width / 14)).fill(0).map(() => Math.random() * -60); }
 function frame(t) {
   requestAnimationFrame(frame);
-  if (!rainOn || document.hidden || t - lastFrame < 55) return; lastFrame = t;
-  cx.fillStyle = "rgba(3,5,7,.18)"; cx.fillRect(0, 0, cv.width, cv.height);
-  cx.font = "13px monospace";
-  drops.forEach((y, i) => {
-    cx.fillStyle = Math.random() > .975 ? "#ff2bd6" : "#00f0ff";
-    cx.fillText(GLYPHS[Math.random() * GLYPHS.length | 0], i * 14, y * 14);
-    drops[i] = y * 14 > cv.height && Math.random() > .975 ? 0 : y + 1;
-  });
+  if (!rainOn || document.hidden || t - lastF < 60) return; lastF = t;
+  cx.fillStyle = "rgba(7,9,11,.2)"; cx.fillRect(0, 0, cv.width, cv.height); cx.font = "13px monospace"; cx.fillStyle = "#00e5ff";
+  drops.forEach((y, i) => { cx.fillText(G[Math.random() * G.length | 0], i * 14, y * 14); drops[i] = y * 14 > cv.height && Math.random() > .975 ? 0 : y + 1; });
 }
-function setRain(on) {
-  rainOn = on; try { localStorage.setItem("redline.rain", on ? "1" : "0"); } catch (e) {}
-  if (!on) cx.clearRect(0, 0, cv.width, cv.height);
-}
-try { if (localStorage.getItem("redline.rain") === "0") rainOn = false; } catch (e) {}
-if (matchMedia("(prefers-reduced-motion: reduce)").matches) rainOn = false;
-addEventListener("resize", sizeRain); sizeRain(); requestAnimationFrame(frame);
+function setRain(on) { rainOn = on; store.set("redline.rain", on ? "1" : "0"); document.body.classList.toggle("rain", on); }
+addEventListener("resize", sizeRain); sizeRain(); setRain(rainOn); requestAnimationFrame(frame);
 
-/* ---------------- boot ---------------- */
+/* ---------- boot ---------- */
 if (!BOOT.actions) document.body.classList.add("noact");
-const bootLines = [
-  [`redline v${BOOT.version || "?"} // netrunner console`, "sys"],
-  [`uplink ${location.host} ........ OK`, "ok"],
-  ["decrypting session token ....... OK", "ok"],
-  ["type `help` for commands", "info"],
-];
-bootLines.forEach(([t, l], i) => setTimeout(() => log(t, l), 90 * i));
-setTimeout(() => { pull(false); setInterval(() => pull(false), 5000); }, 90 * bootLines.length);
-setInterval(tick, 1000); tick(); render();
+log(`redline ${BOOT.version || ""}${BOOT.build ? " · build " + BOOT.build : ""} · type help`, "sys");
+render(); pull(false); setInterval(() => pull(false), 5000); setInterval(tick, 1000); tick();
 setTimeout(() => $("#cmd").focus(), 200);
 </script>
 </body></html>
