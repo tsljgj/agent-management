@@ -240,7 +240,10 @@ function best(provider) {
   c.sort((a, b) => (short(a)?.used_percent ?? 999) - (short(b)?.used_percent ?? 999));
   return c[0];
 }
-const needsLogin = u => !u.ok && !u.stale;
+// Only these failures are fixed by logging in; the rest (403, offline, rate limit...) are not.
+const AUTH_ERR = /not logged in|expired|unauthorized|signed out|user:profile|API key|refresh token|log in again|no .*tokens/i;
+const failed = u => !u.ok && !u.stale;
+const needsLogin = u => failed(u) && AUTH_ERR.test(u.error || "");
 
 /* ---------- render ---------- */
 // "↻ 2h 08m" = resets in 2h 08m. No reset time yet means the window hasn't started.
@@ -264,6 +267,8 @@ function row(u, bestName) {
   const tip = [u.email, u.plan, ...extra, u.stale ? "stale: " + u.error : ""].filter(Boolean).join(" · ");
   const body = needsLogin(u)
     ? `<div class="need"><button class="act" data-act="login">login ›</button><span title="${esc(u.error)}">${esc(shortErr(u.error))}</span></div>`
+    : failed(u)
+    ? `<div class="need"><button data-act="retry">retry ⟳</button><span title="${esc(u.error)}">${esc(shortErr(u.error))}</span></div>`
     : meter(u.windows.find(w => w.name === "5h"), "5h") + meter(u.windows.find(w => w.name === "7d"), "7d");
   const open = isOpen(`${u.provider}:${u.account}`);
   return `<div class="acct${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}${open ? " open" : ""}" data-name="${n}"><span class="ch">${open ? "▴" : "▾"}</span>
@@ -347,7 +352,9 @@ function shortErr(e) {
   if (/unauthorized/.test(e)) return "signed out";
   if (/rate limited/.test(e)) return "rate limited";
   if (/network/.test(e)) return "offline";
-  return e.split(/[;:(]/)[0];
+  const http = e.match(/HTTP (\d{3})/);
+  if (http) return `HTTP ${http[1]} from the usage API` + (http[1] === "403" ? " (blocked)" : "");
+  return e.split(/[;(]/)[0];
 }
 function render() {
   const us = DATA.usages || [];
@@ -602,6 +609,7 @@ $("#list").addEventListener("click", e => {
     return;
   }
   if (b.dataset.act === "rename") return startRename(card);
+  if (b.dataset.act === "retry") { toast("syncing…"); return pull(true); }
   const map = {web: "web", jack: "launch", login: "login"};
   action({action: map[b.dataset.act], name}, b.dataset.act !== "login");
 });

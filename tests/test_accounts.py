@@ -556,3 +556,13 @@ def test_hand_rename_stops_following_email(home):
     actions.rename_account("z@gmail.com", "work")
     assert load_accounts()[0].auto_name is False
     assert actions.adopt_email_names() == [] and load_accounts()[0].name == "work"
+
+
+def test_codex_usage_request_identifies_like_the_cli(home, monkeypatch):
+    d = make_codex(home / "cx")
+    seen = {}
+    monkeypatch.setattr(codex, "request_json", lambda m, url, headers=None, **k: seen.update(headers) or {"rate_limit": {}})
+    from redline.providers import fetch_usage
+
+    fetch_usage(Account("cx", "codex", str(d)))
+    assert seen["User-Agent"].startswith("codex_cli_rs/") and seen["originator"] == "codex_cli_rs"

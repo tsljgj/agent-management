@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import json
+import platform
 from datetime import datetime, timezone
 
 from ..config import Account
@@ -18,7 +19,9 @@ from ._util import from_epoch, read_json, write_json_atomic
 USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 TOKEN_URL = "https://auth.openai.com/oauth/token"
 CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
-USER_AGENT = "redline"
+# Identify like the Codex CLI does (chatgpt.com's edge is picky about unknown clients).
+ORIGINATOR = "codex_cli_rs"
+USER_AGENT = f"{ORIGINATOR}/0.50.0 ({platform.system()} {platform.release()}; {platform.machine() or 'unknown'}) redline"
 AUTH_CLAIM = "https://api.openai.com/auth"
 PROFILE_CLAIM = "https://api.openai.com/profile"
 
@@ -143,7 +146,7 @@ def refresh_account(account: Account) -> None:
 
 def _headers(auth: dict) -> dict[str, str]:
     tokens = auth["tokens"]
-    h = {"Authorization": f"Bearer {tokens['access_token']}", "User-Agent": USER_AGENT}
+    h = {"Authorization": f"Bearer {tokens['access_token']}", "User-Agent": USER_AGENT, "originator": ORIGINATOR}
     account_id = tokens.get("account_id") or jwt_claims(tokens.get("id_token")).get(AUTH_CLAIM, {}).get(
         "chatgpt_account_id"
     )

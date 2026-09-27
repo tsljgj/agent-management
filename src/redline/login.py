@@ -24,7 +24,7 @@ import time
 import webbrowser
 from typing import Callable
 
-from . import browsers
+from . import applog, browsers
 from .config import Account, find_account, load_accounts, redline_home
 from .models import ProviderError
 from .procenv import child_env
@@ -118,7 +118,12 @@ class WakeJob:
     def __init__(self, accounts: list[Account], log: Log, force: bool = False,
                  on_done: Callable[[], None] | None = None):
         self.accounts = accounts
-        self.log = log
+
+        def both(level: str, text: str) -> None:  # console + redline.log
+            applog.log.info("wake %s: %s", level, text)
+            log(level, text)
+
+        self.log = both
         self.force = force  # log in again even if the token is fine (e.g. wrong account)
         self.on_done = on_done
         self.cancelled = threading.Event()
@@ -127,8 +132,18 @@ class WakeJob:
 
     def cancel(self) -> None:
         self.cancelled.set()
-        if self.proc and self.proc.poll() is None:
-            self.proc.kill()
+        self._kill_proc()
+
+    def _kill_proc(self) -> None:
+        """End the login CLI *and its children*: on Windows `codex`/`claude` are .cmd shims,
+        so killing the shim alone leaves the real login server (port 1455) running."""
+        p = self.proc
+        if not p or p.poll() is not None:
+            return
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True, **_no_window())
+        else:
+            p.kill()
 
     def run(self) -> dict[str, str]:
         try:
@@ -215,16 +230,20 @@ class WakeJob:
                                open_urls=not helper or sys.platform in ("win32", "darwin"), prof=prof)
 
         deadline = time.monotonic() + LOGIN_TIMEOUT
+        exited_at = None
         while time.monotonic() < deadline and not self.cancelled.is_set():
             fp = load_fingerprint(a)
             if fp and fp != before and token_state(a) == "ok":
                 break
             if self.proc and self.proc.poll() not in (None, 0):
                 raise ProviderError(f"{self.proc.args[0]} exited with {self.proc.returncode}: {self._tail()}")
+            if self.proc and self.proc.poll() == 0:
+                exited_at = exited_at or time.monotonic()
+                if time.monotonic() - exited_at > 10:  # finished "fine" but never wrote a new token
+                    raise ProviderError(f"login finished but no new token was saved: {self._tail() or 'no output'}")
             time.sleep(2)
         else:
-            if self.proc and self.proc.poll() is None:
-                self.proc.kill()
+            self._kill_proc()
             if self.cancelled.is_set():
                 self._done(a, "warn", "cancelled", f"{a.name}: cancelled")
             else:
