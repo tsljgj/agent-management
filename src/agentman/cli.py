@@ -9,28 +9,12 @@ import shutil
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
-from . import __version__
-from .config import (
-    DEFAULT_HOMES,
-    PROVIDERS,
-    Account,
-    agentman_home,
-    find_account,
-    load_accounts,
-    save_accounts,
-    validate_name,
-)
+from . import __version__, actions
+from .config import PROVIDERS, Account, find_account, load_accounts, save_accounts
 from .models import Usage
 from .providers import fetch_usage, has_credentials
 from .render import render_table
-
-LOGIN_COMMANDS = {
-    "claude": ["claude", "/login"],
-    "codex": ["codex", "login"],
-}
-
 
 def collect(accounts: list[Account], refresh_tokens: bool = False) -> list[Usage]:
     if not accounts:
@@ -50,16 +34,11 @@ def _select(names: list[str] | None) -> list[Account]:
 
 
 def cmd_add(args) -> int:
-    validate_name(args.name)
-    accounts = load_accounts()
-    if any(a.name == args.name for a in accounts):
-        print(f"account {args.name!r} already exists", file=sys.stderr)
+    try:
+        acct = actions.add_account(args.provider, args.name, home=args.home, note=args.note or "")
+    except actions.ActionError as e:
+        print(e, file=sys.stderr)
         return 1
-    home = args.home or str(agentman_home() / "accounts" / f"{args.provider}-{args.name}")
-    acct = Account(name=args.name, provider=args.provider, home=home, note=args.note or "")
-    acct.home_path.mkdir(parents=True, exist_ok=True)
-    accounts.append(acct)
-    save_accounts(accounts)
     print(f"added {acct.provider} account {acct.name!r} -> {acct.home_path}")
     if not has_credentials(acct):
         print(f"not logged in yet; run:  agentman login {acct.name}")
@@ -68,21 +47,9 @@ def cmd_add(args) -> int:
 
 def cmd_import(args) -> int:
     """Register the CLIs' default home dirs (~/.claude, ~/.codex) if they hold a login."""
-    accounts = load_accounts()
-    added = 0
-    for provider in PROVIDERS:
-        home = DEFAULT_HOMES[provider]
-        probe = Account(name=f"{provider}-default", provider=provider, home=home)
-        if any(a.provider == provider and a.home_path == probe.home_path for a in accounts):
-            continue
-        if not has_credentials(probe):
-            continue
-        if any(a.name == probe.name for a in accounts):
-            continue
-        accounts.append(probe)
-        added += 1
-        print(f"imported {probe.name} ({home})")
-    save_accounts(accounts)
+    added = actions.import_defaults()
+    for a in added:
+        print(f"imported {a.name} ({a.home})")
     if not added:
         print("nothing new to import")
     return 0
@@ -151,7 +118,7 @@ def _exec_with_account(acct: Account, argv: list[str]) -> int:
 def cmd_login(args) -> int:
     acct = find_account(load_accounts(), args.name)
     acct.home_path.mkdir(parents=True, exist_ok=True)
-    argv = LOGIN_COMMANDS[acct.provider]
+    argv = actions.LOGIN_COMMANDS[acct.provider]
     print(f"launching `{' '.join(argv)}` with {acct.env()}", file=sys.stderr)
     return _exec_with_account(acct, argv)
 
@@ -185,8 +152,14 @@ def _shell_quote(s: str) -> str:
 def cmd_serve(args) -> int:
     from .web import serve
 
-    serve(args.host, args.port, min_interval=args.min_interval, refresh_tokens=args.refresh_tokens)
+    serve(args.host, args.port, interval=args.interval, refresh_tokens=args.refresh_tokens)
     return 0
+
+
+def cmd_tray(args) -> int:
+    from .tray import run_tray
+
+    return run_tray(interval=args.interval, refresh_tokens=args.refresh_tokens, self_test_mode=args.self_test)
 
 
 # ---------------------------------------------------------------- parser
@@ -252,9 +225,15 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("serve", help="local web dashboard")
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8765)
-    s.add_argument("--min-interval", type=int, default=60, help="min seconds between upstream fetches")
+    s.add_argument("-n", "--interval", type=int, default=120, help="seconds between upstream fetches")
     s.add_argument("--refresh-tokens", action="store_true", help=refresh_help)
     s.set_defaults(func=cmd_serve)
+
+    s = sub.add_parser("tray", help="system tray app with the console window (needs `pip install agentman[tray]`)")
+    s.add_argument("-n", "--interval", type=int, default=120, help="seconds between upstream fetches")
+    s.add_argument("--refresh-tokens", action="store_true", help=refresh_help)
+    s.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
+    s.set_defaults(func=cmd_tray)
     return p
 
 

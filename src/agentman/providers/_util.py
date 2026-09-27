@@ -24,7 +24,7 @@ def from_epoch(ts: float | int | None) -> datetime | None:
 
 def read_json(path: Path) -> dict | None:
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, NotADirectoryError):
         return None
 
@@ -33,6 +33,6 @@ def write_json_atomic(path: Path, data: dict) -> None:
     """Write JSON atomically, keeping the file private (tokens live in it)."""
     tmp = path.with_name(path.name + ".agentman.tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     os.replace(tmp, path)

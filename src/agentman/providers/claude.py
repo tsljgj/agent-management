@@ -107,7 +107,7 @@ def _cached_identity(account: Account) -> tuple[str | None, str | None]:
     for p in candidates:
         try:
             doc = read_json(p)
-        except (json.JSONDecodeError, OSError):
+        except (ValueError, OSError):  # JSONDecodeError / UnicodeDecodeError are ValueErrors
             continue
         acct = (doc or {}).get("oauthAccount") or {}
         if acct.get("emailAddress"):

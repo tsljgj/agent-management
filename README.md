@@ -6,6 +6,67 @@
 - 支持 Linux / macOS / Windows。macOS 会读取 Claude Code 存在 Keychain 里的凭据
 - 默认**只读**：只读取 CLI 已保存的 token，不会去刷新，也不会改动你的登录状态
 - 提供 CLI 表格、`watch` 刷新模式、JSON 输出，以及本地 Web 仪表盘
+- **Windows 托盘程序**：常驻在任务栏的“显示隐藏的图标”里，点开是一个赛博朋克风格的控制台
+
+<p align="center"><img src="docs/console.png" width="380" alt="agentman console"></p>
+
+## Windows 托盘控制台
+
+### 安装
+
+**方式 A：下载 exe（不需要 Python）**
+
+在 GitHub → Actions → `windows-tray` 中打开最新一次运行，下载 artifact `agentman-tray-windows`，得到 `agentman-tray.exe`。打过 `v*` tag 的版本也会附在 Releases 里。
+
+双击运行后，程序会常驻在任务栏右下角的 `^`（显示隐藏的图标）里。可以把图标拖到任务栏上，让它一直显示。
+
+**方式 B：从源码运行**
+
+```powershell
+pip install ".[tray]"
+agentman tray              # 或 pythonw -m agentman tray（不弹出黑窗口）
+.\scripts\build_windows.ps1   # 自己打包 dist\agentman-tray.exe
+```
+
+### 托盘图标
+
+- 图标是一个圆环，按所有账号中**最高的 5h 用量**填充并变色：绿色低于 70%，黄色 70–90%，红色 90% 以上。有账号出错时变成品红色。
+- 鼠标悬停显示每个账号的 5h 用量。
+- 用量越过 80% 或 95% 时弹出 Windows 通知；窗口重置后也会通知一次。
+- 右键菜单：
+  - Open console
+  - Jack in ▸：选一个账号，直接开一个已登录该账号的终端
+  - Refresh now
+  - Open in browser
+  - Start with Windows：开机自启，写入 HKCU Run 注册表项，不需要管理员权限
+  - Quit
+
+### 控制台
+
+左键点击托盘图标，会在屏幕右下角弹出一个无边框窗口。它用的是 Windows 自带的 Edge WebView2。
+
+- 顶部状态条：在线节点数、最高 5h 用量、Claude 和 Codex 各自剩余额度最多的账号。
+- 每个账号一张卡片：分段霓虹进度条和每秒刷新的重置倒计时（`RESET T-02:13:04`）。卡片上的 **JACK IN** 按钮会开一个 `cmd` 窗口，以该账号运行 `claude` 或 `codex`。
+- 底部是日志区和命令行。支持 Tab 补全、↑/↓ 历史，Esc 收回托盘：
+
+```
+help                      列出命令
+ls                        列出所有账号及用量
+refresh | r               立即同步
+best [claude|codex]       剩余 5h 额度最多的账号
+jack <name>               开一个以 <name> 身份运行 claude/codex 的终端
+login <name>              打开 <name> 的登录流程
+add <claude|codex> <name> 新增一个隔离的账号
+import                    导入默认的 ~/.claude 和 ~/.codex
+rm <name> -y              取消登记（登录文件保留）
+rain [on|off]             数字雨背景开关
+clear / hide
+```
+
+第一次使用：在控制台里输入 `import`，再用 `add claude work2` 加账号，最后 `login work2` 登录。
+
+> 控制台只监听 `127.0.0.1`。每次启动会生成一个随机 token，并校验 Host 头，所以其他网页无法借用本地端口去开终端。
+> Windows 11 自带 WebView2；如果旧版 Windows 10 上窗口打不开，需要安装 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)。
 
 ## 原理
 
@@ -43,7 +104,8 @@ agentman usage             # 所有账号
 agentman usage work alt1   # 指定账号
 agentman usage --json      # 输出 JSON，方便接入脚本、状态栏或告警
 agentman watch -n 120      # 每 2 分钟刷新一次
-agentman serve             # Web 仪表盘 http://127.0.0.1:8765
+agentman serve             # 在浏览器里打开同一个控制台 http://127.0.0.1:8765
+agentman tray              # 托盘程序（需要 pip install ".[tray]"）
 
 # 4. 用指定账号干活
 agentman run work                     # = CLAUDE_CONFIG_DIR=... claude
@@ -76,7 +138,7 @@ Claude 和 OpenAI 的 refresh token 都是**一次性、会轮换**的。如果�
 
 ### 注意
 
-- Claude 用量接口的限流比较严格（会返回 429），轮询间隔不要短于 1 分钟。`serve` 默认最多每 60 秒请求一次上游。
+- Claude 用量接口的限流比较严格（会返回 429），轮询间隔不要短于 1 分钟。`tray` 和 `serve` 默认每 120 秒请求一次（用 `-n` 调整），手动刷新至少间隔 15 秒。
 - 如果 Codex 配置了 `cli_auth_credentials_store = "keyring"`，token 存在系统 keyring 里，本工具目前读不到。
 - 所有凭据只在本地读取，只发送给 Anthropic 和 OpenAI 的官方接口。
 
@@ -105,7 +167,8 @@ pip install pytest && python -m pytest -q
 
 ## Roadmap
 
-- [ ] 快到上限时提醒（桌面通知 / webhook / Telegram）
+- [x] 快到上限时提醒（Windows 通知）
+- [ ] 提醒推送到 webhook / Telegram
 - [ ] 记录用量历史并画趋势图（SQLite）
 - [ ] 自动推荐或切换到剩余额度最多的账号（`agentman pick claude`）
 - [ ] 支持 Cursor / Gemini CLI / Copilot 等更多 provider

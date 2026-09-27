@@ -4,18 +4,24 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentman"
-version = "0.1.0"
+version = "0.2.0"
 description = "Manage multiple Claude Code / Codex accounts and monitor their subscription usage limits"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
 dependencies = []
 
+[project.optional-dependencies]
+tray = ["pystray>=0.19", "Pillow>=10", "pywebview>=5"]
+
 [project.scripts]
 agentman = "agentman.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+agentman = ["assets/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

@@ -62,7 +62,7 @@ def load_accounts() -> list[Account]:
     path = config_path()
     if not path.exists():
         return []
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     return [Account(**a) for a in data.get("accounts", [])]
 
 
@@ -70,7 +70,7 @@ def save_accounts(accounts: list[Account]) -> None:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"accounts": [asdict(a) for a in accounts]}, indent=2) + "\n")
+    tmp.write_text(json.dumps({"accounts": [asdict(a) for a in accounts]}, indent=2) + "\n", encoding="utf-8")
     tmp.replace(path)
 
 

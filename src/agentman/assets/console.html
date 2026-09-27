@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AGENTMAN // console</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Orbitron:wght@600;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#030507; --panel:rgba(6,14,18,.82); --line:rgba(0,240,255,.22); --line-hot:rgba(0,240,255,.6);
+  --cyan:#00f0ff; --mag:#ff2bd6; --amber:#ffb000; --green:#39ff88; --red:#ff3b5c;
+  --text:#c9f6ff; --dim:#5e7f8a; --faint:#1b2b31;
+  --mono:"JetBrains Mono","Cascadia Mono","Cascadia Code",Consolas,"SF Mono",Menlo,monospace;
+  --disp:"Orbitron","JetBrains Mono",Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font:12.5px/1.45 var(--mono);overflow:hidden;
+  display:flex;flex-direction:column;user-select:none;-webkit-font-smoothing:antialiased}
+::selection{background:var(--mag);color:#000}
+#rain{position:fixed;inset:0;z-index:0;opacity:.13;pointer-events:none}
+body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:linear-gradient(rgba(0,240,255,.035) 1px,transparent 1px) 0 0/100% 28px,
+             linear-gradient(90deg,rgba(0,240,255,.035) 1px,transparent 1px) 0 0/28px 100%,
+             radial-gradient(ellipse at 50% -10%,rgba(0,240,255,.10),transparent 60%),
+             radial-gradient(ellipse at 110% 110%,rgba(255,43,214,.10),transparent 55%)}
+body::after{content:"";position:fixed;inset:0;z-index:50;pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,.22) 0 1px,transparent 1px 3px);mix-blend-mode:multiply}
+.frame{position:fixed;inset:0;z-index:60;pointer-events:none;border:1px solid var(--line-hot);
+  box-shadow:inset 0 0 24px rgba(0,240,255,.12)}
+body>*:not(#rain){position:relative;z-index:1}
+
+/* ---------- title bar ---------- */
+header{display:flex;align-items:center;gap:10px;padding:9px 10px 8px 14px;border-bottom:1px solid var(--line);
+  background:linear-gradient(90deg,rgba(0,240,255,.10),rgba(255,43,214,.06) 60%,transparent)}
+.logo{font:800 13px/1 var(--disp);letter-spacing:.18em;color:var(--cyan);text-shadow:0 0 8px rgba(0,240,255,.8);
+  position:relative;white-space:nowrap}
+.logo b{color:var(--mag);text-shadow:0 0 8px rgba(255,43,214,.9)}
+.logo.glitch::before,.logo.glitch::after{content:attr(data-t);position:absolute;inset:0;overflow:hidden;opacity:0;background:var(--bg)}
+.logo.glitch::before{color:var(--mag);transform:translate(2px,0);clip-path:inset(0 0 55% 0);animation:gl 2.6s infinite steps(1)}
+.logo.glitch::after{color:var(--cyan);transform:translate(-2px,0);clip-path:inset(55% 0 0 0);animation:gl 3.1s infinite steps(1) reverse}
+@keyframes gl{0%,95%,98%,100%{opacity:0}96%{opacity:1;transform:translate(3px,-1px)}97%{opacity:1;transform:translate(-3px,1px)}}
+.sub{color:var(--dim);font-size:10.5px;letter-spacing:.12em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.spacer{flex:1}
+.led{display:flex;align-items:center;gap:6px;font-size:10.5px;letter-spacing:.14em;color:var(--green)}
+.led i{width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor;animation:blink 1.6s infinite}
+.led.bad{color:var(--red)}
+@keyframes blink{50%{opacity:.35}}
+#clock{color:var(--dim);font-size:11px;min-width:58px;text-align:right}
+.wbtn{display:none;background:none;border:1px solid var(--line);color:var(--dim);width:24px;height:22px;
+  font:600 12px/1 var(--mono);cursor:pointer}
+.wbtn:hover{color:var(--bg);background:var(--cyan);border-color:var(--cyan)}
+.wbtn.x:hover{background:var(--red);border-color:var(--red)}
+.native .wbtn{display:block}
+
+/* ---------- hero stats ---------- */
+.hero{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));border-bottom:1px solid var(--line)}
+.stat{padding:8px 12px;border-right:1px solid var(--line);min-width:0}
+.stat:last-child{border-right:0}
+.stat .k{font-size:9.5px;letter-spacing:.2em;color:var(--dim)}
+.stat .v{font:800 17px/1.3 var(--disp);color:var(--cyan);text-shadow:0 0 10px rgba(0,240,255,.55);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stat .v small{font:600 10.5px var(--mono);color:var(--dim);text-shadow:none;margin-left:4px}
+
+/* ---------- nodes ---------- */
+main{flex:1;overflow-y:auto;padding:12px;display:grid;gap:12px;align-content:start;
+  grid-template-columns:repeat(auto-fill,minmax(330px,1fr))}
+main::-webkit-scrollbar,#log::-webkit-scrollbar{width:6px}
+main::-webkit-scrollbar-thumb,#log::-webkit-scrollbar-thumb{background:var(--faint)}
+.node{--c:var(--cyan);position:relative;background:var(--panel);padding:12px 14px 12px;
+  border:1px solid var(--line);clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,14px 100%,0 calc(100% - 14px));
+}
+.intro .node{animation:in .35s ease-out both}
+.node::before{content:"";position:absolute;left:0;top:0;width:3px;height:100%;background:var(--c);box-shadow:0 0 12px var(--c)}
+.node.claude{--c:var(--amber)} .node.codex{--c:var(--cyan)} .node.fault{--c:var(--red)}
+@keyframes in{from{opacity:0;transform:translateY(6px)}}
+.nh{display:flex;align-items:baseline;gap:8px}
+.idx{color:var(--dim);font-size:10.5px}
+.prov{font:800 9.5px var(--disp);letter-spacing:.2em;color:var(--bg);background:var(--c);padding:2px 6px}
+.nm{font:800 14px var(--mono);color:#fff;letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plan{margin-left:auto;font-size:10px;letter-spacing:.16em;color:var(--c);border:1px solid var(--c);padding:1px 6px;white-space:nowrap}
+.who{color:var(--dim);font-size:11px;margin:3px 0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.win{display:grid;grid-template-columns:62px 1fr 42px;align-items:center;gap:8px;margin:5px 0 1px}
+.wn{font-size:10.5px;letter-spacing:.12em;color:var(--text);text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar{display:grid;grid-template-columns:repeat(24,1fr);gap:2px;height:11px}
+.bar i{background:var(--faint);transform:skewX(-18deg)}
+.bar i.on{background:var(--b);box-shadow:0 0 6px var(--b)}
+.bar i.tip{animation:tip 1s infinite}
+@keyframes tip{50%{opacity:.35}}
+.pct{font:800 13px var(--disp);text-align:right;color:var(--b);text-shadow:0 0 8px var(--b)}
+.rs{grid-column:2/4;font-size:10px;color:var(--dim);letter-spacing:.08em;margin-top:-1px}
+.rs b{color:var(--text);font-weight:600}
+.extra{font-size:10.5px;color:var(--dim);margin-top:6px}
+.extra b{color:var(--mag);font-weight:600}
+.err{color:var(--red);font-size:11px;margin:4px 0 2px;word-break:break-word;text-shadow:0 0 6px rgba(255,59,92,.5)}
+.err::before{content:"!! FAULT  ";font-weight:800;letter-spacing:.14em}
+.acts{display:flex;gap:6px;margin-top:10px}
+.btn{font:600 10.5px var(--mono);letter-spacing:.14em;color:var(--c);background:transparent;border:1px solid var(--c);
+  padding:4px 10px;cursor:pointer;text-transform:uppercase}
+.btn:hover{background:var(--c);color:var(--bg);box-shadow:0 0 14px var(--c)}
+.btn.ghost{color:var(--dim);border-color:var(--faint)}
+.btn.ghost:hover{background:var(--faint);color:var(--text);box-shadow:none}
+.noact .btn{display:none}
+.empty{grid-column:1/-1;padding:18px 16px;border:1px dashed var(--line);color:var(--dim);background:var(--panel)}
+.empty pre{color:var(--cyan);text-shadow:0 0 8px rgba(0,240,255,.6);font:12px/1.2 var(--mono);margin-bottom:12px}
+.empty code{color:var(--mag)}
+
+/* ---------- log + prompt ---------- */
+#log{height:118px;overflow-y:auto;padding:6px 12px;border-top:1px solid var(--line);background:rgba(0,0,0,.45);
+  font-size:11px;user-select:text}
+#log div{white-space:pre-wrap;word-break:break-word}
+#log .t{color:var(--faint);margin-right:6px}
+#log .info{color:var(--dim)} #log .ok{color:var(--green)} #log .warn{color:var(--amber)}
+#log .crit,#log .error{color:var(--red)} #log .echo{color:var(--text)} #log .out{color:var(--cyan)} #log .sys{color:var(--mag)}
+.prompt{display:flex;align-items:center;gap:8px;padding:8px 12px 10px;border-top:1px solid var(--line);background:rgba(0,0,0,.6)}
+.ps{color:var(--green);white-space:nowrap;text-shadow:0 0 6px rgba(57,255,136,.6)}
+.ps b{color:var(--cyan)}
+#cmd{flex:1;background:none;border:0;outline:0;color:#fff;font:12.5px var(--mono);caret-color:var(--mag);min-width:0}
+#cmd::placeholder{color:var(--faint)}
+#toast{position:fixed;left:50%;top:48px;transform:translate(-50%,-20px);opacity:0;z-index:70;pointer-events:none;
+  padding:8px 14px;border:1px solid var(--red);color:var(--red);background:rgba(20,0,6,.92);font-weight:800;letter-spacing:.12em;
+  box-shadow:0 0 22px rgba(255,59,92,.45);transition:.25s;white-space:nowrap;max-width:92vw;overflow:hidden;text-overflow:ellipsis}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+#toast.ok{border-color:var(--green);color:var(--green);background:rgba(0,20,8,.92);box-shadow:0 0 22px rgba(57,255,136,.4)}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+@media (max-width:380px){main{grid-template-columns:1fr}.sub{display:none}}
+</style>
+</head>
+<body>
+<canvas id="rain"></canvas>
+<div class="frame"></div>
+<header class="pywebview-drag-region">
+  <div class="logo glitch" data-t="AGENTMAN//">AGENTMAN<b>//</b></div>
+  <div class="sub">NETRUNNER CONSOLE</div>
+  <div class="spacer"></div>
+  <div class="led" id="led"><i></i><span>LINK</span></div>
+  <div id="clock">--:--:--</div>
+  <button class="wbtn" id="bmin" title="Minimize">_</button>
+  <button class="wbtn x" id="bhide" title="Hide to tray (Esc)">×</button>
+</header>
+<section class="hero" id="hero"></section>
+<main id="grid"></main>
+<div id="log"></div>
+<div class="prompt"><span class="ps">agentman@<b>local</b>:~$</span>
+  <input id="cmd" autocomplete="off" spellcheck="false" placeholder="type `help`"></div>
+<div id="toast"></div>
+<script>
+const BOOT = /*__BOOT__*/{};
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pad = n => String(n).padStart(2, "0");
+let DATA = {usages: [], fetched_at: 0}, lastEvent = 0, lastFetched = -1, linkOk = true;
+
+/* ---------------- api ---------------- */
+async function api(path, opts = {}) {
+  const r = await fetch(path, {...opts, headers: {"X-Agentman-Token": BOOT.token, "Content-Type": "application/json", ...(opts.headers||{})}});
+  if (!r.ok && r.status !== 200) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+async function pull(force) {
+  try {
+    const d = await api(`api/usage?since=${lastEvent}${force ? "&force=1" : ""}`);
+    setLink(true);
+    for (const e of d.events) {
+      lastEvent = Math.max(lastEvent, e.id);
+      log(e.text, e.level, new Date(e.ts));
+      if (e.alert) toast(e.text, e.level === "ok");
+    }
+    if (d.fetched_at !== lastFetched) {
+      const first = !DATA.fetched_at && d.fetched_at;
+      lastFetched = d.fetched_at; DATA = d; render();
+      if (first) { $("#grid").classList.add("intro"); setTimeout(() => $("#grid").classList.remove("intro"), 1500); }
+    }
+  } catch (e) { setLink(false); }
+}
+async function action(body) {
+  if (!BOOT.actions) return log("actions are disabled on this server", "error");
+  try {
+    const r = await api("api/action", {method: "POST", body: JSON.stringify(body)});
+    log(r.message, r.ok ? "out" : "error");
+    if (r.ok && ["add","remove","import"].includes(body.action)) setTimeout(() => pull(false), 1500);
+  } catch (e) { log("action failed: " + e.message, "error"); }
+}
+function setLink(ok) {
+  if (ok === linkOk) return; linkOk = ok;
+  $("#led").classList.toggle("bad", !ok); $("#led span").textContent = ok ? "LINK" : "NO LINK";
+  log(ok ? "uplink restored" : "uplink lost -- retrying", ok ? "ok" : "error");
+}
+
+/* ---------------- render ---------------- */
+const colorFor = p => p == null ? "var(--dim)" : p >= 90 ? "var(--red)" : p >= 70 ? "var(--amber)" : "var(--green)";
+function countdown(iso) {
+  if (!iso) return "";
+  let s = Math.floor((new Date(iso) - Date.now()) / 1000);
+  if (s <= 0) return "<b>RESETTING</b>";
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return "RESET T-<b>" + (d ? `${d}D ${pad(h)}H ${pad(m)}M` : `${pad(h)}:${pad(m)}:${pad(x)}`) + "</b>";
+}
+function bar(p) {
+  const n = p == null ? 0 : Math.round(Math.min(100, Math.max(0, p)) / 100 * 24);
+  let h = "";
+  for (let i = 0; i < 24; i++) h += `<i class="${i < n ? "on" : ""}${i === n - 1 && p >= 90 ? " tip" : ""}"></i>`;
+  return `<div class="bar">${h}</div>`;
+}
+function short(u) { return u.windows.find(w => w.name === "5h") || u.windows[0]; }
+function best(provider) {
+  const c = DATA.usages.filter(u => u.ok && u.provider === provider && u.windows.length &&
+    !u.windows.some(w => w.used_percent >= 100));
+  c.sort((a, b) => (short(a)?.used_percent ?? 999) - (short(b)?.used_percent ?? 999));
+  return c[0];
+}
+function render() {
+  const us = DATA.usages, ok = us.filter(u => u.ok);
+  const peaks = ok.map(short).filter(Boolean).map(w => w.used_percent).filter(v => v != null);
+  const peak = peaks.length ? Math.max(...peaks) : null;
+  let hero = `<div class="stat"><div class="k">NODES</div><div class="v">${ok.length}<small>/ ${us.length}</small></div></div>
+    <div class="stat"><div class="k">PEAK 5H</div><div class="v" style="color:${colorFor(peak)};text-shadow:0 0 10px ${colorFor(peak)}">${peak == null ? "--" : Math.round(peak) + "%"}</div></div>`;
+  for (const p of ["claude", "codex"]) {
+    if (!us.some(u => u.provider === p)) continue;
+    const b = best(p);
+    hero += `<div class="stat"><div class="k">BEST ${p.toUpperCase()}</div><div class="v" title="${esc(b?.account)}">${b ? esc(b.account) : "--"}${b ? `<small>${Math.round(short(b)?.used_percent ?? 0)}%</small>` : ""}</div></div>`;
+  }
+  $("#hero").innerHTML = hero;
+
+  if (!us.length && !DATA.fetched_at) {
+    $("#grid").innerHTML = `<div class="empty">SCANNING NODES<span class="led" style="display:inline-flex;margin-left:8px"><i></i></span></div>`;
+    return;
+  }
+  if (!us.length) {
+    $("#grid").innerHTML = `<div class="empty"><pre> ▄▀█ █▀▀ █▀▀ █▄░█ ▀█▀ █▀▄▀█ ▄▀█ █▄░█
+ █▀█ █▄█ ██▄ █░▀█ ░█░ █░▀░█ █▀█ █░▀█</pre>
+      NO NODES REGISTERED.<br><br>
+      &gt; <code>import</code> &nbsp;— pick up your default ~/.claude and ~/.codex logins<br>
+      &gt; <code>add claude work</code> &nbsp;— new isolated account, then <code>login work</code></div>`;
+    return;
+  }
+  $("#grid").innerHTML = us.map((u, i) => {
+    let h = `<div class="node ${esc(u.provider)} ${u.ok ? "" : "fault"}" style="animation-delay:${i * 60}ms">
+      <div class="nh"><span class="idx">${pad(i + 1)}</span><span class="prov">${esc(u.provider.toUpperCase())}</span>
+      <span class="nm">${esc(u.account)}</span>${u.plan ? `<span class="plan">${esc(String(u.plan).toUpperCase())}</span>` : ""}</div>
+      <div class="who">${esc(u.email || (u.ok ? "unknown identity" : "--"))}</div>`;
+    if (!u.ok) h += `<div class="err">${esc(u.error)}</div>`;
+    for (const w of u.windows) {
+      const c = colorFor(w.used_percent);
+      h += `<div class="win" style="--b:${c}"><span class="wn" title="${esc(w.name)}">${esc(w.name)}</span>${bar(w.used_percent)}
+        <span class="pct">${w.used_percent == null ? "?" : Math.round(w.used_percent)}%</span>
+        <span class="rs" data-reset="${esc(w.resets_at || "")}">${countdown(w.resets_at)}</span></div>`;
+    }
+    for (const [k, v] of Object.entries(u.extra || {})) h += `<div class="extra">${esc(k)} <b>${esc(v)}</b></div>`;
+    h += `<div class="acts"><button class="btn" data-act="launch" data-name="${esc(u.account)}">⏵ jack in</button>
+      <button class="btn ghost" data-act="login" data-name="${esc(u.account)}">login</button></div></div>`;
+    return h;
+  }).join("");
+}
+function tick() {
+  const n = new Date();
+  $("#clock").textContent = `${pad(n.getHours())}:${pad(n.getMinutes())}:${pad(n.getSeconds())}`;
+  document.querySelectorAll(".rs[data-reset]").forEach(el => { el.innerHTML = countdown(el.dataset.reset); });
+}
+
+/* ---------------- log / toast ---------------- */
+function log(text, level = "info", when = new Date()) {
+  const el = $("#log"), t = `${pad(when.getHours())}:${pad(when.getMinutes())}:${pad(when.getSeconds())}`;
+  for (const line of String(text).split("\n")) {
+    const d = document.createElement("div");
+    d.innerHTML = `<span class="t">${t}</span><span class="${esc(level)}">${esc(line)}</span>`;
+    el.appendChild(d);
+  }
+  while (el.children.length > 400) el.firstChild.remove();
+  el.scrollTop = el.scrollHeight;
+}
+let toastTimer;
+function toast(text, ok) {
+  const t = $("#toast"); t.textContent = (ok ? "▲ " : "⚠ ") + text.toUpperCase();
+  t.className = "show" + (ok ? " ok" : ""); clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.className = ok ? "ok" : "", 4200);
+}
+
+/* ---------------- command line ---------------- */
+const HELP = [
+  ["help", "this list"], ["ls", "list nodes (accounts)"], ["refresh | r", "force a sync now"],
+  ["best [claude|codex]", "node with the most 5h headroom"], ["jack <name>", "open a terminal running claude/codex as <name>"],
+  ["login <name>", "open the login flow for <name>"], ["add <claude|codex> <name>", "register a new isolated account"],
+  ["import", "register default ~/.claude / ~/.codex logins"], ["rm <name> -y", "unregister (files are kept)"],
+  ["rain [on|off]", "toggle digital rain"], ["clear", "clear this log"], ["hide | exit", "back to the tray  (Esc)"],
+];
+const COMMANDS = ["help","ls","refresh","best","jack","login","add","import","rm","rain","clear","hide"];
+const hist = []; let hi = 0;
+async function run(line) {
+  const [c, ...a] = line.trim().split(/\s+/);
+  if (!c) return;
+  log("$ " + line.trim(), "echo");
+  switch (c.toLowerCase()) {
+    case "help": case "?":
+      HELP.forEach(([k, v]) => log(k.padEnd(26) + v, "out")); break;
+    case "ls":
+      if (!DATA.usages.length) { log("no nodes", "out"); break; }
+      DATA.usages.forEach(u => {
+        const w = u.windows.map(w => `${w.name}:${w.used_percent == null ? "?" : Math.round(w.used_percent)}%`).join(" ");
+        log(`${u.account.padEnd(16)} ${u.provider.padEnd(6)} ${u.ok ? w : "FAULT"}`, u.ok ? "out" : "error");
+      }); break;
+    case "refresh": case "r": log("forcing sync...", "sys"); await pull(true); break;
+    case "best": {
+      const provs = a.length ? a : [...new Set(DATA.usages.map(u => u.provider))];
+      if (!provs.length) log("no nodes", "warn");
+      for (const p of provs) {
+        const b = best(p);
+        log(b ? `best ${p}: ${b.account} (5h ${Math.round(short(b)?.used_percent ?? 0)}%) -> jack ${b.account}` : `no healthy ${p} node`, b ? "ok" : "warn");
+      } break;
+    }
+    case "jack": case "run": case "open":
+      if (!a[0]) { log("usage: jack <name>", "error"); break; } await action({action: "launch", name: a[0]}); break;
+    case "login":
+      if (!a[0]) { log("usage: login <name>", "error"); break; } await action({action: "login", name: a[0]}); break;
+    case "add":
+      if (a.length < 2) { log("usage: add <claude|codex> <name>", "error"); break; }
+      await action({action: "add", provider: a[0], name: a[1], note: a.slice(2).join(" ")}); break;
+    case "import": await action({action: "import"}); break;
+    case "rm": case "remove":
+      if (!a[0]) { log("usage: rm <name> -y", "error"); break; }
+      if (!a.includes("-y")) { log(`this unregisters ${a[0]} (its login files stay on disk). confirm with: rm ${a[0]} -y`, "warn"); break; }
+      await action({action: "remove", name: a[0]}); break;
+    case "rain": setRain(a[0] ? a[0] !== "off" : !rainOn); log("rain " + (rainOn ? "on" : "off"), "out"); break;
+    case "clear": case "cls": $("#log").innerHTML = ""; break;
+    case "hide": case "exit": case "quit": hideWindow(); break;
+    case "sudo": log("nice try.", "sys"); break;
+    default: log(`command not found: ${c}  (try help)`, "error");
+  }
+}
+function complete(input) {
+  const parts = input.value.split(/\s+/), cur = parts[parts.length - 1].toLowerCase();
+  const pool = parts.length === 1 ? COMMANDS
+    : parts[0] === "add" && parts.length === 2 ? ["claude", "codex"]
+    : parts[0] === "best" ? ["claude", "codex"] : DATA.usages.map(u => u.account);
+  const hits = pool.filter(x => x.toLowerCase().startsWith(cur));
+  if (hits.length === 1) { parts[parts.length - 1] = hits[0]; input.value = parts.join(" ") + " "; }
+  else if (hits.length > 1) log(hits.join("  "), "out");
+}
+$("#cmd").addEventListener("keydown", e => {
+  const el = e.target;
+  if (e.key === "Enter") { const v = el.value; if (v.trim()) { hist.push(v); hi = hist.length; } el.value = ""; run(v); }
+  else if (e.key === "ArrowUp") { if (hi > 0) el.value = hist[--hi]; e.preventDefault(); }
+  else if (e.key === "ArrowDown") { hi = Math.min(hist.length, hi + 1); el.value = hist[hi] || ""; e.preventDefault(); }
+  else if (e.key === "Tab") { e.preventDefault(); complete(el); }
+  else if (e.key === "l" && e.ctrlKey) { e.preventDefault(); $("#log").innerHTML = ""; }
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") return hideWindow();
+  if (document.activeElement !== $("#cmd") && e.key.length === 1 && !e.ctrlKey && !e.metaKey) $("#cmd").focus();
+});
+$("#grid").addEventListener("click", e => {
+  const b = e.target.closest("[data-act]"); if (!b) return;
+  run(`${b.dataset.act === "launch" ? "jack" : "login"} ${b.dataset.name}`);
+});
+
+/* ---------------- native window (pywebview) ---------------- */
+function native() { return window.pywebview && window.pywebview.api; }
+function hideWindow() { if (native()) window.pywebview.api.hide(); }
+window.addEventListener("pywebviewready", () => document.body.classList.add("native"));
+$("#bhide").onclick = hideWindow;
+$("#bmin").onclick = () => native() && window.pywebview.api.minimize();
+
+/* ---------------- digital rain ---------------- */
+const cv = $("#rain"), cx = cv.getContext("2d"), GLYPHS = "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄ0123456789ABCDEF<>/\\|=+*";
+let drops = [], rainOn = true, lastFrame = 0;
+function sizeRain() { cv.width = innerWidth; cv.height = innerHeight; drops = Array(Math.ceil(cv.width / 14)).fill(0).map(() => Math.random() * -60); }
+function frame(t) {
+  requestAnimationFrame(frame);
+  if (!rainOn || document.hidden || t - lastFrame < 55) return; lastFrame = t;
+  cx.fillStyle = "rgba(3,5,7,.18)"; cx.fillRect(0, 0, cv.width, cv.height);
+  cx.font = "13px monospace";
+  drops.forEach((y, i) => {
+    cx.fillStyle = Math.random() > .975 ? "#ff2bd6" : "#00f0ff";
+    cx.fillText(GLYPHS[Math.random() * GLYPHS.length | 0], i * 14, y * 14);
+    drops[i] = y * 14 > cv.height && Math.random() > .975 ? 0 : y + 1;
+  });
+}
+function setRain(on) {
+  rainOn = on; try { localStorage.setItem("agentman.rain", on ? "1" : "0"); } catch (e) {}
+  if (!on) cx.clearRect(0, 0, cv.width, cv.height);
+}
+try { if (localStorage.getItem("agentman.rain") === "0") rainOn = false; } catch (e) {}
+if (matchMedia("(prefers-reduced-motion: reduce)").matches) rainOn = false;
+addEventListener("resize", sizeRain); sizeRain(); requestAnimationFrame(frame);
+
+/* ---------------- boot ---------------- */
+if (!BOOT.actions) document.body.classList.add("noact");
+const bootLines = [
+  [`agentman v${BOOT.version || "?"} // netrunner console`, "sys"],
+  [`uplink ${location.host} ........ OK`, "ok"],
+  ["decrypting session token ....... OK", "ok"],
+  ["type `help` for commands", "info"],
+];
+bootLines.forEach(([t, l], i) => setTimeout(() => log(t, l), 90 * i));
+setTimeout(() => { pull(false); setInterval(() => pull(false), 5000); }, 90 * bootLines.length);
+setInterval(tick, 1000); tick(); render();
+setTimeout(() => $("#cmd").focus(), 200);
+</script>
+</body></html>

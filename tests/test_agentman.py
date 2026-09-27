@@ -1,5 +1,6 @@
 import base64
 import json
+import sys
 import time
 from datetime import datetime, timezone
 
@@ -14,6 +15,7 @@ from agentman.providers import claude, codex, fetch_usage
 def isolated_home(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTMAN_HOME", str(tmp_path / "am"))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     (tmp_path / "home").mkdir()
     return tmp_path
@@ -119,7 +121,8 @@ def test_claude_refresh_writes_back_rotated_tokens(tmp_path, monkeypatch):
     assert saved["claudeAiOauth"]["refreshToken"] == "rt-new"
     assert saved["claudeAiOauth"]["subscriptionType"] == "max"
     assert saved["mcpOAuth"] == {"keep": "me"}
-    assert (acct.home_path / ".credentials.json").stat().st_mode & 0o777 == 0o600
+    if sys.platform != "win32":
+        assert (acct.home_path / ".credentials.json").stat().st_mode & 0o777 == 0o600
 
 
 def test_codex_fetch(tmp_path, monkeypatch):
