@@ -54,16 +54,17 @@ header{display:flex;align-items:center;gap:20px;height:48px;padding:0 10px 0 18p
 /* account rows: name · 5h · 7d · actions */
 main{flex:1;overflow-y:auto}
 main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(--faint)}
-.acct{display:grid;grid-template-columns:minmax(56px,1fr) minmax(120px,190px) minmax(120px,190px);align-items:center;gap:14px;
-  position:relative;height:54px;padding:0 18px;border-bottom:1px solid var(--line);transition:opacity .2s,transform .2s}
+.acct{display:grid;grid-template-columns:minmax(56px,1fr) minmax(120px,180px) minmax(120px,180px);align-items:center;gap:14px 30px;
+  position:relative;min-height:60px;padding:10px 18px;border-bottom:1px solid var(--line);transition:opacity .2s,transform .2s}
 .acct:hover{background:rgba(0,229,255,.03)}
 .acct.gone{opacity:0;transform:translateX(20px)}
 .nm{color:#fff;font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .best .nm{color:var(--acc)}
 .nm input{width:100%;background:none;border:0;border-bottom:1px solid var(--acc);outline:0;color:#fff;font:inherit;padding:0}
 .stale .nm::after{content:" ·";color:var(--warn)}
-.m{display:grid;grid-template-columns:18px 1fr 36px 44px;align-items:center;gap:6px}
-.m .t{text-align:right;color:var(--dim);font-size:11px;white-space:nowrap}
+/* meter: label · bar · % on one line, "↻ time to reset" right under its own bar */
+.m{display:grid;grid-template-columns:18px 1fr 40px;align-items:center;gap:4px 8px}
+.m .t{grid-column:2/4;color:var(--dim);font-size:10.5px;white-space:nowrap;line-height:1}
 .m .t.urgent{color:var(--acc)}
 .m.max .t{color:var(--fg)}
 .m .k{font-size:10px;color:var(--dim)}
@@ -132,13 +133,13 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 #toast.good{border-color:var(--ok)}
 /* ---- adaptive layout: the window can be dragged to any size ---- */
 @media (max-width:470px){
-  header{gap:12px;padding-left:14px}.acct{gap:10px;padding:0 14px}.m{grid-template-columns:16px 1fr 32px 40px;gap:5px}
+  header{gap:12px;padding-left:14px}.acct{gap:10px;padding:0 14px}.m{grid-template-columns:16px 1fr 36px;gap:4px 6px}
   .det{grid-template-columns:1fr}.det div{grid-template-columns:70px 1fr}
 }
 @media (max-width:440px){ .logo{display:none} header{gap:14px} .hb{min-width:26px;padding:0 4px} }
 @media (max-width:360px){ header{gap:10px;padding-left:12px} .tab{letter-spacing:.04em} #age,#ver{display:none!important} }
 @media (max-width:440px){          /* two-line rows: name, then both meters */
-  .acct{grid-template-columns:1fr 1fr;height:auto;padding:9px 14px 10px;gap:4px 12px}
+  .acct{grid-template-columns:1fr 1fr;height:auto;padding:9px 14px 10px;gap:6px 22px}
   .acct .nm{grid-column:1/-1}.need{grid-column:1/-1}
 }
 @media (max-height:300px){ .prompt{display:none} .logopen #log{max-height:90px} }
@@ -229,7 +230,7 @@ const spent = p => p != null && p >= 99.5;
 function span(s) {
   s = Math.max(0, Math.floor(s));
   const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
-  return d ? `${d}d${h}h` : h ? `${h}:${pad(m)}` : `${m}m`;
+  return d ? `${d}d ${h}h` : h ? `${h}h ${pad(m)}m` : `${m}m`;
 }
 const ago = s => (s = Math.max(0, Math.floor(s))) < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h`;
 const left = iso => iso ? (new Date(iso) - Date.now()) / 1000 : null;
@@ -242,13 +243,15 @@ function best(provider) {
 const needsLogin = u => !u.ok && !u.stale;
 
 /* ---------- render ---------- */
+// "↻ 2h 08m" = resets in 2h 08m. No reset time yet means the window hasn't started.
+const resetText = l => l == null ? "idle" : l > 0 ? "↻ " + span(l) : "↻ now";
 function meter(w, label) {
-  if (!w) return `<div class="m"><span class="k">${label}</span><div class="bar"></div><span class="v" style="--c:var(--dim)">–</span><span class="t"></span></div>`;
+  if (!w) return `<div class="m"><span class="k">${label}</span><div class="bar"></div><span class="v" style="--c:var(--dim)">–</span><span class="t">&nbsp;</span></div>`;
   const p = w.used_percent, l = left(w.resets_at);
-  const tip = `${w.name} ${p == null ? "?" : Math.round(p) + "%"}${w.resets_at ? " · resets " + new Date(w.resets_at).toLocaleString() : ""}`;
+  const tip = `${w.name} ${p == null ? "?" : Math.round(p) + "%"}${w.resets_at ? " · resets in " + span(l) + " (" + new Date(w.resets_at).toLocaleString() + ")" : " · window not started"}`;
   // weekly window resetting soon with quota left = "use it or lose it"
   const urgent = label === "7d" && l != null && l < 36 * 3600 && (p ?? 100) < 80;
-  const t = `<span class="t${urgent ? " urgent" : ""}" data-reset="${esc(w.resets_at || "")}">${l != null ? span(l) : ""}</span>`;
+  const t = `<span class="t${urgent ? " urgent" : ""}" data-reset="${esc(w.resets_at || "")}">${resetText(l)}</span>`;
   if (spent(p)) return `<div class="m max" title="${esc(tip)}"><span class="k">${label}</span><div class="bar"></div><span class="v">MAX</span>${t}</div>`;
   const width = p == null ? 0 : Math.min(100, Math.max(0, p));
   return `<div class="m" style="--c:${lvl(p)}" title="${esc(tip)}"><span class="k">${label}</span>
@@ -391,7 +394,7 @@ async function checkUpdate() {
 }
 function setTab(t) { TAB = t === "codex" ? "codex" : "claude"; store.set("redline.tab", TAB); closeSheet(); render(); }
 function tick() {
-  document.querySelectorAll("[data-reset]").forEach(el => { const l = left(el.dataset.reset); if (l != null) el.textContent = l > 0 ? span(l) : "now"; });
+  document.querySelectorAll("[data-reset]").forEach(el => { if (el.dataset.reset) el.textContent = resetText(left(el.dataset.reset)); });
   const a = $("#age");
   if (!DATA.fetched_at) return;
   const s = Date.now() / 1000 - DATA.fetched_at, at = new Date(DATA.fetched_at * 1000);
