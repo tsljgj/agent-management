@@ -54,7 +54,7 @@ header{display:flex;align-items:center;gap:20px;height:48px;padding:0 10px 0 18p
 /* account rows: name · 5h · 7d · actions */
 main{flex:1;overflow-y:auto}
 main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(--faint)}
-.acct{display:grid;grid-template-columns:minmax(56px,1fr) minmax(88px,150px) minmax(88px,150px);align-items:center;gap:14px;
+.acct{display:grid;grid-template-columns:minmax(56px,1fr) minmax(120px,190px) minmax(120px,190px);align-items:center;gap:14px;
   position:relative;height:54px;padding:0 18px;border-bottom:1px solid var(--line);transition:opacity .2s,transform .2s}
 .acct:hover{background:rgba(0,229,255,.03)}
 .acct.gone{opacity:0;transform:translateX(20px)}
@@ -62,26 +62,22 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .best .nm{color:var(--acc)}
 .nm input{width:100%;background:none;border:0;border-bottom:1px solid var(--acc);outline:0;color:#fff;font:inherit;padding:0}
 .stale .nm::after{content:" ·";color:var(--warn)}
-.m{display:grid;grid-template-columns:18px 1fr 46px;align-items:center;gap:8px}
+.m{display:grid;grid-template-columns:18px 1fr 36px 44px;align-items:center;gap:6px}
+.m .t{text-align:right;color:var(--dim);font-size:11px;white-space:nowrap}
+.m .t.urgent{color:var(--acc)}
+.m.max .t{color:var(--fg)}
 .m .k{font-size:10px;color:var(--dim)}
 .bar{height:4px;background:var(--faint);position:relative}
 .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--c);box-shadow:0 0 6px var(--c)}
 .m .v{text-align:right;font-weight:600;color:var(--c)}
 .m.max .bar{background:var(--red)}
 .m.max .bar i{display:none}
-.m.max .v{color:var(--red);font-weight:400;font-size:12px}
+.m.max .v{color:var(--red);font-size:11px;letter-spacing:.04em}
 .stale .m{opacity:.4}
 .need{grid-column:2/4;display:flex;gap:12px;align-items:center;color:var(--dim);overflow:hidden;white-space:nowrap}
 .need button{color:var(--acc);font-weight:600}
 .need span{overflow:hidden;text-overflow:ellipsis;font-size:11px}
 .ra{position:absolute;right:6px;top:4px;display:flex;gap:2px;opacity:0;pointer-events:none;transition:opacity .15s;
-  background:linear-gradient(90deg,transparent,var(--bg) 18px);padding-left:20px}
-.acct:hover .ra{pointer-events:auto}
-.acct:hover .ra{opacity:1}
-.ra button{width:24px;height:24px;color:var(--dim)}
-.ra button:hover{color:var(--acc)}
-.ra .del:hover,.ra .del.arm{color:var(--red)}
-.ra .del.arm{width:auto;padding:0 4px}
 #det{font-size:16px}
 #det.on{color:var(--acc)}
 .acct{cursor:pointer}
@@ -91,6 +87,13 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .det{display:none;grid-column:1/-1;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 22px;margin-top:10px;
   padding:10px 0 2px;border-top:1px dashed var(--faint);font-size:12px;cursor:text;user-select:text}
 .acct.open .det{display:grid}
+.ch{position:absolute;right:8px;bottom:4px;font-size:9px;color:var(--dim);opacity:0;transition:opacity .15s;pointer-events:none}
+.acct:hover .ch,.acct.open .ch{opacity:.7}
+.det .acts{display:flex;gap:16px;margin-top:4px}
+.det .acts button{color:var(--dim)}
+.det .acts button:hover{color:var(--acc)}
+.det .acts .del:hover,.det .acts .del.arm{color:var(--red)}
+#sort.on{color:var(--acc)}
 .det div{display:grid;grid-template-columns:84px 1fr;gap:8px;min-width:0}
 .det div.wide{grid-column:1/-1}
 .det span{color:var(--dim)}
@@ -130,12 +133,12 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 #toast.good{border-color:var(--ok)}
 /* ---- adaptive layout: the window can be dragged to any size ---- */
 @media (max-width:470px){
-  header{gap:12px;padding-left:14px}.acct{gap:10px;padding:0 14px}.m{grid-template-columns:16px 1fr 38px;gap:6px}
+  header{gap:12px;padding-left:14px}.acct{gap:10px;padding:0 14px}.m{grid-template-columns:16px 1fr 32px 40px;gap:5px}
   .det{grid-template-columns:1fr}.det div{grid-template-columns:70px 1fr}
 }
 @media (max-width:440px){ .logo{display:none} header{gap:14px} .hb{min-width:26px;padding:0 4px} }
 @media (max-width:360px){ header{gap:10px;padding-left:12px} .tab{letter-spacing:.04em} #age,#ver{display:none!important} }
-@media (max-width:380px){          /* two-line rows: name, then both meters */
+@media (max-width:440px){          /* two-line rows: name, then both meters */
   .acct{grid-template-columns:1fr 1fr;height:auto;padding:9px 14px 10px;gap:4px 12px}
   .acct .nm{grid-column:1/-1}.need{grid-column:1/-1}
 }
@@ -163,6 +166,7 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
   <div class="sp"></div>
   <button class="hb act" id="wake" title="some accounts need a login — wake them">⚡</button>
   <button class="hb" id="age" title="sync now">⟳</button>
+  <button class="hb" id="sort" title="sort">⇅</button>
   <button class="hb" id="det" title="details (d)">⋯</button>
   <button class="hb" id="ver" title="check for updates"></button>
   <button class="hb act" id="plus" title="add account">+</button>
@@ -240,14 +244,16 @@ const needsLogin = u => !u.ok && !u.stale;
 
 /* ---------- render ---------- */
 function meter(w, label) {
-  if (!w) return `<div class="m"><span class="k">${label}</span><div class="bar"></div><span class="v" style="--c:var(--dim)">–</span></div>`;
-  const p = w.used_percent, when = left(w.resets_at);
+  if (!w) return `<div class="m"><span class="k">${label}</span><div class="bar"></div><span class="v" style="--c:var(--dim)">–</span><span class="t"></span></div>`;
+  const p = w.used_percent, l = left(w.resets_at);
   const tip = `${w.name} ${p == null ? "?" : Math.round(p) + "%"}${w.resets_at ? " · resets " + new Date(w.resets_at).toLocaleString() : ""}`;
-  if (spent(p)) return `<div class="m max" title="${esc(tip)}"><span class="k">${label}</span><div class="bar"></div>
-    <span class="v" data-reset="${esc(w.resets_at || "")}">${when != null ? "↻" + span(when) : "MAX"}</span></div>`;
+  // weekly window resetting soon with quota left = "use it or lose it"
+  const urgent = label === "7d" && l != null && l < 36 * 3600 && (p ?? 100) < 80;
+  const t = `<span class="t${urgent ? " urgent" : ""}" data-reset="${esc(w.resets_at || "")}">${l != null ? span(l) : ""}</span>`;
+  if (spent(p)) return `<div class="m max" title="${esc(tip)}"><span class="k">${label}</span><div class="bar"></div><span class="v">MAX</span>${t}</div>`;
   const width = p == null ? 0 : Math.min(100, Math.max(0, p));
   return `<div class="m" style="--c:${lvl(p)}" title="${esc(tip)}"><span class="k">${label}</span>
-    <div class="bar"><i style="width:${width}%"></i></div><span class="v">${p == null ? "?" : Math.floor(p) + "%"}</span></div>`;
+    <div class="bar"><i style="width:${width}%"></i></div><span class="v">${p == null ? "?" : Math.floor(p) + "%"}</span>${t}</div>`;
 }
 function row(u, bestName) {
   const n = esc(u.account);
@@ -257,40 +263,80 @@ function row(u, bestName) {
   const body = needsLogin(u)
     ? `<div class="need"><button class="act" data-act="login">login ›</button><span title="${esc(u.error)}">${esc(shortErr(u.error))}</span></div>`
     : meter(u.windows.find(w => w.name === "5h"), "5h") + meter(u.windows.find(w => w.name === "7d"), "7d");
-  return `<div class="acct${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}${isOpen(u.account) ? " open" : ""}" data-name="${n}">
+  const open = isOpen(`${u.provider}:${u.account}`);
+  return `<div class="acct${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}${open ? " open" : ""}" data-name="${n}"><span class="ch">${open ? "▴" : "▾"}</span>
     <div class="nm" title="${esc(tip)}${tip ? " · " : ""}double-click to rename">${n}</div>${body}
-    <div class="ra act"><button data-act="web" title="open ${u.provider === "codex" ? "chatgpt.com" : "claude.ai"} in its Chrome profile">↗</button><button data-act="jack" title="terminal as ${n}">›_</button><button data-act="rename" title="rename">✎</button><button class="del" data-act="del" title="remove">✕</button></div>${details(u)}</div>`;
+    ${details(u)}</div>`;
 }
-/* ---------- details (⋯ for all rows, or click a row) ---------- */
+/* ---------- details: ⋯ opens every row; clicking a row toggles just that row ---------- */
 let DETAILS = store.get("redline.details", "0") === "1";
-const opened = new Set();
-const isOpen = name => DETAILS || opened.has(name);
+const toggled = new Set();                 // rows flipped relative to the global state
+const isOpen = key => DETAILS !== toggled.has(key);
+function toggleRow(card) {
+  const key = `${TAB}:${card.dataset.name}`;
+  if (toggled.has(key)) toggled.delete(key); else toggled.add(key);
+  const open = isOpen(key);
+  card.classList.toggle("open", open);
+  const ch = card.querySelector(".ch"); if (ch) ch.textContent = open ? "▴" : "▾";
+  requestAnimationFrame(fitHeight);
+}
 function when(iso) {
   if (!iso) return "–";
-  const d = new Date(iso), l = left(iso), today = d.toDateString() === new Date().toDateString();
-  const t = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  return (today ? t : d.toLocaleDateString(undefined, {weekday: "short"}) + " " + t) + (l > 0 ? `  (in ${span(l)})` : "");
+  const d = new Date(iso), t = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const days = Math.round((new Date(d.toDateString()) - new Date(new Date().toDateString())) / 864e5);
+  return (days === 0 ? "today" : days === 1 ? "tomorrow" : d.toLocaleDateString(undefined, {weekday: "short", month: "short", day: "numeric"})) + " " + t;
 }
 function details(u) {
   const info = ((DATA.meta || {}).accounts || {})[`${u.provider}:${u.account}`] || {};
-  const kv = (k, v, cls = "", wide = false) => `<div${wide ? ' class="wide"' : ""}><span>${esc(k)}</span><b class="${cls}" title="${esc(v)}">${esc(v)}</b></div>`;
-  const rows = [kv("email", u.email || info.email || "–", "", true), kv("plan", u.plan || "–"),
-    kv("synced", u.fetched_at ? ago((Date.now() - new Date(u.fetched_at)) / 1000) + " ago" + (u.stale ? " (stale)" : "") : "–", u.stale ? "warn" : "")];
-  for (const w of u.windows) {
-    const p = w.used_percent;
-    rows.push(kv(w.name, `${p == null ? "?" : Math.round(p) + "%"} · resets ${when(w.resets_at)}`, spent(p) ? "red" : p >= 70 ? "warn" : "", true));
+  const kv = (k, v, cls = "") => `<div class="wide"><span>${esc(k)}</span><b class="${cls}" title="${esc(v)}">${esc(v)}</b></div>`;
+  const rows = [kv("account", [u.email || info.email, u.plan].filter(Boolean).join(" · ") || "–")];
+  for (const name of ["5h", "7d"]) {
+    const w = u.windows.find(x => x.name === name);
+    if (w) rows.push(kv(name, w.resets_at ? "resets " + when(w.resets_at) : "–", spent(w.used_percent) ? "red" : ""));
   }
-  for (const [k, v] of Object.entries(u.extra || {})) rows.push(kv(k, v, "", true));
-  const pr = info.profile;
-  rows.push(kv("chrome", pr ? `${pr.name} · ${pr.email || pr.spec}${pr.bound ? "" : " (auto)"}` : "not linked · bind <name> <email>", "", true));
-  if (!u.ok) rows.push(kv("error", u.error || "", "red", true));
-  if (info.home) rows.push(kv("dir", info.home, "", true));
+  const other = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${Math.round(w.used_percent ?? 0)}%`)
+    .concat(Object.entries(u.extra || {}).map(([k, v]) => `${k} ${v}`));
+  if (other.length) rows.push(kv("other", other.join(" · ")));
+  if (info.profile) rows.push(kv("chrome", info.profile.name));
+  if (!u.ok) rows.push(kv("error", u.error || "", "red"));
+  const site = u.provider === "codex" ? "chatgpt.com" : "claude.ai";
+  rows.push(`<div class="wide acts act"><button data-act="web" title="open ${site} in its Chrome profile">↗ ${site}</button>`
+    + `<button data-act="jack" title="terminal running ${u.provider} as this account">›_ terminal</button>`
+    + `<button data-act="rename">✎ rename</button><button class="del" data-act="del" data-label="✕ remove">✕ remove</button></div>`);
   return `<div class="det">${rows.join("")}</div>`;
 }
 function setDetails(on) {
   DETAILS = on; store.set("redline.details", on ? "1" : "0");
-  if (!on) opened.clear();
+  toggled.clear();
   $("#det").classList.toggle("on", on); render();
+}
+/* ---------- sort ---------- */
+const SORTS = {
+  default: ["default order", null],
+  weekly: ["weekly reset soonest (use it before it resets)", u => {
+    const w = u.windows.find(x => x.name === "7d");
+    const dead = needsLogin(u) || !w || spent(w.used_percent);   // nothing left to use: last
+    return [dead ? 1 : 0, w && w.resets_at ? new Date(w.resets_at).getTime() : Infinity, w ? -(100 - (w.used_percent ?? 0)) : 0];
+  }],
+  headroom: ["most 5h left", u => {
+    const w = u.windows.find(x => x.name === "5h");
+    return [needsLogin(u) ? 1 : 0, w ? (w.used_percent ?? 100) : 100];
+  }],
+  name: ["name", u => [u.account.toLowerCase()]],
+};
+let SORT = SORTS[store.get("redline.sort", "default")] ? store.get("redline.sort", "default") : "default";
+function sorted(list) {
+  const key = SORTS[SORT][1];
+  if (!key) return list;
+  const cmp = (a, b) => { for (let i = 0; i < a.length; i++) { if (a[i] < b[i]) return -1; if (a[i] > b[i]) return 1; } return 0; };
+  return list.map((u, i) => [key(u), i, u]).sort((x, y) => cmp(x[0], y[0]) || x[1] - y[1]).map(x => x[2]);
+}
+function setSort(mode, announce = true) {
+  SORT = SORTS[mode] ? mode : "default"; store.set("redline.sort", SORT);
+  $("#sort").classList.toggle("on", SORT !== "default");
+  $("#sort").title = "sort: " + SORTS[SORT][0] + " (click to change)";
+  if (announce) toast("sort: " + SORTS[SORT][0]);
+  render();
 }
 function shortErr(e) {
   e = String(e || "");
@@ -322,7 +368,7 @@ function render() {
     return;
   }
   const b = best(TAB);
-  $("#list").innerHTML = mine.map(u => row(u, mine.length > 1 ? b?.account : null)).join("");
+  $("#list").innerHTML = sorted(mine).map(u => row(u, mine.length > 1 ? b?.account : null)).join("");
   tick();
   if (typeof fitHeight === "function") requestAnimationFrame(fitHeight);
 }
@@ -346,7 +392,7 @@ async function checkUpdate() {
 }
 function setTab(t) { TAB = t === "codex" ? "codex" : "claude"; store.set("redline.tab", TAB); closeSheet(); render(); }
 function tick() {
-  document.querySelectorAll("[data-reset]").forEach(el => { const l = left(el.dataset.reset); if (l != null) el.textContent = "↻" + span(l); });
+  document.querySelectorAll("[data-reset]").forEach(el => { const l = left(el.dataset.reset); if (l != null) el.textContent = l > 0 ? span(l) : "now"; });
   const a = $("#age");
   if (!DATA.fetched_at) return;
   const s = Date.now() / 1000 - DATA.fetched_at, at = new Date(DATA.fetched_at * 1000);
@@ -380,7 +426,11 @@ function startRename(card) {
   });
   inp.addEventListener("blur", () => finish(true));
 }
-$("#list").addEventListener("dblclick", e => { const c = e.target.closest(".acct"); if (c && BOOT.actions && e.target.closest(".nm")) startRename(c); });
+let nameClick;
+$("#list").addEventListener("dblclick", e => {
+  const c = e.target.closest(".acct");
+  if (c && BOOT.actions && e.target.closest(".nm")) { clearTimeout(nameClick); startRename(c); }
+});
 
 /* ---------- add sheet ---------- */
 async function openSheet() {
@@ -432,7 +482,7 @@ function toast(text, kind = "") {
 const HELP = [
   ["claude | codex", "switch tab (Alt+1/2)"], ["add", "open the + panel"], ["add <name>", "new account, then log in"],
   ["login <name>", "log in via its Chrome"], ["wake", "log in / refresh this tab"], ["web <name>", "open its web page"],
-  ["jack <name>", "terminal as <name>"], ["d | details", "expand all rows (or click one)"], ["fit", "auto-size the window again"], ["log", "open the log file (send it when reporting a bug)"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
+  ["jack <name>", "terminal as <name>"], ["d | details", "expand all rows (or click one)"], ["sort [default|weekly|headroom|name]", "row order"], ["fit", "auto-size the window again"], ["log", "open the log file (send it when reporting a bug)"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
   ["scan [all]", "find logins on this PC"], ["bind <name> <email>", "pin a Chrome profile"], ["ls | r | update | clear", ""],
 ];
 const COMMANDS = ["help","claude","codex","details","add","login","wake","web","jack","rename","rm","restore","removed","scan","bind","profiles","ls","sync","update","clear","hide"];
@@ -466,6 +516,7 @@ async function run(line) {
     case "fit":
       manualSize = false; if (native()) { await window.pywebview.api.reset_size(); fitHeight(); }
       log("window height follows the content again", "ok"); break;
+    case "sort": setSort(a[0] || Object.keys(SORTS)[(Object.keys(SORTS).indexOf(SORT) + 1) % 4]); break;
     case "d": case "details": setDetails(!DETAILS); openLog(false); break;
     case "rename": case "mv": if (a.length < 2) { log("usage: rename <old> <new>", "error"); break; }
       await action({action: "rename", name: a[0], new: a[1]}); break;
@@ -505,6 +556,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
     if ($("#sheet").classList.contains("on")) closeSheet();
     else if (document.body.classList.contains("logopen")) openLog(false);
+    else if (DETAILS || document.querySelector(".acct.open")) setDetails(false);   // collapse everything
     else hideWindow();
     return;
   }
@@ -516,28 +568,28 @@ $("#age").onclick = async () => { $("#age").textContent = "…"; await pull(true
 $("#ver").onclick = checkUpdate;
 $("#det").onclick = () => setDetails(!DETAILS);
 $("#det").classList.toggle("on", DETAILS);
+$("#sort").onclick = () => { const ks = Object.keys(SORTS); setSort(ks[(ks.indexOf(SORT) + 1) % ks.length]); };
+setSort(SORT, false);
 $("#plus").onclick = () => $("#sheet").classList.contains("on") ? closeSheet() : openSheet();
 $("#wake").onclick = () => action({action: "wake", names: DATA.usages.filter(u => u.provider === TAB && needsLogin(u)).map(u => u.account)});
 $("#list").addEventListener("click", e => {
   if (!e.target.closest("[data-act]")) {
     openLog(false);
     const c = e.target.closest(".acct");
-    // the name is for double-click rename; clicking elsewhere on the row expands it.
-    // Toggle in place (no re-render) so a double-click never hits a replaced element.
-    if (c && !editing && !e.target.closest(".det") && !e.target.closest(".nm") && !getSelection().toString()) {
-      const n = c.dataset.name;
-      if (DETAILS) { setDetails(false); return; }
-      if (opened.has(n)) opened.delete(n); else opened.add(n);
-      c.classList.toggle("open", opened.has(n));
-      requestAnimationFrame(fitHeight);
-    }
+    // A click anywhere on the row (details included) opens/closes it, in place (no
+    // re-render). On the name, wait a moment so a double-click can mean "rename".
+    if (!c || editing || getSelection().toString()) return;
+    if (e.target.closest(".nm")) {
+      clearTimeout(nameClick);
+      nameClick = setTimeout(() => toggleRow(c), 260);
+    } else toggleRow(c);
     return;
   }
   const b = e.target.closest("[data-act]"), card = b.closest(".acct"), name = card.dataset.name;
   if (b.dataset.act === "del") {
     if (!b.classList.contains("arm")) {   // first click arms, second removes
       b.classList.add("arm"); b.textContent = "sure?";
-      setTimeout(() => { b.classList.remove("arm"); b.textContent = "✕"; }, 3000);
+      setTimeout(() => { b.classList.remove("arm"); b.textContent = b.dataset.label || "✕"; }, 3000);
       return;
     }
     card.classList.add("gone");
