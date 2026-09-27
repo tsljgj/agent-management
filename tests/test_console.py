@@ -261,3 +261,15 @@ def test_single_instance_lock_is_released_when_holder_exits():
     finally:
         holder.wait(10)
     assert tray._single_instance() is not None
+
+
+def test_console_page_is_well_formed():
+    """Cheap guard against broken edits of the single-file console (e.g. an unclosed CSS rule)."""
+    from redline.web import console_html
+
+    html = console_html()
+    css = html[html.index("<style>"):html.index("</style>")]
+    assert css.count("{") == css.count("}")
+    js = html[html.index("<script>"):html.index("</script>")]
+    for o, c in ("{}", "()", "[]"):
+        assert js.count(o) == js.count(c), (o, c)
