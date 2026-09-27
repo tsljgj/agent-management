@@ -176,6 +176,7 @@ class TrayApp:
         )
         monitor.listeners.append(self.on_update)
         server.extra_actions["update"] = self._update_action
+        server.extra_actions["show"] = lambda body: (threading.Thread(target=self.show, daemon=True).start(), "shown")[1]
         if update.is_packaged():
             self._set_update_meta(None)
 
@@ -338,6 +339,9 @@ class TrayApp:
         save_setting("auto_update", not load_settings()["auto_update"])
 
     def quit(self, icon=None, item=None):
+        from . import instance
+
+        instance.clear_state()
         self.quitting = True
         self.monitor.stop()
         self.icon.stop()
@@ -367,7 +371,15 @@ class TrayApp:
             return None, None
 
     def run(self, updated_from: int | None = None, show: bool = False) -> int:
+        from . import instance
+
+        instance.write_state(self.server.port, self.server.token)
         threading.Thread(target=update.cleanup_old, daemon=True).start()
+        if autostart.is_enabled():
+            try:
+                autostart.set_enabled(True)  # refresh the command (adds --background)
+            except OSError:
+                pass
         if updated_from is not None:
             self.monitor.log("ok", f"updated: build {updated_from} -> {BUILD}")
             self._notify(f"redline updated to build {BUILD}")
@@ -500,14 +512,40 @@ def run_tray(interval: int | None = None, refresh_tokens: bool | None = None, se
     if self_test_mode:
         return self_test(monitor, server)
 
-    lock = _single_instance()
-    # Right after a self-update the old process may still be exiting: wait for it.
-    for _ in range(30 if updated_from is not None else 0):
-        if lock is not None:
-            break
-        time.sleep(0.5)
-        lock = _single_instance()
+    lock = _acquire_instance(updated_from is not None)
     if lock is None:
-        _message_box("redline is already running in the system tray.")
+        server.shutdown()
         return 0
     return TrayApp(monitor, server, webview).run(updated_from=updated_from, show=show)
+
+
+def _wait_for_lock(seconds: float):
+    lock = _single_instance()
+    deadline = time.time() + seconds
+    while lock is None and time.time() < deadline:
+        time.sleep(0.5)
+        lock = _single_instance()
+    return lock
+
+
+def _acquire_instance(after_update: bool):
+    """Become the one tray instance, or hand over to the one that's already running."""
+    from . import instance
+
+    # Right after a self-update the old process may still be exiting: wait for it.
+    lock = _wait_for_lock(15 if after_update else 0)
+    if lock is not None:
+        return lock
+    if not after_update and instance.ask_running_to_show():
+        return None  # the live instance just opened its window
+    stuck = instance.stuck_pids()
+    if not after_update and not instance.ask_yes_no(
+        "redline is already running but is not responding\n"
+        "(probably left over from an earlier update).\n\nRestart it?"
+    ):
+        return None
+    instance.kill(stuck)
+    lock = _wait_for_lock(10)
+    if lock is None:
+        _message_box("Could not stop the old redline process.\nEnd redline.exe in Task Manager and try again.")
+    return lock

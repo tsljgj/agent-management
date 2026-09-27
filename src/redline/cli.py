@@ -234,7 +234,8 @@ def cmd_tray(args) -> int:
         return restart_test_child(args.self_test_child)
 
     return run_tray(interval=args.interval, refresh_tokens=True if args.refresh_tokens else None,
-                    self_test_mode=args.self_test, updated_from=args.updated_from, show=args.show)
+                    self_test_mode=args.self_test, updated_from=args.updated_from,
+                    show=args.show or not (args.background or args.updated_from is not None))
 
 
 # ---------------------------------------------------------------- parser
@@ -341,7 +342,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--self-test-restart", metavar="OUT", help=argparse.SUPPRESS)
     s.add_argument("--self-test-child", metavar="OUT", help=argparse.SUPPRESS)
     s.add_argument("--no-reset", action="store_true", help=argparse.SUPPRESS)
-    s.add_argument("--show", action="store_true", help="open the console window right away")
+    s.add_argument("--show", action="store_true", help=argparse.SUPPRESS)  # kept for old updaters
+    s.add_argument("--background", action="store_true", help="start hidden in the tray (used by autostart)")
     s.set_defaults(func=cmd_tray)
     return p
 

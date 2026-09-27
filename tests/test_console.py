@@ -1,4 +1,5 @@
 import json
+import os
 import urllib.error
 import urllib.request
 
@@ -176,3 +177,63 @@ def test_child_env_resets_pyinstaller_state(monkeypatch):
     env = child_env({"CLAUDE_CONFIG_DIR": "x"})
     assert not any(k.startswith(("_PYI_", "_MEIPASS")) for k in env)
     assert env["PYINSTALLER_RESET_ENVIRONMENT"] == "1" and env["CLAUDE_CONFIG_DIR"] == "x"
+
+
+def test_second_launch_asks_running_instance_to_show(tmp_path, monkeypatch):
+    from redline import instance
+
+    shown = []
+    m = Monitor(collect=lambda a, refresh_tokens=False: [])
+    s = ConsoleServer(m, "127.0.0.1", 0, extra_actions={"show": lambda body: shown.append(1) or "shown"}).start_background()
+    try:
+        instance.write_state(s.port, s.token)
+        assert instance.read_state()["port"] == s.port
+        assert instance.ask_running_to_show() and shown == [1]
+        instance.clear_state()
+        assert instance.read_state() is None and not instance.ask_running_to_show()
+    finally:
+        s.shutdown()
+    # a recorded instance that no longer answers -> False (caller offers a restart)
+    instance.write_state(1, "dead")
+    assert not instance.ask_running_to_show(timeout=0.5)
+
+
+def test_acquire_instance_handoff_and_takeover(monkeypatch):
+    from redline import instance, tray
+
+    locks = iter([None])
+    monkeypatch.setattr(tray, "_single_instance", lambda: next(locks, None))
+    monkeypatch.setattr(instance, "ask_running_to_show", lambda timeout=3.0: True)
+    assert tray._acquire_instance(after_update=False) is None  # live instance -> just hand over
+
+    # stuck instance: user confirms -> stuck processes are killed and we take the lock
+    seq = iter([None, None, "LOCK"])
+    monkeypatch.setattr(tray, "_single_instance", lambda: next(seq, "LOCK"))
+    monkeypatch.setattr(instance, "ask_running_to_show", lambda timeout=3.0: False)
+    monkeypatch.setattr(instance, "stuck_pids", lambda: [111, 222])
+    killed = []
+    monkeypatch.setattr(instance, "kill", lambda pids: killed.extend(pids))
+    monkeypatch.setattr(instance, "ask_yes_no", lambda text: True)
+    monkeypatch.setattr(tray.time, "sleep", lambda s: None)
+    assert tray._acquire_instance(after_update=False) == "LOCK" and killed == [111, 222]
+
+    # user says no -> nothing is killed
+    killed.clear()
+    monkeypatch.setattr(tray, "_single_instance", lambda: None)
+    monkeypatch.setattr(instance, "ask_yes_no", lambda text: False)
+    assert tray._acquire_instance(after_update=False) is None and killed == []
+
+
+@pytest.mark.skipif(os.name != "nt", reason="tasklist is Windows-only")
+def test_stuck_pids_lists_other_processes_of_same_image():
+    import subprocess
+    import sys as _sys
+
+    from redline import instance
+
+    child = subprocess.Popen([_sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        pids = instance.stuck_pids()
+        assert child.pid in pids and os.getpid() not in pids
+    finally:
+        child.kill()

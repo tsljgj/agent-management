@@ -15,10 +15,10 @@ def supported() -> bool:
 
 def command() -> str:
     if getattr(sys, "frozen", False):  # PyInstaller exe
-        return f'"{sys.executable}"'
+        return f'"{sys.executable}" --background'
     exe = Path(sys.executable)
     pythonw = exe.with_name("pythonw.exe")
-    return f'"{pythonw if pythonw.exists() else exe}" -m redline tray'
+    return f'"{pythonw if pythonw.exists() else exe}" -m redline tray --background'
 
 
 def is_enabled() -> bool:
