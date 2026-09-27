@@ -237,3 +237,27 @@ def test_stuck_pids_lists_other_processes_of_same_image():
         assert child.pid in pids and os.getpid() not in pids
     finally:
         child.kill()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="named mutex is Windows-only")
+def test_single_instance_lock_is_released_when_holder_exits():
+    """Regression: polling the lock used to leak a mutex handle, so after the old
+    instance exited we kept the mutex alive ourselves and waited forever."""
+    import subprocess
+    import sys as _sys
+    import time as _time
+
+    from redline import tray
+
+    holder = subprocess.Popen([_sys.executable, "-c",
+                               "from redline.tray import _single_instance as s; import time; h = s(); "
+                               "print('held' if h else 'busy', flush=True); time.sleep(4)"],
+                              stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        for _ in range(5):  # poll a few times while it is held
+            assert tray._single_instance() is None
+            _time.sleep(0.2)
+    finally:
+        holder.wait(10)
+    assert tray._single_instance() is not None

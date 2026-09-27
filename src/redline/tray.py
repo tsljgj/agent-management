@@ -33,9 +33,19 @@ def _single_instance() -> object | None:
     """Return a handle that must stay alive, or None if another instance is running."""
     if sys.platform == "win32":
         import ctypes
+        from ctypes import wintypes
 
-        handle = ctypes.windll.kernel32.CreateMutexW(None, False, "Local\\redline")
-        if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.CreateMutexW.restype = wintypes.HANDLE
+        k32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+        k32.CloseHandle.argtypes = [wintypes.HANDLE]
+        handle = k32.CreateMutexW(None, False, "Local\\redline")
+        if not handle:
+            return None
+        if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
+            # We got a handle to the *other* instance's mutex. It must be closed, or it
+            # keeps the mutex alive after that instance exits and we'd wait on ourselves.
+            k32.CloseHandle(handle)
             return None
         return handle
     import fcntl
@@ -46,6 +56,7 @@ def _single_instance() -> object | None:
     try:
         fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
+        f.close()
         return None
     return f
 
@@ -454,6 +465,9 @@ class TrayApp:
         self.window.events.closing += self._on_closing
         threading.Thread(target=self.icon.run, name="redline", daemon=True).start()
         storage = redline_home() / "webview"
+        if self.quitting:  # e.g. an update was installed while we were still starting up
+            log.info("quit requested before the GUI started")
+            return 0
         log.info("gui starting (show=%s)", self._show_when_ready)
         self.webview.start(self._gui_started, private_mode=False, storage_path=str(storage))
         log.info("gui stopped")
