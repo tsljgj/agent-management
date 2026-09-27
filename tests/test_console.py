@@ -265,11 +265,22 @@ def test_single_instance_lock_is_released_when_holder_exits():
 
 def test_console_page_is_well_formed():
     """Cheap guard against broken edits of the single-file console (e.g. an unclosed CSS rule)."""
+    import shutil
+    import subprocess
+    import tempfile
+
     from redline.web import console_html
 
     html = console_html()
     css = html[html.index("<style>"):html.index("</style>")]
     assert css.count("{") == css.count("}")
-    js = html[html.index("<script>"):html.index("</script>")]
-    for o, c in ("{}", "()", "[]"):
-        assert js.count(o) == js.count(c), (o, c)
+    node = shutil.which("node")
+    if node:  # a real syntax check of the page script
+        js = html[html.index("<script>") + len("<script>"):html.index("</script>")]
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+            f.write(js)
+        try:
+            r = subprocess.run([node, "--check", f.name], capture_output=True, text=True)
+            assert r.returncode == 0, r.stderr
+        finally:
+            os.unlink(f.name)
