@@ -53,12 +53,13 @@ header{display:flex;align-items:center;gap:20px;height:48px;padding:0 10px 0 18p
 /* account rows: name · 5h · 7d · actions */
 main{flex:1;overflow-y:auto}
 main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(--faint)}
-.acct{display:grid;grid-template-columns:minmax(70px,1fr) 150px 150px 58px;align-items:center;gap:14px;
+.acct{display:grid;grid-template-columns:minmax(70px,1fr) 150px 150px 80px;align-items:center;gap:14px;
   height:54px;padding:0 10px 0 18px;border-bottom:1px solid var(--line);transition:opacity .2s,transform .2s}
 .acct:hover{background:rgba(0,229,255,.03)}
 .acct.gone{opacity:0;transform:translateX(20px)}
 .nm{color:#fff;font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .best .nm{color:var(--acc)}
+.nm input{width:100%;background:none;border:0;border-bottom:1px solid var(--acc);outline:0;color:#fff;font:inherit;padding:0}
 .stale .nm::after{content:" ·";color:var(--warn)}
 .m{display:grid;grid-template-columns:18px 1fr 46px;align-items:center;gap:8px}
 .m .k{font-size:10px;color:var(--dim)}
@@ -160,7 +161,7 @@ async function pull(force) {
     }
     DATA = d;
     renderVersion();
-    if (d.fetched_at !== lastFetched) { lastFetched = d.fetched_at; render(); }
+    if (d.fetched_at !== lastFetched && !editing) { lastFetched = d.fetched_at; render(); }
   } catch (e) { linkOk = false; tick(); }
 }
 async function action(body, quiet) {
@@ -212,8 +213,8 @@ function row(u, bestName) {
     ? `<div class="need"><button class="act" data-act="login">login ›</button><span title="${esc(u.error)}">${esc(shortErr(u.error))}</span></div>`
     : meter(u.windows.find(w => w.name === "5h"), "5h") + meter(u.windows.find(w => w.name === "7d"), "7d");
   return `<div class="acct${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}" data-name="${n}">
-    <div class="nm" title="${esc(tip)}">${n}</div>${body}
-    <div class="ra act"><button data-act="web" title="open ${u.provider === "codex" ? "chatgpt.com" : "claude.ai"} in its Chrome profile">↗</button><button data-act="jack" title="terminal as ${n}">›_</button><button class="del" data-act="del" title="remove">✕</button></div></div>`;
+    <div class="nm" title="${esc(tip)}${tip ? " · " : ""}double-click to rename">${n}</div>${body}
+    <div class="ra act"><button data-act="web" title="open ${u.provider === "codex" ? "chatgpt.com" : "claude.ai"} in its Chrome profile">↗</button><button data-act="jack" title="terminal as ${n}">›_</button><button data-act="rename" title="rename">✎</button><button class="del" data-act="del" title="remove">✕</button></div></div>`;
 }
 function shortErr(e) {
   e = String(e || "");
@@ -278,6 +279,32 @@ function tick() {
   a.title = `synced ${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}` + (DATA.next_at ? ` · next in ${span(nx)}` : "") + " · click to sync now";
 }
 
+/* ---------- rename in place ---------- */
+let editing = false;
+function startRename(card) {
+  const nm = card.querySelector(".nm"), old = card.dataset.name;
+  if (!nm || nm.querySelector("input")) return;
+  editing = true;
+  nm.innerHTML = `<input value="${esc(old)}" spellcheck="false" maxlength="40">`;
+  const inp = nm.querySelector("input"); inp.focus(); inp.select();
+  let done = false;
+  const finish = async save => {
+    if (done) return; done = true; editing = false;
+    const neu = inp.value.trim();
+    if (save && neu && neu !== old) {
+      nm.textContent = neu; card.dataset.name = neu;
+      if (!(await action({action: "rename", name: old, new: neu}))) { nm.textContent = old; card.dataset.name = old; }
+      pull(false);
+    } else { nm.textContent = old; }
+  };
+  inp.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); finish(true); }
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(false); }
+  });
+  inp.addEventListener("blur", () => finish(true));
+}
+$("#list").addEventListener("dblclick", e => { const c = e.target.closest(".acct"); if (c && BOOT.actions && e.target.closest(".nm")) startRename(c); });
+
 /* ---------- add sheet ---------- */
 async function openSheet() {
   const sh = $("#sheet");
@@ -328,10 +355,10 @@ function toast(text, kind = "") {
 const HELP = [
   ["claude | codex", "switch tab (Alt+1/2)"], ["add", "open the + panel"], ["add <name>", "new account, then log in"],
   ["login <name>", "log in via its Chrome"], ["wake", "log in / refresh this tab"], ["web <name>", "open its web page"],
-  ["jack <name>", "terminal as <name>"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
+  ["jack <name>", "terminal as <name>"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
   ["scan [all]", "find logins on this PC"], ["bind <name> <email>", "pin a Chrome profile"], ["ls | r | update | clear", ""],
 ];
-const COMMANDS = ["help","claude","codex","add","login","wake","web","jack","rm","restore","removed","scan","bind","profiles","ls","sync","update","clear","hide"];
+const COMMANDS = ["help","claude","codex","add","login","wake","web","jack","rename","rm","restore","removed","scan","bind","profiles","ls","sync","update","clear","hide"];
 const tabNames = () => DATA.usages.filter(u => u.provider === TAB).map(u => u.account);
 const hist = []; let hi = 0;
 async function run(line) {
@@ -358,6 +385,8 @@ async function run(line) {
       if (!a.includes("-y")) { log(`confirm: rm ${names.join(" ")} -y`, "warn"); break; }
       for (const n of names) await action({action: "remove", name: n}); break;
     }
+    case "rename": case "mv": if (a.length < 2) { log("usage: rename <old> <new>", "error"); break; }
+      await action({action: "rename", name: a[0], new: a[1]}); break;
     case "restore": case "undo": if (need("restore <name>")) await action({action: "restore", name: a[0]}); break;
     case "removed": await action({action: "removed"}, true); break;
     case "scan": await action({action: "scan", all: a[0] === "all"}); break;
@@ -390,6 +419,7 @@ $("#cmd").addEventListener("keydown", e => {
   else if (e.key === "Tab") { e.preventDefault(); complete(el); }
 });
 document.addEventListener("keydown", e => {
+  if (editing) return;
   if (e.key === "Escape") {
     if ($("#sheet").classList.contains("on")) closeSheet();
     else if (document.body.classList.contains("logopen")) openLog(false);
@@ -420,6 +450,7 @@ $("#list").addEventListener("click", e => {
     });
     return;
   }
+  if (b.dataset.act === "rename") return startRename(card);
   const map = {web: "web", jack: "launch", login: "login"};
   action({action: map[b.dataset.act], name}, b.dataset.act !== "login");
 });

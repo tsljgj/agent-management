@@ -138,6 +138,8 @@ class ConsoleServer:
                     name = str(body.get("action", ""))
                     handler = server.extra_actions.get(name)
                     msg = handler(body) if handler else actions.dispatch(name, body)
+                    if name == "rename":
+                        server.monitor.rename(str(body.get("name", "")), str(body.get("new", "")).strip())
                 except actions.ActionError as e:
                     return self._json(200, {"ok": False, "message": str(e)})
                 except (json.JSONDecodeError, OSError, ValueError) as e:

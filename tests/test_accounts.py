@@ -468,3 +468,30 @@ def test_candidates_endpoint(home):
         assert doc["profiles"][0]["email"] == "a@gmail.com"
     finally:
         s.shutdown()
+
+
+# ------------------------------------------------------------ rename
+
+
+def test_rename_keeps_login_and_binding(home):
+    d = make_claude(home / ".claude-x", email="x@gmail.com")
+    save_accounts([Account("claude-x", "claude", str(d), browser_profile="chrome:Profile 2"),
+                   Account("other", "claude", str(home / "o"))])
+    assert "-> work" in actions.dispatch("rename", {"name": "claude-x", "new": "work"})
+    a = {x.name: x for x in load_accounts()}["work"]
+    assert a.home_path == d and a.browser_profile == "chrome:Profile 2"
+    assert token_state(a) == "ok"
+    for bad in ("other", "has space", ""):
+        with pytest.raises(actions.ActionError):
+            actions.rename_account("work", bad)
+    with pytest.raises(actions.ActionError):
+        actions.rename_account("ghost", "x")
+    assert cli.main(["mv", "work", "main"]) == 0
+    assert sorted(x.name for x in load_accounts()) == ["main", "other"]
+
+
+def test_monitor_rename_carries_state():
+    m = Monitor(collect=lambda a, refresh_tokens=False: [Usage("old", "claude", True, windows=[Window("5h", 50.0)])])
+    m.poll()
+    m.rename("old", "new")
+    assert m.usages[0].account == "new" and "new" in m._last_ok and ("new", "5h") in m._last_pct

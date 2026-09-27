@@ -120,6 +120,16 @@ def cmd_remove(args) -> int:
     return 0
 
 
+def cmd_rename(args) -> int:
+    try:
+        acct = actions.rename_account(args.old, args.new)
+    except actions.ActionError as e:
+        print(e, file=sys.stderr)
+        return 1
+    print(f"renamed {args.old} -> {acct.name}")
+    return 0
+
+
 def cmd_restore(args) -> int:
     if not args.name:
         print(actions.dispatch("removed", {}))
@@ -265,6 +275,11 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("remove", aliases=["rm"], help="unregister accounts (keeps their files; scan won't re-add them)")
     s.add_argument("names", nargs="+")
     s.set_defaults(func=cmd_remove)
+
+    s = sub.add_parser("rename", aliases=["mv"], help="rename an account (its login stays the same)")
+    s.add_argument("old")
+    s.add_argument("new")
+    s.set_defaults(func=cmd_rename)
 
     s = sub.add_parser("restore", help="bring back a removed account (no name: list removed ones)")
     s.add_argument("name", nargs="?")

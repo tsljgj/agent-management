@@ -112,6 +112,19 @@ class Monitor:
             windows=prev.windows, extra=prev.extra, error=u.error, fetched_at=prev.fetched_at, stale=True,
         )
 
+    def rename(self, old: str, new: str) -> None:
+        """Carry an account's cached state over to its new name (instant UI, no re-alerts)."""
+        with self._state_lock:
+            if old in self._last_ok:
+                self._last_ok[new] = self._last_ok.pop(old)
+                self._last_ok[new].account = new
+            for key in [k for k in self._last_pct if k[0] == old]:
+                self._last_pct[(new, key[1])] = self._last_pct.pop(key)
+            for u in self.usages:
+                if u.account == old:
+                    u.account = new
+            self.at = time.time()  # makes the console re-render right away
+
     def refresh_now(self) -> None:
         self.poll(force=True)
 

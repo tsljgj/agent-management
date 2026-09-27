@@ -137,6 +137,27 @@ def remove_account(name: str) -> Account:
     return acct
 
 
+def rename_account(old: str, new: str) -> Account:
+    """Change an account's display name. Its login dir and browser binding stay the same."""
+    new = new.strip()
+    try:
+        validate_name(new)
+    except ValueError as e:
+        raise ActionError(str(e)) from None
+    accounts = load_accounts()
+    try:
+        acct = find_account(accounts, old)
+    except KeyError as e:
+        raise ActionError(e.args[0]) from None
+    if new == old:
+        return acct
+    if any(a.name == new for a in accounts):
+        raise ActionError(f"an account named {new!r} already exists")
+    acct.name = new
+    save_accounts(accounts)
+    return acct
+
+
 def restore_account(name: str) -> Account:
     removed = load_removed()
     match = [r for r in removed if r.name == name]
@@ -309,6 +330,9 @@ def dispatch(action: str, args: dict) -> str:
     if action == "remove":
         acct = remove_account(args.get("name", ""))
         return f"removed {acct.name} (login files kept; `scan` won't re-add it) -- undo: restore {acct.name}"
+    if action == "rename":
+        acct = rename_account(args.get("name", ""), args.get("new", ""))
+        return f"renamed {args.get('name')} -> {acct.name}"
     if action == "restore":
         acct = restore_account(args.get("name", ""))
         return f"restored {acct.name}"
