@@ -79,6 +79,20 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .ra button:hover{color:var(--acc)}
 .ra .del:hover,.ra .del.arm{color:var(--red)}
 .ra .del.arm{width:auto;padding:0 4px}
+#det{font-size:16px}
+#det.on{color:var(--acc)}
+.acct{cursor:pointer}
+.acct.open{height:auto;padding-top:15px;padding-bottom:12px;align-items:start}
+.acct.open .nm,.acct.open .m,.acct.open .need{min-height:22px;display:flex;align-items:center}
+.acct.open .m{display:grid}
+.det{display:none;grid-column:1/-1;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 22px;margin-top:10px;
+  padding:10px 0 2px;border-top:1px dashed var(--faint);font-size:12px;cursor:text;user-select:text}
+.acct.open .det{display:grid}
+.det div{display:grid;grid-template-columns:84px 1fr;gap:8px;min-width:0}
+.det div.wide{grid-column:1/-1}
+.det span{color:var(--dim)}
+.det b{font-weight:400;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.det b.red{color:var(--red)}.det b.warn{color:var(--warn)}
 .empty{padding:48px 18px;color:var(--dim);text-align:center;line-height:2}
 .empty button{color:var(--acc);font-size:15px}
 
@@ -123,6 +137,7 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
   <div class="sp"></div>
   <button class="hb act" id="wake" title="some accounts need a login — wake them">⚡</button>
   <button class="hb" id="age" title="sync now">⟳</button>
+  <button class="hb" id="det" title="details (d)">⋯</button>
   <button class="hb" id="ver" title="check for updates"></button>
   <button class="hb act" id="plus" title="add account">+</button>
   <button class="hb win" id="bmin" title="minimize">_</button>
@@ -212,9 +227,40 @@ function row(u, bestName) {
   const body = needsLogin(u)
     ? `<div class="need"><button class="act" data-act="login">login ›</button><span title="${esc(u.error)}">${esc(shortErr(u.error))}</span></div>`
     : meter(u.windows.find(w => w.name === "5h"), "5h") + meter(u.windows.find(w => w.name === "7d"), "7d");
-  return `<div class="acct${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}" data-name="${n}">
+  return `<div class="acct${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}${isOpen(u.account) ? " open" : ""}" data-name="${n}">
     <div class="nm" title="${esc(tip)}${tip ? " · " : ""}double-click to rename">${n}</div>${body}
-    <div class="ra act"><button data-act="web" title="open ${u.provider === "codex" ? "chatgpt.com" : "claude.ai"} in its Chrome profile">↗</button><button data-act="jack" title="terminal as ${n}">›_</button><button data-act="rename" title="rename">✎</button><button class="del" data-act="del" title="remove">✕</button></div></div>`;
+    <div class="ra act"><button data-act="web" title="open ${u.provider === "codex" ? "chatgpt.com" : "claude.ai"} in its Chrome profile">↗</button><button data-act="jack" title="terminal as ${n}">›_</button><button data-act="rename" title="rename">✎</button><button class="del" data-act="del" title="remove">✕</button></div>${details(u)}</div>`;
+}
+/* ---------- details (⋯ for all rows, or click a row) ---------- */
+let DETAILS = store.get("redline.details", "0") === "1";
+const opened = new Set();
+const isOpen = name => DETAILS || opened.has(name);
+function when(iso) {
+  if (!iso) return "–";
+  const d = new Date(iso), l = left(iso), today = d.toDateString() === new Date().toDateString();
+  const t = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return (today ? t : d.toLocaleDateString(undefined, {weekday: "short"}) + " " + t) + (l > 0 ? `  (in ${span(l)})` : "");
+}
+function details(u) {
+  const info = ((DATA.meta || {}).accounts || {})[u.account] || {};
+  const kv = (k, v, cls = "", wide = false) => `<div${wide ? ' class="wide"' : ""}><span>${esc(k)}</span><b class="${cls}" title="${esc(v)}">${esc(v)}</b></div>`;
+  const rows = [kv("email", u.email || info.email || "–", "", true), kv("plan", u.plan || "–"),
+    kv("synced", u.fetched_at ? ago((Date.now() - new Date(u.fetched_at)) / 1000) + " ago" + (u.stale ? " (stale)" : "") : "–", u.stale ? "warn" : "")];
+  for (const w of u.windows) {
+    const p = w.used_percent;
+    rows.push(kv(w.name, `${p == null ? "?" : Math.round(p) + "%"} · resets ${when(w.resets_at)}`, spent(p) ? "red" : p >= 70 ? "warn" : "", true));
+  }
+  for (const [k, v] of Object.entries(u.extra || {})) rows.push(kv(k, v, "", true));
+  const pr = info.profile;
+  rows.push(kv("chrome", pr ? `${pr.name} · ${pr.email || pr.spec}${pr.bound ? "" : " (auto)"}` : "not linked · bind <name> <email>", "", true));
+  if (!u.ok) rows.push(kv("error", u.error || "", "red", true));
+  if (info.home) rows.push(kv("dir", info.home, "", true));
+  return `<div class="det">${rows.join("")}</div>`;
+}
+function setDetails(on) {
+  DETAILS = on; store.set("redline.details", on ? "1" : "0");
+  if (!on) opened.clear();
+  $("#det").classList.toggle("on", on); render();
 }
 function shortErr(e) {
   e = String(e || "");
@@ -355,10 +401,10 @@ function toast(text, kind = "") {
 const HELP = [
   ["claude | codex", "switch tab (Alt+1/2)"], ["add", "open the + panel"], ["add <name>", "new account, then log in"],
   ["login <name>", "log in via its Chrome"], ["wake", "log in / refresh this tab"], ["web <name>", "open its web page"],
-  ["jack <name>", "terminal as <name>"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
+  ["jack <name>", "terminal as <name>"], ["d | details", "expand all rows (or click one)"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
   ["scan [all]", "find logins on this PC"], ["bind <name> <email>", "pin a Chrome profile"], ["ls | r | update | clear", ""],
 ];
-const COMMANDS = ["help","claude","codex","add","login","wake","web","jack","rename","rm","restore","removed","scan","bind","profiles","ls","sync","update","clear","hide"];
+const COMMANDS = ["help","claude","codex","details","add","login","wake","web","jack","rename","rm","restore","removed","scan","bind","profiles","ls","sync","update","clear","hide"];
 const tabNames = () => DATA.usages.filter(u => u.provider === TAB).map(u => u.account);
 const hist = []; let hi = 0;
 async function run(line) {
@@ -385,6 +431,7 @@ async function run(line) {
       if (!a.includes("-y")) { log(`confirm: rm ${names.join(" ")} -y`, "warn"); break; }
       for (const n of names) await action({action: "remove", name: n}); break;
     }
+    case "d": case "details": setDetails(!DETAILS); openLog(false); break;
     case "rename": case "mv": if (a.length < 2) { log("usage: rename <old> <new>", "error"); break; }
       await action({action: "rename", name: a[0], new: a[1]}); break;
     case "restore": case "undo": if (need("restore <name>")) await action({action: "restore", name: a[0]}); break;
@@ -432,10 +479,22 @@ document.addEventListener("keydown", e => {
 document.querySelectorAll(".tab").forEach(t => t.onclick = () => setTab(t.dataset.tab));
 $("#age").onclick = async () => { $("#age").textContent = "…"; await pull(true); };
 $("#ver").onclick = checkUpdate;
+$("#det").onclick = () => setDetails(!DETAILS);
+$("#det").classList.toggle("on", DETAILS);
 $("#plus").onclick = () => $("#sheet").classList.contains("on") ? closeSheet() : openSheet();
 $("#wake").onclick = () => action({action: "wake", names: DATA.usages.filter(u => u.provider === TAB && needsLogin(u)).map(u => u.account)});
 $("#list").addEventListener("click", e => {
-  if (!e.target.closest("[data-act]")) { openLog(false); return; }
+  if (!e.target.closest("[data-act]")) {
+    openLog(false);
+    const c = e.target.closest(".acct");
+    if (c && !editing && !e.target.closest(".det") && !getSelection().toString()) {
+      const n = c.dataset.name;
+      if (DETAILS) { setDetails(false); opened.clear(); }
+      else if (opened.has(n)) opened.delete(n); else opened.add(n);
+      render();
+    }
+    return;
+  }
   const b = e.target.closest("[data-act]"), card = b.closest(".acct"), name = card.dataset.name;
   if (b.dataset.act === "del") {
     if (!b.classList.contains("arm")) {   // first click arms, second removes

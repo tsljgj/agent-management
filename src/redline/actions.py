@@ -69,6 +69,24 @@ def unique_name(base: str, taken: set[str]) -> str:
     return name
 
 
+def account_details() -> dict[str, dict]:
+    """Static per-account facts for the console's details view (no network)."""
+    from . import browsers
+    from .login import resolve_profile
+    from .providers import identity
+
+    profs = browsers.all_profiles()
+    out = {}
+    for a in load_accounts():
+        p = resolve_profile(a, profs)
+        out[a.name] = {
+            "home": str(a.home_path),
+            "email": identity(a) or (a.note if "@" in a.note else ""),
+            "profile": {"spec": p.spec, "name": p.name, "email": p.email, "bound": bool(a.browser_profile)} if p else None,
+        }
+    return out
+
+
 def candidates(provider: str) -> dict:
     """What the console's `+` panel offers for this provider.
 

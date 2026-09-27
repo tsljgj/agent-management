@@ -82,6 +82,12 @@ class Monitor:
                 self.log("error", f"sync failed: {e}")
                 return
             usages = [self._with_last_good(u) for u in usages]
+            try:
+                from .actions import account_details
+
+                self.meta["accounts"] = account_details()
+            except Exception:
+                pass
             alerts = self._diff(usages)
             with self._state_lock:
                 self.usages = usages
@@ -123,6 +129,9 @@ class Monitor:
             for u in self.usages:
                 if u.account == old:
                     u.account = new
+            accts = self.meta.get("accounts") or {}
+            if old in accts:
+                accts[new] = accts.pop(old)
             self.at = time.time()  # makes the console re-render right away
 
     def refresh_now(self) -> None:

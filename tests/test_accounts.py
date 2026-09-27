@@ -495,3 +495,17 @@ def test_monitor_rename_carries_state():
     m.poll()
     m.rename("old", "new")
     assert m.usages[0].account == "new" and "new" in m._last_ok and ("new", "5h") in m._last_pct
+
+
+def test_account_details_in_payload(home):
+    make_chrome(home, {"Profile 2": "w@gmail.com"})
+    d = make_claude(home / ".claude-w", email="w@gmail.com")
+    save_accounts([Account("w", "claude", str(d)), Account("n", "codex", str(home / "n"))])
+    m = Monitor(collect=lambda a, refresh_tokens=False: [])
+    m.poll()
+    acc = m.payload()["meta"]["accounts"]
+    assert acc["w"]["email"] == "w@gmail.com" and acc["w"]["home"] == str(d)
+    assert acc["w"]["profile"] == {"spec": "chrome:Profile 2", "name": "Person 0", "email": "w@gmail.com", "bound": False}
+    assert acc["n"]["profile"] is None
+    m.rename("w", "work")
+    assert "work" in m.payload()["meta"]["accounts"]

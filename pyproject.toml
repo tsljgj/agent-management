@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "redline"
-version = "0.5.2"
+version = "0.5.3"
 description = "Manage multiple Claude Code / Codex accounts and monitor their subscription usage limits"
 readme = "README.md"
 requires-python = ">=3.11"
