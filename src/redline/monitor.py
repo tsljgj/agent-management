@@ -7,13 +7,14 @@ fires threshold alerts (e.g. "work 5h crossed 90%") exactly once per crossing.
 from __future__ import annotations
 
 import itertools
+import json
 import threading
 import time
 from collections import deque
 from datetime import datetime, timezone
 from typing import Callable
 
-from .config import load_accounts
+from .config import load_accounts, redline_home
 from .models import Usage
 
 DEFAULT_THRESHOLDS = (80, 95)
@@ -50,7 +51,7 @@ class Monitor:
         self.next_at = 0.0
         self.meta: dict = {}  # extra status for the console (e.g. {"update": {...}} from the tray)
         self._last_pct: dict[tuple[str, str, str], float] = {}  # (provider, account, window)
-        self._last_ok: dict[tuple[str, str], Usage] = {}  # (provider, account)
+        self._last_ok: dict[tuple[str, str], Usage] = self._load_last_ok()  # (provider, account)
 
     # ------------------------------------------------------------ lifecycle
 
@@ -90,6 +91,8 @@ class Monitor:
                 self.log("error", f"sync failed: {e}")
                 return
             usages = [self._with_last_good(u) for u in usages]
+            if any(u.ok for u in usages):
+                self._save_last_ok()
             try:
                 from .actions import account_details
 
@@ -113,8 +116,32 @@ class Monitor:
             except Exception:
                 pass
 
+    # Last good numbers survive restarts (self-updates, reboots): an account whose token has
+    # expired while nothing used it would otherwise show no numbers at all until it is used again.
+    @staticmethod
+    def _last_ok_path():
+        return redline_home() / "last_usage.json"
+
+    def _load_last_ok(self) -> dict[tuple[str, str], Usage]:
+        try:
+            docs = json.loads(self._last_ok_path().read_text(encoding="utf-8"))
+            return {(d["provider"], d["account"]): Usage.from_dict(d) for d in docs}
+        except (OSError, ValueError, KeyError, TypeError):
+            return {}
+
+    def _save_last_ok(self) -> None:
+        try:
+            p = self._last_ok_path()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            tmp = p.with_suffix(".tmp")
+            tmp.write_text(json.dumps([u.to_dict() for u in self._last_ok.values()], ensure_ascii=False),
+                           encoding="utf-8")
+            tmp.replace(p)
+        except OSError:
+            pass
+
     def _with_last_good(self, u: Usage) -> Usage:
-        """Keep showing an account's last good numbers when a fetch fails (429, offline...)."""
+        """Keep showing an account's last good numbers when a fetch fails (429, offline, expired...)."""
         if u.ok:
             self._last_ok[(u.provider, u.account)] = u
             return u
@@ -135,6 +162,7 @@ class Monitor:
                 u = self._last_ok.pop(k)
                 u.account = new
                 self._last_ok[(k[0], new)] = u
+                self._save_last_ok()
             for k in [k for k in self._last_pct if match(k[0], k[1])]:
                 self._last_pct[(k[0], new, k[2])] = self._last_pct.pop(k)
             for u in self.usages:

@@ -249,10 +249,18 @@ async function pull(force) {
       if (e.alert || /^(wake done|updated|installing)/.test(e.text) || / logged in| login failed| no login /.test(e.text))
         toast(e.text, e.level === "crit" || e.level === "error" ? "bad" : e.level === "ok" ? "good" : "");
     }
-    DATA = d;
+    DATA = {...d, usages: (d.usages || []).map(projectStale)};
     renderVersion();
     if (d.fetched_at !== lastFetched && !editing) { lastFetched = d.fetched_at; render(); }
   } catch (e) { linkOk = false; tick(); }
+}
+// Old numbers (fetch failed, e.g. an idle account's token expired): a window whose reset time
+// has passed since then has started over, so show it as reset rather than the old percentage.
+function projectStale(u) {
+  if (!u.stale) return u;
+  const now = Date.now();
+  return {...u, windows: u.windows.map(w => w.resets_at && new Date(w.resets_at) <= now
+    ? {...w, used_percent: 0, resets_at: null} : w)};
 }
 async function action(body, quiet) {
   if (!BOOT.actions) { toast("read-only console", "bad"); return false; }
@@ -344,7 +352,7 @@ function row(u, bestName) {
   const n = esc(u.account);
   const extra = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${Math.round(w.used_percent)}%`)
     .concat(Object.entries(u.extra || {}).map(([k, v]) => `${k} ${v}`));
-  const tip = [u.email, u.plan, ...extra, u.stale ? "stale: " + u.error : ""].filter(Boolean).join(" · ");
+  const tip = [u.email, u.plan, ...extra, u.stale ? `as of ${new Date(u.fetched_at).toLocaleString()} · ${u.error}` : ""].filter(Boolean).join(" · ");
   const body = needsLogin(u)
     ? `<div class="need"><button class="act" data-act="login">login ›</button><span title="${esc(u.error)}">${esc(shortErr(u.error))}</span></div>`
     : failed(u)
@@ -446,6 +454,7 @@ function setSort(mode, announce = true) {
 function shortErr(e) {
   e = String(e || "");
   if (/not logged in/.test(e)) return "not logged in";
+  if (/refresh token was rejected/.test(e)) return "signed out";
   if (/expired/.test(e)) return "token expired";
   if (/unauthorized/.test(e)) return "signed out";
   if (/rate limited/.test(e)) return "rate limited";

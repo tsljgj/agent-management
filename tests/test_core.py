@@ -129,6 +129,37 @@ def test_claude_refresh_writes_back_rotated_tokens(tmp_path, monkeypatch):
         assert (acct.home_path / ".credentials.json").stat().st_mode & 0o777 == 0o600
 
 
+def test_claude_refresh_rate_limited_backs_off(tmp_path, monkeypatch):
+    from redline.http import HTTPStatusError
+
+    acct = _claude_account(tmp_path, expires_in=-10)
+    calls = []
+
+    def fake(method, url, **kw):
+        calls.append(url)
+        raise HTTPStatusError(429, '{"error": {"type": "rate_limit_error"}}', url)
+
+    monkeypatch.setattr(claude, "request_json", fake)
+    monkeypatch.setattr(claude, "_refresh_blocked", {})
+    u1 = fetch_usage(acct, refresh_tokens=True)
+    u2 = fetch_usage(acct, refresh_tokens=True)
+    assert calls == [claude.TOKEN_URL]  # the second sync doesn't ask again
+    assert not u1.ok and "rate limited" in u1.error and "next time you use this account" in u1.error
+    assert not u2.ok and "next try in" in u2.error
+    saved = json.loads((acct.home_path / ".credentials.json").read_text())
+    assert saved["claudeAiOauth"]["refreshToken"] == "rt-old"  # untouched
+
+
+def test_claude_refresh_rejected_asks_for_login(tmp_path, monkeypatch):
+    from redline.http import HTTPStatusError
+
+    acct = _claude_account(tmp_path, expires_in=-10)
+    monkeypatch.setattr(claude, "request_json",
+                        lambda m, url, **kw: (_ for _ in ()).throw(HTTPStatusError(400, '{"error": "invalid_grant"}', url)))
+    u = fetch_usage(acct, refresh_tokens=True)
+    assert not u.ok and "log in again" in u.error
+
+
 def test_codex_fetch(tmp_path, monkeypatch):
     home = tmp_path / "cx"
     home.mkdir()

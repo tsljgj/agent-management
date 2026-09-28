@@ -160,15 +160,34 @@ def refresh(creds: Creds, force: bool = False) -> None:
         _refresh_locked(creds)
 
 
+REFRESH_BACKOFF = 30 * 60  # after the token endpoint says 429, leave it alone this long
+_refresh_blocked: dict[str, float] = {}  # credentials path -> retry after (epoch)
+IDLE_HINT = "it updates the next time you use this account in claude, or log in again"
+
+
 def _refresh_locked(creds: Creds) -> None:
     rt = creds.oauth.get("refreshToken")
     if not rt:
         raise ProviderError("access token expired and no refresh token is stored; log in again")
+    key = str(creds.path)
+    wait = _refresh_blocked.get(key, 0) - time.time()
+    if wait > 0:
+        raise ProviderError(f"access token expired; renewing is rate limited (next try in {wait / 60:.0f} min); "
+                            + IDLE_HINT)
     body = {"grant_type": "refresh_token", "refresh_token": rt, "client_id": CLIENT_ID}
     scopes = creds.oauth.get("scopes")
     if scopes:
         body["scope"] = " ".join(scopes)
-    resp = request_json("POST", TOKEN_URL, headers={"User-Agent": USER_AGENT}, json_body=body)
+    try:
+        resp = request_json("POST", TOKEN_URL, headers={"User-Agent": USER_AGENT}, json_body=body)
+    except HTTPStatusError as e:
+        if e.status == 429:
+            _refresh_blocked[key] = time.time() + REFRESH_BACKOFF
+            raise ProviderError("access token expired; renewing it was rate limited; " + IDLE_HINT) from None
+        if e.status in (400, 401) and "invalid_grant" in e.body:
+            raise ProviderError("access token expired and the refresh token was rejected; log in again") from None
+        raise
+    _refresh_blocked.pop(key, None)
     if not resp.get("access_token"):
         raise ProviderError(f"token refresh returned no access_token: {list(resp)}")
     # Re-read right before writing so we don't clobber a concurrent CLI write of other keys.

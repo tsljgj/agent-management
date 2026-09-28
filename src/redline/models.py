@@ -50,6 +50,20 @@ class Usage:
             "renews_kind": self.renews_kind,
         }
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "Usage":
+        def dt(v):
+            return datetime.fromisoformat(v) if v else None
+
+        return cls(
+            account=d["account"], provider=d["provider"], ok=bool(d.get("ok")),
+            email=d.get("email"), plan=d.get("plan"),
+            windows=[Window(w["name"], w.get("used_percent"), dt(w.get("resets_at"))) for w in d.get("windows") or []],
+            extra=d.get("extra") or {}, error=d.get("error"),
+            fetched_at=dt(d.get("fetched_at")) or datetime.now(timezone.utc), stale=bool(d.get("stale")),
+            renews_at=d.get("renews_at"), renews_kind=d.get("renews_kind"),
+        )
+
 
 class ProviderError(Exception):
     pass

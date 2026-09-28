@@ -125,6 +125,7 @@ eval "$(redline env work)"         # 在当前 shell 切换到 work 账号
 - 控制台只监听 `127.0.0.1`。每次启动会生成随机 token，并校验 Host 头，所以其他网页无法借本地端口去开终端或浏览器。
 - Claude 用量接口的限流比较严格，默认每 120 秒同步一次（`-n` 可调），手动刷新至少间隔 15 秒。被限流时继续显示旧数据。
 - 托盘和 `serve` 默认开启 auto-refresh，也就是自动刷新过期 token，可以在托盘菜单里关掉。`redline usage` 默认只读，需要刷新时加 `--refresh-tokens`。
+- Claude 的 access token 大约 8 小时过期。redline 会尝试自己续期，但 Anthropic 的 token 接口经常对它返回 429（限流）。续期失败时，redline 30 分钟内不会再试，同时继续显示这个账号**上次拿到的用量**（重启、自动更新后也会保留）。如果某个窗口的重置时间已经过了，就显示为已重置。下次在这个账号下使用 `claude`，CLI 会自己续期，redline 随即恢复实时数据。
 - 存在 macOS Keychain 里的 Claude 凭据不会被改写，需要在该账号下运行一次 `claude` 让它自己刷新。
 - 如果 Codex 配置了 `cli_auth_credentials_store = "keyring"`，本工具目前读不到它的 token。
 - 旧版 Windows 10 上控制台窗口打不开的话，需要安装 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)。exe 没有代码签名，SmartScreen 可能会拦截，点“仍要运行”即可。

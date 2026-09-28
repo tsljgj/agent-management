@@ -64,6 +64,23 @@ def test_monitor_payload_events_since():
     assert all(e["id"] > last for e in p2["events"]) and p2["events"]
 
 
+def test_monitor_keeps_last_good_numbers_across_restarts():
+    from datetime import datetime, timedelta, timezone
+
+    reset = datetime.now(timezone.utc) + timedelta(hours=2)
+    good = [Usage("work", "claude", True, email="w@x.com", windows=[Window("5h", 42.0, reset)])]
+    Monitor(collect=lambda a, refresh_tokens=False: good).poll()
+
+    # new process (e.g. after a self-update); the token has expired meanwhile
+    bad = [Usage("work", "claude", False, error="access token expired; renewing it was rate limited")]
+    m = Monitor(collect=lambda a, refresh_tokens=False: bad)
+    m.poll()
+    u = m.usages[0]
+    assert u.stale and not u.ok and u.email == "w@x.com"
+    assert u.windows[0].used_percent == 42.0 and u.windows[0].resets_at == reset
+    assert "expired" in u.error
+
+
 @pytest.fixture
 def server():
     m = Monitor(collect=_fake_collect([42] * 10))
