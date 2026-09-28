@@ -200,7 +200,8 @@ class Monitor:
         del hist[:max(0, len([s for s in hist if s[0] < now - RATE_LOOKBACK]) - 1)]  # keep one older sample
         r = usage_rate(hist, now)
         if r is not None:
-            u.rate = {**r, "level": rate_level(r["per_hour"], hours), "window": w.name}
+            u.rate = {**r, "level": rate_level(r["per_hour"], hours), "window": w.name,
+                      "pace": round(r["per_hour"] * hours / 100, 2)}
 
     def _with_last_good(self, u: Usage) -> Usage:
         """Keep showing an account's last good numbers when a fetch fails (429, offline, expired...)."""

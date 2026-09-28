@@ -96,7 +96,7 @@ def test_usage_rate_levels():
     assert feed(2, 10) is None            # too little history
     assert feed(10, 10)["level"] == "idle"
     r = feed(30, 20)                      # +10% in 30 min = 20%/h on a 5h window
-    assert r["level"] == "mid" and r["per_hour"] == 20.0 and r["window"] == "5h"
+    assert r["level"] == "mid" and r["per_hour"] == 20.0 and r["window"] == "5h" and r["pace"] == 1.0
     assert feed(60, 45)["level"] == "high"  # +25% in the last 30 min = 50%/h
     assert feed(62, 3) is None            # the window reset: start over
     assert rate_level(4, 5) == "low" and rate_level(0.2, 168) == "low" and rate_level(0.6, 168) == "mid" and rate_level(1.0, 168) == "high"
