@@ -64,10 +64,15 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .best .nm{color:var(--acc)}
 .nm input{width:100%;background:none;border:0;border-bottom:1px solid var(--acc);outline:0;color:#fff;font:inherit;padding:0}
 .stale .nm::after{content:" ·";color:var(--warn)}
-/* ◆ = the default login (VS Code + plain claude/codex use it); green dot = a chat is running now */
-.def .nm::before{content:"◆ ";color:var(--acc);font-size:11px}
+/* green dot = a chat is running now */
 .live .nm::before{content:"● ";color:var(--ok);font-size:11px}
-.def.live .nm::before{content:"◆ ";color:var(--ok)}
+/* name, and under it how fast the account is being used right now */
+.who{display:flex;flex-direction:column;gap:3px;min-width:0}
+.rate{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rate b{font-weight:600}
+.rate.idle b{color:var(--dim)}.rate.low b{color:var(--ok)}.rate.mid b{color:var(--warn)}.rate.high b{color:var(--red)}
+.rate.high b::before{content:"▲ "}
+.rate span{display:none;text-transform:none;letter-spacing:0}   /* the %/h only where there is room (two-line rows) */
 .det .prj{display:flex;gap:10px;align-items:baseline;min-width:0}
 .det .prj b{flex:1}
 .det .prj em{font-style:normal;color:var(--dim);font-size:11px;white-space:nowrap}
@@ -179,7 +184,8 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 @media (max-width:360px){ header{gap:10px;padding-left:12px} .tab{letter-spacing:.02em} #age,#ver{display:none!important} }
 @media (max-width:440px){          /* two-line rows: name, then both meters */
   .acct{grid-template-columns:1fr 1fr;grid-template-rows:none;height:auto;padding:9px 14px 10px;gap:6px 22px}
-  .acct .nm{grid-column:1/-1}.need{grid-column:1/-1}
+  .acct .who{grid-column:1/-1;flex-direction:row;align-items:baseline;gap:10px}.need{grid-column:1/-1}
+  .rate span{display:inline}
 }
 @media (max-height:300px){ .prompt{display:none} .logopen #log{max-height:90px} }
 @media (max-height:220px){ header{height:40px}.tab{height:40px} }
@@ -348,6 +354,14 @@ function renewParts(r) {
 }
 const base = p => (p || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 const since = s => s < 86400 ? ago(s) : Math.floor(s / 86400) + "d";
+// usage rate over the last ~30 min, from the server (monitor.usage_rate); nothing until it knows
+function rateTag(u) {
+  const r = u.rate;
+  if (!r || u.stale) return "";
+  const tip = r.level === "idle" ? `no ${r.window} usage in the last 30 min`
+    : `${r.window} window filling at ${r.per_hour}%/h over the last 30 min`;
+  return `<div class="rate ${esc(r.level)}" title="${esc(tip)}"><b>${esc(r.level)}</b>${r.level === "idle" ? "" : `<span> · ${r.per_hour}%/h</span>`}</div>`;
+}
 function row(u, bestName) {
   const n = esc(u.account);
   const extra = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${Math.round(w.used_percent)}%`)
@@ -360,11 +374,11 @@ function row(u, bestName) {
     : meter(u.windows.find(w => w.name === "5h"), "5h") + meter(u.windows.find(w => w.name === "7d"), "7d");
   const open = isOpen(`${u.provider}:${u.account}`);
   const info = infoOf(u), live = (info.projects || []).filter(p => p.active);
-  const flags = (info.default ? " def" : "") + (live.length ? " live" : "");
-  const tip2 = [info.default ? "◆ default login (VS Code, plain terminals)" : "", live.length ? "● running in " + live.map(p => base(p.path)).join(", ") : "", tip]
+  const flags = live.length ? " live" : "";
+  const tip2 = [live.length ? "● running in " + live.map(p => base(p.path)).join(", ") : "", tip]
     .filter(Boolean).join(" · ");
   return `<div class="acct${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}${open ? " open" : ""}${flags}" data-name="${n}"><span class="ch">${open ? "▴" : "▾"}</span>
-    <div class="nm" title="${esc(tip2)} · double-click to rename">${n}</div>${body}
+    <div class="who"><div class="nm" title="${esc(tip2)} · double-click to rename">${n}</div>${rateTag(u)}</div>${body}
     ${details(u)}</div>`;
 }
 /* ---------- details: ⋯ opens every row; clicking a row toggles just that row ---------- */
@@ -403,7 +417,6 @@ function details(u) {
       + `<button data-act="renew" title="set the real renewal/end date">✎ set</button></div></div>`); }
   if (info.profile) rows.push(kv("chrome", info.profile.name));
   if (!u.ok) rows.push(kv("error", u.error || "", "red"));
-  if (info.default) rows.push(kv("default", "◆ VS Code & plain terminals use this login", "acc"));
   (info.projects || []).forEach((p, i) => rows.push(`<div class="wide"><span>${i ? "" : "used in"}</span><div class="prj">`
     + `<b title="${esc(p.path)}">${esc(base(p.path))}</b><em class="${p.active ? "on" : ""}">${p.active ? "● now" : since(DATA.now - p.at) + " ago"}</em>`
     + `<button data-act="code" data-path="${esc(p.path)}" title="new VS Code window on ${esc(p.path)} as this account">↗ code</button></div></div>`));

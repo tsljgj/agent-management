@@ -81,6 +81,43 @@ def test_monitor_keeps_last_good_numbers_across_restarts():
     assert "expired" in u.error
 
 
+def test_usage_rate_levels():
+    from redline.monitor import rate_level
+
+    m = Monitor(collect=lambda a, refresh_tokens=False: [])
+    t0 = 1_000_000.0
+
+    def feed(minutes, pct, name="5h"):
+        u = Usage("work", "claude", True, windows=[Window(name, pct)])
+        m._track_rate(u, now=t0 + minutes * 60)
+        return u.rate
+
+    assert feed(0, 10) is None            # no history yet
+    assert feed(2, 10) is None            # too little history
+    assert feed(10, 10)["level"] == "idle"
+    r = feed(30, 20)                      # +10% in 30 min = 20%/h on a 5h window
+    assert r["level"] == "mid" and r["per_hour"] == 20.0 and r["window"] == "5h"
+    assert feed(60, 45)["level"] == "high"  # +25% in the last 30 min = 50%/h
+    assert feed(62, 3) is None            # the window reset: start over
+    assert rate_level(4, 5) == "low" and rate_level(0.2, 168) == "low" and rate_level(0.6, 168) == "mid" and rate_level(1.0, 168) == "high"
+
+
+def test_usage_rate_is_sent_and_dropped_when_stale():
+    seq = iter([[Usage("work", "claude", True, windows=[Window("5h", 10.0)])],
+                [Usage("work", "claude", True, windows=[Window("5h", 30.0)])],
+                [Usage("work", "claude", False, error="network error")]])
+    m = Monitor(collect=lambda a, refresh_tokens=False: next(seq))
+    clock = iter([0.0, 600.0, 1200.0])
+    orig = m._track_rate
+    m._track_rate = lambda u: orig(u, now=next(clock))
+    m.poll()
+    m.poll()
+    assert m.payload()["usages"][0]["rate"]["level"] == "high"  # +20% in 10 min
+    m.poll()
+    u = m.payload()["usages"][0]
+    assert u["stale"] and u["rate"] is None
+
+
 @pytest.fixture
 def server():
     m = Monitor(collect=_fake_collect([42] * 10))

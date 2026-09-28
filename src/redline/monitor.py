@@ -21,6 +21,47 @@ DEFAULT_THRESHOLDS = (80, 95)
 FORCE_FLOOR = 15  # seconds; even a manual refresh can't hit upstream more often than this
 RESET_BELOW = 20  # a window that was >= first threshold and is now below this "has reset"
 
+# Usage rate: how fast the short window (5h; the first window if there is none) is filling,
+# measured over the last RATE_LOOKBACK seconds. "pace" 1.0 = on track to use exactly the whole
+# window over its length (5h: 20%/h). Levels: idle (no change), low < 0.5, mid < 1.25, high.
+RATE_LOOKBACK = 30 * 60
+RATE_MIN_SPAN = 4 * 60  # need at least this much history before saying anything
+RATE_LEVELS = ((0.5, "low"), (1.25, "mid"))
+
+
+def _window_hours(name: str) -> float | None:
+    import re
+
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)([hd])", name)
+    return float(m.group(1)) * (24 if m.group(2) == "d" else 1) if m else None
+
+
+def rate_window(u: Usage):
+    return next((w for w in u.windows if w.name == "5h"), None) or next(
+        (w for w in u.windows if _window_hours(w.name)), None)
+
+
+def usage_rate(samples, now: float) -> dict | None:
+    """samples: [(t, percent), ...] oldest first, all from the current window (no reset in between)."""
+    recent = [s for s in samples if s[0] >= now - RATE_LOOKBACK]
+    older = [s for s in samples if s[0] < now - RATE_LOOKBACK]
+    base = older[-1] if older else (recent[0] if recent else None)  # span the whole lookback when we can
+    if base is None or not recent:
+        return None
+    t1, p1 = samples[-1]
+    span = t1 - base[0]
+    if span < RATE_MIN_SPAN:
+        return None
+    per_hour = max(0.0, p1 - base[1]) / (span / 3600)
+    return {"per_hour": round(per_hour, 1)}
+
+
+def rate_level(per_hour: float, hours: float) -> str:
+    if per_hour <= 0:
+        return "idle"
+    pace = per_hour * hours / 100
+    return next((name for limit, name in RATE_LEVELS if pace < limit), "high")
+
 
 class Monitor:
     def __init__(
@@ -52,6 +93,7 @@ class Monitor:
         self.meta: dict = {}  # extra status for the console (e.g. {"update": {...}} from the tray)
         self._last_pct: dict[tuple[str, str, str], float] = {}  # (provider, account, window)
         self._last_ok: dict[tuple[str, str], Usage] = self._load_last_ok()  # (provider, account)
+        self._samples: dict[tuple[str, str], list[tuple[float, float]]] = {}  # (provider, account) -> [(t, %)]
 
     # ------------------------------------------------------------ lifecycle
 
@@ -90,6 +132,8 @@ class Monitor:
             except Exception as e:  # config file broken etc. -- keep the loop alive
                 self.log("error", f"sync failed: {e}")
                 return
+            for u in usages:
+                self._track_rate(u)
             usages = [self._with_last_good(u) for u in usages]
             if any(u.ok for u in usages):
                 self._save_last_ok()
@@ -140,6 +184,24 @@ class Monitor:
         except OSError:
             pass
 
+    def _track_rate(self, u: Usage, now: float | None = None) -> None:
+        if not u.ok:
+            return
+        w = rate_window(u)
+        hours = _window_hours(w.name) if w else None
+        if w is None or w.used_percent is None or not hours:
+            return
+        now = time.time() if now is None else now
+        key = (u.provider, u.account)
+        hist = self._samples.setdefault(key, [])
+        if hist and w.used_percent < hist[-1][1] - 0.5:  # the window reset: start over
+            hist.clear()
+        hist.append((now, w.used_percent))
+        del hist[:max(0, len([s for s in hist if s[0] < now - RATE_LOOKBACK]) - 1)]  # keep one older sample
+        r = usage_rate(hist, now)
+        if r is not None:
+            u.rate = {**r, "level": rate_level(r["per_hour"], hours), "window": w.name}
+
     def _with_last_good(self, u: Usage) -> Usage:
         """Keep showing an account's last good numbers when a fetch fails (429, offline, expired...)."""
         if u.ok:
@@ -163,6 +225,8 @@ class Monitor:
                 u.account = new
                 self._last_ok[(k[0], new)] = u
                 self._save_last_ok()
+            for k in [k for k in self._samples if match(*k)]:
+                self._samples[(k[0], new)] = self._samples.pop(k)
             for k in [k for k in self._last_pct if match(k[0], k[1])]:
                 self._last_pct[(k[0], new, k[2])] = self._last_pct.pop(k)
             for u in self.usages:
