@@ -388,7 +388,11 @@ function gauge(pace) {
 }
 function rateTag(u) {
   const r = u.rate;
-  if (!r || u.stale) return "";
+  if (!r || u.stale) {  // keep the dial in place, unlit, until there are live readings to measure
+    if (!u.windows || !u.windows.length) return "";
+    const why = u.stale ? "no live readings for this account right now" : "measuring: the rate shows after a few minutes of readings";
+    return `<div class="rate idle wait" title="${esc(why)}">${gauge(0)}<b>${u.stale ? "--" : "···"}</b></div>`;
+  }
   const tip = r.level === "idle" ? `no ${r.window} usage in the last 30 min`
     : `${r.window} window filling at ${r.per_hour}%/h over the last 30 min`;
   return `<div class="rate ${esc(r.level)}" title="${esc(tip)}">${gauge(r.pace)}<b>${esc(r.level)}</b>${r.level === "idle" ? "" : `<span> · ${r.per_hour}%/h</span>`}</div>`;

@@ -118,6 +118,22 @@ def test_usage_rate_is_sent_and_dropped_when_stale():
     assert u["stale"] and u["rate"] is None
 
 
+def test_usage_rate_history_survives_restarts():
+    import time as _t
+
+    now = _t.time()
+    seq = iter([[Usage("work", "claude", True, windows=[Window("5h", 10.0)])]])
+    m = Monitor(collect=lambda a, refresh_tokens=False: next(seq))
+    orig = m._track_rate
+    m._track_rate = lambda u: orig(u, now=now - 600)
+    m.poll()
+
+    # new process (self-update) a few minutes later: the gauge works on its first poll
+    m2 = Monitor(collect=lambda a, refresh_tokens=False: [Usage("work", "claude", True, windows=[Window("5h", 30.0)])])
+    m2.poll()
+    assert m2.payload()["usages"][0]["rate"]["level"] == "high"  # +20% in 10 min
+
+
 @pytest.fixture
 def server():
     m = Monitor(collect=_fake_collect([42] * 10))

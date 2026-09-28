@@ -92,8 +92,8 @@ class Monitor:
         self.next_at = 0.0
         self.meta: dict = {}  # extra status for the console (e.g. {"update": {...}} from the tray)
         self._last_pct: dict[tuple[str, str, str], float] = {}  # (provider, account, window)
-        self._last_ok: dict[tuple[str, str], Usage] = self._load_last_ok()  # (provider, account)
         self._samples: dict[tuple[str, str], list[tuple[float, float]]] = {}  # (provider, account) -> [(t, %)]
+        self._last_ok: dict[tuple[str, str], Usage] = self._load_last_ok()  # (provider, account)
 
     # ------------------------------------------------------------ lifecycle
 
@@ -169,7 +169,16 @@ class Monitor:
     def _load_last_ok(self) -> dict[tuple[str, str], Usage]:
         try:
             docs = json.loads(self._last_ok_path().read_text(encoding="utf-8"))
-            return {(d["provider"], d["account"]): Usage.from_dict(d) for d in docs}
+            out = {}
+            for d in docs:
+                key = (d["provider"], d["account"])
+                out[key] = Usage.from_dict(d)
+                # the rate history too, so a restart (self-update) doesn't blank the gauge for minutes
+                cutoff = time.time() - RATE_LOOKBACK * 2
+                hist = [(float(t), float(p)) for t, p in d.get("rate_samples") or [] if float(t) > cutoff]
+                if hist:
+                    self._samples[key] = hist
+            return out
         except (OSError, ValueError, KeyError, TypeError):
             return {}
 
@@ -178,7 +187,8 @@ class Monitor:
             p = self._last_ok_path()
             p.parent.mkdir(parents=True, exist_ok=True)
             tmp = p.with_suffix(".tmp")
-            tmp.write_text(json.dumps([u.to_dict() for u in self._last_ok.values()], ensure_ascii=False),
+            docs = [{**u.to_dict(), "rate_samples": self._samples.get(k, [])} for k, u in self._last_ok.items()]
+            tmp.write_text(json.dumps(docs, ensure_ascii=False),
                            encoding="utf-8")
             tmp.replace(p)
         except OSError:
@@ -221,13 +231,13 @@ class Monitor:
         """Carry an account's cached state over to its new name (instant UI, no re-alerts)."""
         match = lambda p, n: n == old and (provider is None or p == provider)  # noqa: E731
         with self._state_lock:
+            for k in [k for k in self._samples if match(*k)]:
+                self._samples[(k[0], new)] = self._samples.pop(k)
             for k in [k for k in self._last_ok if match(*k)]:
                 u = self._last_ok.pop(k)
                 u.account = new
                 self._last_ok[(k[0], new)] = u
                 self._save_last_ok()
-            for k in [k for k in self._samples if match(*k)]:
-                self._samples[(k[0], new)] = self._samples.pop(k)
             for k in [k for k in self._last_pct if match(k[0], k[1])]:
                 self._last_pct[(k[0], new, k[2])] = self._last_pct.pop(k)
             for u in self.usages:
