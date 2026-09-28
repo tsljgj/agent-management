@@ -69,14 +69,16 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 /* name, and under it how fast the account is being used right now */
 .who{display:flex;flex-direction:column;gap:3px;min-width:0}
 .rate{display:flex;align-items:flex-end;gap:6px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);white-space:nowrap;overflow:hidden}
-.rate svg{flex:none;width:36px;height:20px;overflow:visible}
-.rate svg .z{fill:none;stroke-width:3}
-.rate svg .z.low{stroke:var(--ok)}.rate svg .z.mid{stroke:var(--warn)}.rate svg .z.high{stroke:var(--red)}
-.rate svg .nd{stroke:var(--fg);stroke-width:1.5;stroke-linecap:round}
-.rate svg .hub{fill:var(--fg)}
-.rate.idle svg .z{opacity:.25}.rate.idle svg .nd,.rate.idle svg .hub{stroke:var(--dim);fill:var(--dim)}
-.rate b{font-weight:600}
-.rate.idle b{color:var(--dim)}.rate.low b{color:var(--ok)}.rate.mid b{color:var(--warn)}.rate.high b{color:var(--red)}
+/* LED gauge, lit like the meters: dark segments = the track, lit ones glow in the level's colour */
+.rate{--c:var(--dim)}.rate.low{--c:var(--ok)}.rate.mid{--c:var(--warn)}.rate.high{--c:var(--red)}
+.rate svg{flex:none;width:38px;height:21px;overflow:visible}
+.rate svg .sg{fill:none;stroke:var(--faint);stroke-width:3.4}
+.rate svg .sg.on{stroke:var(--c);filter:drop-shadow(0 0 2px var(--c))}
+.rate svg .tk{stroke:var(--dim);stroke-width:.8}
+.rate svg .nd{stroke:var(--c);stroke-width:1.4;stroke-linecap:round;filter:drop-shadow(0 0 2px var(--c))}
+.rate svg .hub{fill:var(--bg);stroke:var(--c);stroke-width:1.2}
+.rate b{font-weight:600;color:var(--c);text-shadow:0 0 6px var(--c)}
+.rate.idle b{text-shadow:none}
 .rate span{display:none;text-transform:none;letter-spacing:0}   /* the %/h only where there is room (two-line rows) */
 .det .prj{display:flex;gap:10px;align-items:baseline;min-width:0}
 .det .prj b{flex:1}
@@ -360,23 +362,29 @@ function renewParts(r) {
 const base = p => (p || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 const since = s => s < 86400 ? ago(s) : Math.floor(s / 86400) + "d";
 // usage rate over the last ~30 min, from the server (monitor.usage_rate); nothing until it knows
-// the gauge: a half dial from 0 to 2x "pace" (1.0 = on track to use the whole window over its length),
-// zones = the levels (low < 0.5, mid < 1.25, high), the needle = right now
-const GAUGE_MAX = 2, ZONES = [["low", 0, 0.5], ["mid", 0.5, 1.25], ["high", 1.25, 2]];
+// the gauge: a half dial of LED segments from 0 to 2x "pace" (1.0 = on track to use the whole
+// window over its length); segments up to the current pace light up, ticks mark the level bounds
+// (low < 0.5, mid < 1.25, high), the needle points at the pace
+const GAUGE_MAX = 2, GAUGE_SEGS = 12, GAUGE_TICKS = [0.5, 1.25];
 function gauge(pace) {
-  const cx = 20, cy = 20, r = 16, pt = (f, rr = r) => {
-    const a = Math.PI * (1 - f);
-    return `${(cx + rr * Math.cos(a)).toFixed(2)} ${(cy - rr * Math.sin(a)).toFixed(2)}`;
+  const cx = 20, cy = 20, r = 15, f = Math.min(Math.max(pace || 0, 0), GAUGE_MAX) / GAUGE_MAX;
+  const pt = (t, rr = r) => {
+    const a = Math.PI * (1 - t);
+    return [(cx + rr * Math.cos(a)).toFixed(2), (cy - rr * Math.sin(a)).toFixed(2)];
   };
-  const gap = 0.02;  // a sliver of background between the zones
-  const arcs = ZONES.map(([k, a, b]) => {
-    const f0 = a / GAUGE_MAX + (a ? gap : 0), f1 = b / GAUGE_MAX - (b < GAUGE_MAX ? gap : 0);
-    return `<path class="z ${k}" d="M${pt(f0)} A${r} ${r} 0 0 1 ${pt(f1)}"/>`;
-  }).join("");
-  const [x2, y2] = pt(Math.min(Math.max(pace || 0, 0), GAUGE_MAX) / GAUGE_MAX, 12).split(" ");
-  return `<svg viewBox="0 0 40 22" aria-hidden="true">${arcs}`
-    + `<line class="nd" x1="${cx}" y1="${cy}" x2="${x2}" y2="${y2}"/>`
-    + `<circle class="hub" cx="${cx}" cy="${cy}" r="2"/></svg>`;
+  const step = 1 / GAUGE_SEGS, gap = step * 0.22;
+  let out = "";
+  for (let k = 0; k < GAUGE_SEGS; k++) {
+    const a = pt(k * step + gap / 2), b = pt((k + 1) * step - gap / 2);
+    out += `<path class="sg${f > 0 && k * step < f ? " on" : ""}" d="M${a} A${r} ${r} 0 0 1 ${b}"/>`;
+  }
+  for (const t of GAUGE_TICKS) {
+    const a = pt(t / GAUGE_MAX, r + 2.6), b = pt(t / GAUGE_MAX, r + 4.4);
+    out += `<line class="tk" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"/>`;
+  }
+  const n = pt(f, 10.5);
+  return `<svg viewBox="0 0 40 22" aria-hidden="true">${out}`
+    + `<line class="nd" x1="${cx}" y1="${cy}" x2="${n[0]}" y2="${n[1]}"/><circle class="hub" cx="${cx}" cy="${cy}" r="1.8"/></svg>`;
 }
 function rateTag(u) {
   const r = u.rate;
