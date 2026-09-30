@@ -86,13 +86,40 @@ def parse_usage(doc: dict) -> tuple[list[Window], dict]:
             name = extra_rl.get("limit_name") or extra_rl.get("metered_feature") or "extra"
             windows += _parse_rate_limit(extra_rl.get("rate_limit"), prefix=f"{name} ")
     extra: dict = {}
-    credits = doc.get("credits")
-    if isinstance(credits, dict) and credits.get("has_credits"):
-        extra["credits"] = "unlimited" if credits.get("unlimited") else str(credits.get("balance"))
+    c = credits(doc.get("credits"))
+    if c:
+        extra["credits"] = c
     rl = doc.get("rate_limit") or {}
     if rl.get("limit_reached"):
         extra["status"] = "LIMIT REACHED"
     return windows, extra
+
+
+def _num(v) -> float | None:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def credits(c) -> str | None:
+    """Extra credits on top of the plan's windows (bought, or granted by OpenAI), e.g. "12.5" or
+    "12.5 (~40-60 msgs)". Shown whenever there is a balance, even if has_credits says otherwise."""
+    if not isinstance(c, dict):
+        return None
+    if c.get("unlimited"):
+        return "unlimited"
+    bal = _num(c.get("balance"))
+    if bal is None or (not bal and not c.get("has_credits")):
+        return None
+    text = f"{bal:g}"
+    msgs = c.get("approx_local_messages")
+    if isinstance(msgs, (list, tuple)) and len(msgs) == 2 and all(_num(m) is not None for m in msgs):
+        lo, hi = (int(_num(m)) for m in msgs)
+        text += f" (~{lo}-{hi} msgs)" if lo != hi else f" (~{lo} msgs)"
+    elif _num(msgs) is not None:
+        text += f" (~{int(_num(msgs))} msgs)"
+    return text
 
 
 def refresh(account: Account, auth: dict) -> dict:
@@ -167,6 +194,9 @@ def _headers(auth: dict) -> dict[str, str]:
     return h
 
 
+_credits_logged: set[str] = set()
+
+
 def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
     auth = load_auth(account)
     if auth is None:
@@ -194,6 +224,11 @@ def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
             raise
 
     windows, extra = parse_usage(doc)
+    if account.key not in _credits_logged:
+        from ..applog import log
+
+        _credits_logged.add(account.key)
+        log.info("codex %s credits: %s", account.name, json.dumps(doc.get("credits"))[:300])
     id_claims = jwt_claims(auth["tokens"].get("id_token"))
     email = id_claims.get("email") or (id_claims.get(PROFILE_CLAIM) or {}).get("email")
     plan = doc.get("plan_type") or (id_claims.get(AUTH_CLAIM) or {}).get("chatgpt_plan_type")

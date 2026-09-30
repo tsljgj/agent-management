@@ -68,6 +68,8 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .live .nm::before{content:"● ";color:var(--ok);font-size:11px}
 /* name, and under it how fast the account is being used right now */
 .who{display:flex;flex-direction:column;gap:3px;min-width:0}
+/* extra credits on top of the plan (Codex): usable once the windows run out */
+.cred{font-size:10px;letter-spacing:.06em;color:var(--acc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rate{display:flex;align-items:flex-end;gap:6px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);white-space:nowrap;overflow:hidden}
 /* LED gauge, lit like the meters: dark segments = the track, lit ones glow in the level's colour */
 .rate{--c:var(--dim)}.rate.low{--c:var(--ok)}.rate.mid{--c:var(--warn)}.rate.high{--c:var(--red)}
@@ -397,10 +399,14 @@ function rateTag(u) {
     : `${r.window} window filling at ${r.per_hour}%/h over the last 30 min`;
   return `<div class="rate ${esc(r.level)}" title="${esc(tip)}">${gauge(r.pace)}<b>${esc(r.level)}</b>${r.level === "idle" ? "" : `<span> · ${r.per_hour}%/h</span>`}</div>`;
 }
+function credTag(u) {
+  const c = (u.extra || {}).credits;
+  return c ? `<div class="cred" title="extra credits: used after the ${esc(u.provider)} plan limits run out">+ ${esc(c)} credits</div>` : "";
+}
 function row(u, bestName) {
   const n = esc(u.account);
   const extra = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${Math.round(w.used_percent)}%`)
-    .concat(Object.entries(u.extra || {}).map(([k, v]) => `${k} ${v}`));
+    .concat(Object.entries(u.extra || {}).filter(([k]) => k !== "credits").map(([k, v]) => `${k} ${v}`));
   const tip = [u.email, u.plan, ...extra, u.stale ? `as of ${new Date(u.fetched_at).toLocaleString()} · ${u.error}` : ""].filter(Boolean).join(" · ");
   const body = needsLogin(u)
     ? `<div class="need"><button class="act" data-act="login">login ›</button><span title="${esc(u.error)}">${esc(shortErr(u.error))}</span></div>`
@@ -413,7 +419,7 @@ function row(u, bestName) {
   const tip2 = [live.length ? "● running in " + live.map(p => base(p.path)).join(", ") : "", tip]
     .filter(Boolean).join(" · ");
   return `<div class="acct${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}${open ? " open" : ""}${flags}" data-name="${n}"><span class="ch">${open ? "▴" : "▾"}</span>
-    <div class="who"><div class="nm" title="${esc(tip2)} · double-click to rename">${n}</div>${rateTag(u)}</div>${body}
+    <div class="who"><div class="nm" title="${esc(tip2)} · double-click to rename">${n}</div>${rateTag(u)}${credTag(u)}</div>${body}
     ${details(u)}</div>`;
 }
 /* ---------- details: ⋯ opens every row; clicking a row toggles just that row ---------- */
@@ -503,6 +509,9 @@ function shortErr(e) {
   e = String(e || "");
   if (/not logged in/.test(e)) return "not logged in";
   if (/refresh token was rejected/.test(e)) return "signed out";
+  const wait = e.match(/renewing is rate limited \(next try in (\d+) min\)/);
+  if (wait) return `token expired · renew retries in ${wait[1]} min`;
+  if (/renewing it was rate limited/.test(e)) return "token expired · renew rate limited";
   if (/expired/.test(e)) return "token expired";
   if (/unauthorized/.test(e)) return "signed out";
   if (/rate limited/.test(e)) return "rate limited";

@@ -74,6 +74,16 @@ def test_codex_parse_usage():
     assert extra == {"credits": "12.5"}
 
 
+def test_codex_credits_shown_whenever_there_is_a_balance():
+    assert codex.credits({"has_credits": False, "unlimited": False, "balance": "25"}) == "25"
+    assert codex.credits({"has_credits": True, "balance": "0"}) == "0"
+    assert codex.credits({"has_credits": False, "balance": "0"}) is None
+    assert codex.credits({"has_credits": False, "balance": None}) is None
+    assert codex.credits({"unlimited": True}) == "unlimited"
+    assert codex.credits({"has_credits": True, "balance": "12.50", "approx_local_messages": [40, 60]}) == "12.5 (~40-60 msgs)"
+    assert codex.credits(None) is None
+
+
 def test_keychain_service_name(tmp_path):
     default = Account("d", "claude", "~/.claude")
     assert claude.keychain_service(default) == "Claude Code-credentials"
@@ -148,6 +158,32 @@ def test_claude_refresh_rate_limited_backs_off(tmp_path, monkeypatch):
     assert not u2.ok and "next try in" in u2.error
     saved = json.loads((acct.home_path / ".credentials.json").read_text())
     assert saved["claudeAiOauth"]["refreshToken"] == "rt-old"  # untouched
+
+
+def test_claude_refresh_backoff_is_shared_persisted_and_honours_retry_after(tmp_path, monkeypatch):
+    from redline.http import HTTPStatusError
+
+    a, b = _claude_account(tmp_path, "a", expires_in=-10), _claude_account(tmp_path, "b", expires_in=-10)
+    calls = []
+
+    def fake(method, url, **kw):
+        calls.append(url)
+        raise HTTPStatusError(429, "slow down", url, {"Retry-After": "120"})
+
+    monkeypatch.setattr(claude, "request_json", fake)
+    monkeypatch.setattr(claude, "_refresh_blocked", {})
+    fetch_usage(a, refresh_tokens=True)
+    u = fetch_usage(b, refresh_tokens=True)
+    assert calls == [claude.TOKEN_URL]  # the other account waits too
+    assert "next try in 2 min" in u.error
+    monkeypatch.setattr(claude, "_refresh_blocked", {})  # a restart: the wait comes back from disk
+    assert "next try in" in fetch_usage(b, refresh_tokens=True).error and len(calls) == 1
+
+    monkeypatch.setattr(claude, "_refresh_blocked", {"until": time.time() - 1})
+    monkeypatch.setattr(claude, "request_json", lambda m, url, **kw: {"access_token": "at-new", "expires_in": 3600}
+                        if url == claude.TOKEN_URL else CLAUDE_USAGE)
+    assert fetch_usage(a, refresh_tokens=True).ok
+    assert not claude._backoff_path().exists()
 
 
 def test_claude_refresh_rejected_asks_for_login(tmp_path, monkeypatch):

@@ -160,19 +160,62 @@ def refresh(creds: Creds, force: bool = False) -> None:
         _refresh_locked(creds)
 
 
-REFRESH_BACKOFF = 30 * 60  # after the token endpoint says 429, leave it alone this long
-_refresh_blocked: dict[str, float] = {}  # credentials path -> retry after (epoch)
+REFRESH_BACKOFF = 30 * 60  # after the token endpoint says 429 (without Retry-After), leave it alone this long
 IDLE_HINT = "it updates the next time you use this account in claude, or log in again"
+# One wait for every account: the token endpoint limits the client, not a single login, so
+# asking again for the next account right after a 429 only extends the block. Kept on disk so
+# a restart (self-update, reboot) doesn't ask again straight away.
+_refresh_blocked: dict[str, float] = {}  # {"until": epoch}, loaded lazily from _backoff_path()
+
+
+def _backoff_path() -> Path:
+    from ..config import redline_home
+
+    return redline_home() / "claude_refresh_backoff.json"
+
+
+def _blocked_until() -> float:
+    if "until" not in _refresh_blocked:
+        try:
+            _refresh_blocked["until"] = float((read_json(_backoff_path()) or {}).get("until") or 0)
+        except (ValueError, OSError, TypeError):
+            _refresh_blocked["until"] = 0.0
+    return _refresh_blocked["until"]
+
+
+def _set_blocked(until: float) -> None:
+    _refresh_blocked["until"] = until
+    try:
+        path = _backoff_path()
+        if until:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            write_json_atomic(path, {"until": until})
+        else:
+            path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _retry_after(e: HTTPStatusError) -> float | None:
+    v = e.headers.get("retry-after")
+    try:
+        return max(0.0, float(v)) if v else None
+    except ValueError:  # an HTTP date
+        from email.utils import parsedate_to_datetime
+
+        try:
+            return max(0.0, parsedate_to_datetime(v).timestamp() - time.time())
+        except (TypeError, ValueError):
+            return None
 
 
 def _refresh_locked(creds: Creds) -> None:
     rt = creds.oauth.get("refreshToken")
     if not rt:
         raise ProviderError("access token expired and no refresh token is stored; log in again")
-    key = str(creds.path)
-    wait = _refresh_blocked.get(key, 0) - time.time()
+    wait = _blocked_until() - time.time()
     if wait > 0:
-        raise ProviderError(f"access token expired; renewing is rate limited (next try in {wait / 60:.0f} min); "
+        raise ProviderError(f"access token expired; renewing is rate limited (next try in {max(1, round(wait / 60))} min); "
                             + IDLE_HINT)
     body = {"grant_type": "refresh_token", "refresh_token": rt, "client_id": CLIENT_ID}
     scopes = creds.oauth.get("scopes")
@@ -182,12 +225,17 @@ def _refresh_locked(creds: Creds) -> None:
         resp = request_json("POST", TOKEN_URL, headers={"User-Agent": USER_AGENT}, json_body=body)
     except HTTPStatusError as e:
         if e.status == 429:
-            _refresh_blocked[key] = time.time() + REFRESH_BACKOFF
+            from ..applog import log
+
+            after = _retry_after(e)
+            log.warning("claude token refresh: 429 (retry-after=%s) %s", e.headers.get("retry-after"), e.body[:300])
+            _set_blocked(time.time() + (after if after else REFRESH_BACKOFF))
             raise ProviderError("access token expired; renewing it was rate limited; " + IDLE_HINT) from None
         if e.status in (400, 401) and "invalid_grant" in e.body:
             raise ProviderError("access token expired and the refresh token was rejected; log in again") from None
         raise
-    _refresh_blocked.pop(key, None)
+    if _blocked_until():
+        _set_blocked(0)
     if not resp.get("access_token"):
         raise ProviderError(f"token refresh returned no access_token: {list(resp)}")
     # Re-read right before writing so we don't clobber a concurrent CLI write of other keys.

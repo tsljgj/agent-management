@@ -13,9 +13,10 @@ TIMEOUT = 20
 
 
 class HTTPStatusError(ProviderError):
-    def __init__(self, status: int, body: str, url: str):
+    def __init__(self, status: int, body: str, url: str, headers: dict[str, str] | None = None):
         self.status = status
         self.body = body
+        self.headers = {k.lower(): v for k, v in (headers or {}).items()}
         super().__init__(f"HTTP {status} from {url}: {body[:200]}")
 
 
@@ -41,7 +42,7 @@ def request_json(
             raw = resp.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", "replace") if e.fp else ""
-        raise HTTPStatusError(e.code, body, url) from None
+        raise HTTPStatusError(e.code, body, url, dict(e.headers or {})) from None
     except urllib.error.URLError as e:
         raise ProviderError(f"network error for {url}: {e.reason}") from None
     try:
