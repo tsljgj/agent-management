@@ -124,7 +124,10 @@ def test_claude_refresh_writes_back_rotated_tokens(tmp_path, monkeypatch):
     def fake(method, url, headers=None, json_body=None, **kw):
         if url == claude.TOKEN_URL:
             assert json_body["refresh_token"] == "rt-old" and json_body["client_id"] == claude.CLIENT_ID
-            return {"access_token": "at-new", "refresh_token": "rt-new", "expires_in": 3600}
+            # "claude-code/2.1.0" always gets a 429 from the token endpoint
+            assert headers["User-Agent"] == claude.TOKEN_USER_AGENT != claude.USER_AGENT
+            return {"access_token": "at-new", "refresh_token": "rt-new", "expires_in": 3600,
+                    "refresh_token_expires_in": 30 * 86400}
         assert headers["Authorization"] == "Bearer at-new"
         return CLAUDE_USAGE
 
@@ -133,6 +136,7 @@ def test_claude_refresh_writes_back_rotated_tokens(tmp_path, monkeypatch):
     assert u.ok
     saved = json.loads((acct.home_path / ".credentials.json").read_text())
     assert saved["claudeAiOauth"]["refreshToken"] == "rt-new"
+    assert saved["claudeAiOauth"]["refreshTokenExpiresAt"] / 1000 - time.time() > 29 * 86400
     assert saved["claudeAiOauth"]["subscriptionType"] == "max"
     assert saved["mcpOAuth"] == {"keep": "me"}
     if sys.platform != "win32":

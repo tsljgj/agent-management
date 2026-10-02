@@ -29,6 +29,10 @@ TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
 CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 OAUTH_BETA = "oauth-2025-04-20"
 USER_AGENT = "claude-code/2.1.0"
+# The token endpoint answers any request whose User-Agent is "claude-code/2.1.0" with 429, whatever
+# the token (checked 2026-10-02 with a made-up refresh token: 429 vs. a real 400 invalid_grant).
+# Claude Code itself refreshes through plain axios, so send what it sends.
+TOKEN_USER_AGENT = "axios/1.9.0"
 
 # response key -> display name, in display order
 WINDOW_KEYS = [
@@ -222,7 +226,7 @@ def _refresh_locked(creds: Creds) -> None:
     if scopes:
         body["scope"] = " ".join(scopes)
     try:
-        resp = request_json("POST", TOKEN_URL, headers={"User-Agent": USER_AGENT}, json_body=body)
+        resp = request_json("POST", TOKEN_URL, headers={"User-Agent": TOKEN_USER_AGENT}, json_body=body)
     except HTTPStatusError as e:
         if e.status == 429:
             from ..applog import log
@@ -246,6 +250,8 @@ def _refresh_locked(creds: Creds) -> None:
         oauth["refreshToken"] = resp["refresh_token"]
     if resp.get("expires_in"):
         oauth["expiresAt"] = int((time.time() + int(resp["expires_in"])) * 1000)
+    if isinstance(resp.get("refresh_token_expires_in"), (int, float)):  # stored the way Claude Code stores it
+        oauth["refreshTokenExpiresAt"] = int((time.time() + resp["refresh_token_expires_in"]) * 1000)
     if resp.get("scope"):
         oauth["scopes"] = resp["scope"].split()
     latest["claudeAiOauth"] = oauth
