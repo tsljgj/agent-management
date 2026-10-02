@@ -190,6 +190,19 @@ def test_claude_refresh_backoff_is_shared_persisted_and_honours_retry_after(tmp_
     assert not claude._backoff_path().exists()
 
 
+def test_claude_manual_renew_tries_during_the_wait(tmp_path, monkeypatch):
+    from redline.providers import refresh_account
+
+    acct = _claude_account(tmp_path, expires_in=-10)
+    monkeypatch.setattr(claude, "_refresh_blocked", {"until": time.time() + 600})
+    monkeypatch.setattr(claude, "request_json", lambda m, url, **kw: {"access_token": "at-new", "expires_in": 3600})
+    with pytest.raises(Exception, match="next try in"):
+        refresh_account(acct)  # a background sync sits the wait out
+    refresh_account(acct, manual=True)  # wake / ⟳ renew: someone asked, so try now
+    assert json.loads((acct.home_path / ".credentials.json").read_text())["claudeAiOauth"]["accessToken"] == "at-new"
+    assert not claude._backoff_path().exists()
+
+
 def test_claude_refresh_rejected_asks_for_login(tmp_path, monkeypatch):
     from redline.http import HTTPStatusError
 

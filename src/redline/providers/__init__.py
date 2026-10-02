@@ -56,8 +56,8 @@ def load_fingerprint(account: Account) -> str | None:
     return hashlib.sha256(tok.encode()).hexdigest()[:16] if tok else None
 
 
-def refresh_account(account: Account) -> None:
-    _MODULES[account.provider].refresh_account(_eff(account))
+def refresh_account(account: Account, manual: bool = False) -> None:
+    _MODULES[account.provider].refresh_account(_eff(account), manual=manual)
 
 
 def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:

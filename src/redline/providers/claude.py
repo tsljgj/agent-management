@@ -134,18 +134,19 @@ def token_state(account: Account) -> str:
     return "ok"
 
 
-def refresh_account(account: Account) -> None:
+def refresh_account(account: Account, manual: bool = False) -> None:
     c = load_creds(account)
     if c is None:
         raise ProviderError("not logged in")
-    refresh(c)
+    refresh(c, manual=manual)
 
 
-def refresh(creds: Creds, force: bool = False) -> None:
+def refresh(creds: Creds, force: bool = False, manual: bool = False) -> None:
     """Refresh the access token and persist the rotated tokens back to the file.
 
     Claude rotates refresh tokens, so writing back is mandatory, otherwise the CLI's
     copy becomes invalid. Keychain-stored credentials are left for the CLI to refresh.
+    manual: someone asked for it (wake / renew), so try now even during a rate-limit wait.
     """
     if creds.source != "file" or creds.path is None:
         raise ProviderError(
@@ -161,7 +162,7 @@ def refresh(creds: Creds, force: bool = False) -> None:
         if fresh.oauth and (rotated or (not force and not fresh.expired)):
             creds.data = latest
             return
-        _refresh_locked(creds)
+        _refresh_locked(creds, manual)
 
 
 REFRESH_BACKOFF = 30 * 60  # after the token endpoint says 429 (without Retry-After), leave it alone this long
@@ -213,12 +214,12 @@ def _retry_after(e: HTTPStatusError) -> float | None:
             return None
 
 
-def _refresh_locked(creds: Creds) -> None:
+def _refresh_locked(creds: Creds, manual: bool = False) -> None:
     rt = creds.oauth.get("refreshToken")
     if not rt:
         raise ProviderError("access token expired and no refresh token is stored; log in again")
     wait = _blocked_until() - time.time()
-    if wait > 0:
+    if wait > 0 and not manual:
         raise ProviderError(f"access token expired; renewing is rate limited (next try in {max(1, round(wait / 60))} min); "
                             + IDLE_HINT)
     body = {"grant_type": "refresh_token", "refresh_token": rt, "client_id": CLIENT_ID}

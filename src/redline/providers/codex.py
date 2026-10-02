@@ -174,7 +174,7 @@ def token_state(account: Account) -> str:
     return "ok"
 
 
-def refresh_account(account: Account) -> None:
+def refresh_account(account: Account, manual: bool = False) -> None:
     auth = load_auth(account)
     if auth is None:
         raise ProviderError("not logged in")

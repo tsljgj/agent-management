@@ -70,6 +70,9 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .who{display:flex;flex-direction:column;gap:3px;min-width:0}
 /* extra credits on top of the plan (Codex): usable once the windows run out */
 .cred{font-size:10px;letter-spacing:.06em;color:var(--acc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* token expired but the old numbers are still shown: one click renews it (or logs in) */
+.reauth{align-self:flex-start;font-size:10px;letter-spacing:.06em;font-weight:600;color:var(--warn);white-space:nowrap}
+.reauth:hover{color:var(--acc)}
 .rate{display:flex;align-items:flex-end;gap:6px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);white-space:nowrap;overflow:hidden}
 /* LED gauge, lit like the meters: dark segments = the track, lit ones glow in the level's colour */
 .rate{--c:var(--dim)}.rate.low{--c:var(--ok)}.rate.mid{--c:var(--warn)}.rate.high{--c:var(--red)}
@@ -311,6 +314,9 @@ function best(provider) {
 const AUTH_ERR = /not logged in|expired|unauthorized|signed out|user:profile|API key|refresh token|log in again|no .*tokens/i;
 const failed = u => !u.ok && !u.stale;
 const needsLogin = u => failed(u) && AUTH_ERR.test(u.error || "");
+// Old numbers kept on screen, but the token behind them has expired: still worth a ⚡ / ⟳ renew.
+const lapsed = u => !u.ok && u.stale && AUTH_ERR.test(u.error || "");
+const reauth = u => needsLogin(u) || lapsed(u);
 
 /* ---------- render ---------- */
 // "↻ 2h 08m" = resets in 2h 08m. No reset time yet means the window hasn't started.
@@ -399,6 +405,12 @@ function rateTag(u) {
     : `${r.window} window filling at ${r.per_hour}%/h over the last 30 min`;
   return `<div class="rate ${esc(r.level)}" title="${esc(tip)}">${gauge(r.pace)}<b>${esc(r.level)}</b>${r.level === "idle" ? "" : `<span> · ${r.per_hour}%/h</span>`}</div>`;
 }
+function reauthTag(u) {
+  if (!lapsed(u)) return "";
+  const err = shortErr(u.error), renew = /^token expired/.test(err);
+  return `<button class="act reauth" data-act="wake1" title="${esc(err)} · ${renew ? "renew the token now (a login only if that fails)" : "log in again"}">`
+    + `${renew ? "⟳ renew" : "login ›"}</button>`;
+}
 function credTag(u) {
   const c = (u.extra || {}).credits;
   return c ? `<div class="cred" title="extra credits: used after the ${esc(u.provider)} plan limits run out">+ ${esc(c)} credits</div>` : "";
@@ -419,7 +431,7 @@ function row(u, bestName) {
   const tip2 = [live.length ? "● running in " + live.map(p => base(p.path)).join(", ") : "", tip]
     .filter(Boolean).join(" · ");
   return `<div class="acct${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}${open ? " open" : ""}${flags}" data-name="${n}"><span class="ch">${open ? "▴" : "▾"}</span>
-    <div class="who"><div class="nm" title="${esc(tip2)} · double-click to rename">${n}</div>${rateTag(u)}${credTag(u)}</div>${body}
+    <div class="who"><div class="nm" title="${esc(tip2)} · double-click to rename">${n}</div>${rateTag(u)}${credTag(u)}${reauthTag(u)}</div>${body}
     ${details(u)}</div>`;
 }
 /* ---------- details: ⋯ opens every row; clicking a row toggles just that row ---------- */
@@ -525,14 +537,14 @@ function render() {
   for (const p of ["claude", "codex"]) {
     const mine = us.filter(u => u.provider === p);
     $("#n" + p).textContent = mine.length || "";
-    const hot = mine.some(u => needsLogin(u) || u.windows.some(w => w.name === "5h" && w.used_percent >= 90));
+    const hot = mine.some(u => reauth(u) || u.windows.some(w => w.name === "5h" && w.used_percent >= 90));
     document.querySelector(`.tab[data-tab="${p}"]`).classList.toggle("hot", hot);
   }
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.tab === TAB));
   $("#wake").classList.toggle("hide", TAB === "plans");
   if (TAB === "plans") return renderPlans(us);
   const mine = us.filter(u => u.provider === TAB);
-  const waiting = mine.filter(needsLogin).length;
+  const waiting = mine.filter(reauth).length;
   $("#wake").classList.toggle("on", waiting > 0);
   $("#wake").textContent = waiting ? `⚡${waiting}` : "⚡";
   if (!mine.length) {
@@ -786,7 +798,7 @@ $("#sortm").onclick = e => {
 document.addEventListener("click", e => { if (!e.target.closest("#sortm")) $("#sortm").classList.remove("on"); });
 setSort(SORT, false);
 $("#plus").onclick = () => $("#sheet").classList.contains("on") ? closeSheet() : openSheet();
-$("#wake").onclick = () => action({action: "wake", names: DATA.usages.filter(u => u.provider === TAB && needsLogin(u)).map(u => u.account)});
+$("#wake").onclick = () => action({action: "wake", names: DATA.usages.filter(u => u.provider === TAB && reauth(u)).map(u => u.account)});
 $("#list").addEventListener("click", e => {
   const pl = e.target.closest(".pl");
   if (pl) {
@@ -822,6 +834,7 @@ $("#list").addEventListener("click", e => {
   if (b.dataset.act === "rename") return startRename(card);
   if (b.dataset.act === "renew") return renewPrompt(TAB, name);
   if (b.dataset.act === "retry") { toast("syncing…"); return pull(true); }
+  if (b.dataset.act === "wake1") return action({action: "wake", names: [name]});  // renew first, log in only if that fails
   if (b.dataset.act === "code") return action({action: "code", name, path: b.dataset.path}, true);
   if (b.dataset.act === "use") return action({action: "use", name}).then(ok => ok && setTimeout(() => pull(false), 800));
   const map = {web: "web", jack: "launch", login: "login"};

@@ -166,7 +166,7 @@ class WakeJob:
                 self._done(a, "ok", "ok", f"{a.name}: online" + (f" as {identity(a)}" if identity(a) else ""))
             elif st == "expired":
                 try:
-                    refresh_account(a)
+                    refresh_account(a, manual=True)  # asked for now: don't sit out a rate-limit wait
                     self._done(a, "ok", "refreshed", f"{a.name}: token refreshed")
                 except ProviderError as e:
                     self.log("warn", f"{a.name}: refresh failed ({e}); needs a login")
