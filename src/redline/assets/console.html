@@ -140,11 +140,12 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 #sortm button:hover{color:var(--fg);background:rgba(0,229,255,.05)}
 #sortm button.on{color:var(--acc)}
 #sortm button.on::before{content:"› "}
-/* plans: every subscription, soonest renewal first */
-.pl{display:grid;grid-template-columns:52px minmax(0,1fr) 64px 118px 58px 34px;align-items:center;gap:10px;min-height:44px;
+/* plans: every subscription, one section per provider, soonest renewal first */
+.plh{display:flex;align-items:baseline;gap:10px;padding:16px 18px 7px;border-bottom:1px solid var(--line);color:var(--dim);letter-spacing:.14em;font-size:11px}
+.plh span{color:var(--faint);letter-spacing:0}
+.pl{display:grid;grid-template-columns:minmax(0,1fr) 64px 118px 58px 34px;align-items:center;gap:10px;min-height:44px;
   padding:0 12px 0 18px;border-bottom:1px solid var(--line);cursor:pointer}
 .pl:hover{background:rgba(0,229,255,.03)}
-.pl i{font-style:normal;font-size:10px;letter-spacing:.12em;color:var(--dim)}
 .pl b{color:#fff;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pl em{font-style:normal;color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pl .dt{white-space:nowrap}
@@ -153,7 +154,7 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .pl.unk .dt,.pl.unk .dl{color:var(--faint)}
 .pl button{color:var(--dim)}.pl button:hover{color:var(--acc)}
 .plnote{padding:12px 18px;color:var(--dim);font-size:11px;line-height:1.7}
-@media (max-width:470px){ .pl{grid-template-columns:44px minmax(0,1fr) 104px 46px 26px;padding-left:14px} .pl em{display:none} }
+@media (max-width:470px){ .plh{padding-left:14px} .pl{grid-template-columns:minmax(0,1fr) 104px 46px 26px;padding-left:14px} .pl em{display:none} }
 .det div{display:grid;grid-template-columns:84px 1fr;gap:8px;min-width:0}
 .det div.wide{grid-column:1/-1}
 .det span{color:var(--dim)}
@@ -522,9 +523,6 @@ function details(u) {
     const w = u.windows.find(x => x.name === name);
     if (w) rows.push(kv(name, w.resets_at ? "resets " + when(w.resets_at) : "–", spent(w.used_percent) ? "red" : ""));
   }
-  const other = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${Math.round(w.used_percent ?? 0)}%`)
-    .concat(Object.entries(u.extra || {}).map(([k, v]) => `${k} ${v}`));
-  if (other.length) rows.push(kv("other", other.join(" · ")));
   { const r = renewOf(u), p = renewParts(r);
     rows.push(`<div class="wide"><span>${r && !r.est ? "paid until" : "renews"}</span><div class="prj">`
       + `<b class="${p.cls ? "warn" : ""}" title="${r && r.est ? "estimate: the subscription start rolled forward by months (" + esc(u.provider) + " doesn't report the end date)" : r && r.set ? "set by you" : ""}">`
@@ -640,18 +638,23 @@ function render() {
 }
 function renderPlans(us) {
   const list = us.map((u, i) => [renewTime(u), i, u]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
+  const section = prov => {
+    const mine = list.filter(u => u.provider === prov);
+    return mine.length ? `<div class="plh">${prov.toUpperCase()}<span>${mine.length}</span></div>` + mine.map(planRow).join("") : "";
+  };
   $("#list").innerHTML = !list.length ? `<div class="empty">${DATA.fetched_at ? "no accounts" : "…"}</div>`
-    : list.map(u => {
-        const r = renewOf(u), p = renewParts(r), gone = p.days != null && p.days <= 0;
-        return `<div class="pl ${r ? "" : "unk"}" data-prov="${esc(u.provider)}" data-name="${esc(u.account)}" title="open in ${esc(u.provider)}">`
-          + `<i>${u.provider === "codex" ? "CODEX" : "CLAUDE"}</i><b>${esc(u.account)}</b><em>${esc(u.plan || "")}</em>`
-          + `<span class="dt ${gone ? "gone" : p.cls}" title="${r && r.est ? "estimated from the subscription start (monthly)" : r && r.set ? "set by you" : r ? "reported by " + esc(u.provider) : "not reported · ✎ to set it"}">${esc(p.date)}</span>`
-          + `<span class="dl ${gone ? "gone" : p.cls}">${esc(p.left)}</span>`
-          + `<button data-act="renew" title="set the real renewal/end date">✎</button></div>`;
-      }).join("")
+    : section("claude") + section("codex")
       + `<div class="plnote">~ estimated: Claude only reports when a subscription started, so this assumes monthly renewals on that day.<br>`
       + `✎ or <code>renew &lt;name&gt; YYYY-MM-DD</code> sets the real date (<code>renew &lt;name&gt; -</code> undoes it).</div>`;
   if (typeof fitHeight === "function") requestAnimationFrame(fitHeight);
+}
+function planRow(u) {
+  const r = renewOf(u), p = renewParts(r), gone = p.days != null && p.days <= 0;
+  return `<div class="pl ${r ? "" : "unk"}" data-prov="${esc(u.provider)}" data-name="${esc(u.account)}" title="open in ${esc(u.provider)}">`
+    + `<b>${esc(u.account)}</b><em>${esc(u.plan || "")}</em>`
+    + `<span class="dt ${gone ? "gone" : p.cls}" title="${r && r.est ? "estimated from the subscription start (monthly)" : r && r.set ? "set by you" : r ? "reported by " + esc(u.provider) : "not reported · ✎ to set it"}">${esc(p.date)}</span>`
+    + `<span class="dl ${gone ? "gone" : p.cls}">${esc(p.left)}</span>`
+    + `<button data-act="renew" title="set the real renewal/end date">✎</button></div>`;
 }
 function renewPrompt(provider, name) {
   const cmd = $("#cmd");
