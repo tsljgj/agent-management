@@ -269,6 +269,7 @@ def test_wake_refreshes_expired_and_logs_in_missing(home, monkeypatch):
 
     monkeypatch.setattr(login.WakeJob, "_spawn_hidden", fake_spawn)
     monkeypatch.setattr(login, "claude_has_auth_login", lambda: True)
+    monkeypatch.setattr(login, "browser_helper", lambda: "redline-test-helper")
     monkeypatch.setattr(login.time, "sleep", lambda s: None)
     logs = []
     results = login.WakeJob(accts, lambda lv, t: logs.append((lv, t))).run()
@@ -290,6 +291,7 @@ def test_wake_flags_duplicate_identity(home, monkeypatch):
 
     monkeypatch.setattr(login.WakeJob, "_spawn_hidden", fake_spawn)
     monkeypatch.setattr(login, "claude_has_auth_login", lambda: True)
+    monkeypatch.setattr(login, "browser_helper", lambda: "redline-test-helper")
     monkeypatch.setattr(login.time, "sleep", lambda s: None)
     logs = []
     login.WakeJob([accts[1]], lambda lv, t: logs.append((lv, t))).run()

@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from .config import load_accounts, redline_home
-from .models import Usage
+from .models import Usage, weekly_countdown
 
 DEFAULT_THRESHOLDS = (80, 95)
 FORCE_FLOOR = 15  # seconds; even a manual refresh can't hit upstream more often than this
@@ -93,6 +93,7 @@ class Monitor:
         self.meta: dict = {}  # extra status for the console (e.g. {"update": {...}} from the tray)
         self._last_pct: dict[tuple[str, str, str], float] = {}  # (provider, account, window)
         self._samples: dict[tuple[str, str], list[tuple[float, float]]] = {}  # (provider, account) -> [(t, %)]
+        self._weekly_reminded: set[tuple[str, str]] = set()  # unstarted weekly periods already notified
         self._last_ok: dict[tuple[str, str], Usage] = self._load_last_ok()  # (provider, account)
 
     # ------------------------------------------------------------ lifecycle
@@ -133,10 +134,9 @@ class Monitor:
                 self.log("error", f"sync failed: {e}")
                 return
             for u in usages:
+                self._reset_changed_codex_identity(u)
                 self._track_rate(u)
             usages = [self._with_last_good(u) for u in usages]
-            if any(u.ok for u in usages):
-                self._save_last_ok()
             try:
                 from .actions import account_details
 
@@ -144,6 +144,8 @@ class Monitor:
             except Exception:
                 pass
             alerts = self._diff(usages)
+            if any(u.ok for u in usages):
+                self._save_last_ok()
             with self._state_lock:
                 self.usages = usages
                 self.at = time.time()
@@ -173,10 +175,13 @@ class Monitor:
             for d in docs:
                 key = (d["provider"], d["account"])
                 out[key] = Usage.from_dict(d)
+                identity_known = d["provider"] != "codex" or bool(out[key].identity_key)
+                if identity_known and d.get("weekly_countdown_reminded") is True:
+                    self._weekly_reminded.add(key)
                 # the rate history too, so a restart (self-update) doesn't blank the gauge for minutes
                 cutoff = time.time() - RATE_LOOKBACK * 2
                 hist = [(float(t), float(p)) for t, p in d.get("rate_samples") or [] if float(t) > cutoff]
-                if hist:
+                if hist and identity_known:
                     self._samples[key] = hist
             return out
         except (OSError, ValueError, KeyError, TypeError):
@@ -187,12 +192,27 @@ class Monitor:
             p = self._last_ok_path()
             p.parent.mkdir(parents=True, exist_ok=True)
             tmp = p.with_suffix(".tmp")
-            docs = [{**u.to_dict(), "rate_samples": self._samples.get(k, [])} for k, u in self._last_ok.items()]
+            docs = [{**u.to_dict(), "rate_samples": self._samples.get(k, []),
+                     "weekly_countdown_reminded": k in self._weekly_reminded}
+                    for k, u in self._last_ok.items()]
             tmp.write_text(json.dumps(docs, ensure_ascii=False),
                            encoding="utf-8")
             tmp.replace(p)
         except OSError:
             pass
+
+    def _reset_changed_codex_identity(self, u: Usage) -> None:
+        if u.provider != "codex" or not u.ok or u.stale:
+            return
+        key = (u.provider, u.account)
+        prev = self._last_ok.get(key)
+        if prev is None or prev.identity_key == u.identity_key:
+            return
+        self._samples.pop(key, None)
+        self._weekly_reminded.discard(key)
+        for k in [k for k in self._last_pct if k[:2] == key]:
+            self._last_pct.pop(k)
+        u.rate = None
 
     def _track_rate(self, u: Usage, now: float | None = None) -> None:
         if not u.ok:
@@ -221,10 +241,17 @@ class Monitor:
         prev = self._last_ok.get((u.provider, u.account))
         if prev is None or not prev.windows:
             return u
+        if u.provider == "codex" and (
+            not u.identity_key or not prev.identity_key or u.identity_key != prev.identity_key
+        ):
+            # A login directory can now belong to a different account. Old caches or
+            # an unreadable current identity cannot safely supply its usage numbers.
+            return u
         return Usage(
             account=u.account, provider=u.provider, ok=False, email=prev.email, plan=prev.plan,
             windows=prev.windows, extra=prev.extra, error=u.error, fetched_at=prev.fetched_at, stale=True,
             renews_at=prev.renews_at, renews_kind=prev.renews_kind,
+            identity_key=u.identity_key,
         )
 
     def rename(self, old: str, new: str, provider: str | None = None) -> None:
@@ -233,6 +260,9 @@ class Monitor:
         with self._state_lock:
             for k in [k for k in self._samples if match(*k)]:
                 self._samples[(k[0], new)] = self._samples.pop(k)
+            for k in [k for k in self._weekly_reminded if match(*k)]:
+                self._weekly_reminded.remove(k)
+                self._weekly_reminded.add((k[0], new))
             for k in [k for k in self._last_ok if match(*k)]:
                 u = self._last_ok.pop(k)
                 u.account = new
@@ -257,6 +287,17 @@ class Monitor:
         for u in usages:
             if not u.ok:  # includes stale snapshots: don't re-alert on old numbers
                 continue
+            if not u.stale:
+                key = (u.provider, u.account)
+                state = weekly_countdown(u)["state"]
+                if state == "unstarted" and key not in self._weekly_reminded:
+                    self._weekly_reminded.add(key)
+                    alerts.append({
+                        "level": "warn",
+                        "text": f'{u.account} weekly 尚未开始计时；点「开启计时」发送一次短请求',
+                    })
+                elif state == "active":
+                    self._weekly_reminded.discard(key)
             for w in u.windows:
                 if w.used_percent is None:
                     continue

@@ -80,12 +80,30 @@ def account_details() -> dict[str, dict]:
     from .login import resolve_profile
     from .providers import identity
     from .sessions import recent
-    from .slots import is_active, is_slot, load_state
+    from .slots import effective, is_active, is_slot, load_state
 
     profs = browsers.all_profiles()
     state = load_state()
     out = {}
-    for a in load_accounts():
+    accounts = load_accounts()
+    shared_quota = {}
+    from .providers import codex
+
+    for a in accounts:
+        if a.provider != "codex":
+            continue
+        try:
+            auth = codex.load_auth(effective(a)) or {}
+        except (OSError, ValueError, TypeError):
+            continue
+        tokens = auth.get("tokens") or {}
+        account_id = tokens.get("account_id") or codex.jwt_claims(tokens.get("id_token")).get(
+            codex.AUTH_CLAIM, {}).get("chatgpt_account_id")
+        if account_id:
+            shared_quota.setdefault(account_id, []).append(a.key)
+    peers = {key: [other.split(":", 1)[1] for other in keys if other != key]
+             for keys in shared_quota.values() if len(keys) > 1 for key in keys}
+    for a in accounts:
         p = resolve_profile(a, profs)
         try:
             projects = recent(a)
@@ -99,6 +117,7 @@ def account_details() -> dict[str, dict]:
             "default": is_active(a, state) or (not state.get(a.provider, {}).get("home") and is_slot(a.provider, a.home_path)),
             "projects": projects,
             "renews": a.renews,
+            "shared_quota_with": peers.get(a.key, []),
         }
     return out
 
@@ -512,11 +531,23 @@ def dispatch(action: str, args: dict) -> str:
         from .login import cancel_wake
 
         return cancel_wake()
+    if action == "start-countdown":
+        from .countdown import CountdownError, start_countdown
+
+        if args.get("log") is None:
+            raise ActionError("start-countdown needs a log sink")
+        try:
+            return start_countdown(args.get("name", ""), args["log"],
+                                   on_done=args.get("on_done"), provider=prov or "codex")
+        except CountdownError as e:
+            raise ActionError(str(e)) from None
     if action == "web":
         from .login import open_web
+        from .browsers import USAGE_URLS
 
         acct = get_account(args.get("name", ""), prov)
-        return open_web(acct, args.get("url") or None)
+        url = USAGE_URLS.get(acct.provider) if args.get("usage") else args.get("url") or None
+        return open_web(acct, url)
     if action == "bind":
         return bind(args.get("name", ""), args.get("profile", ""), prov)
     if action == "profiles":

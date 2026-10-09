@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import platform
 from datetime import datetime, timezone
 
@@ -54,7 +55,8 @@ def jwt_claims(token: str | None) -> dict:
 
 
 def _window_label(seconds: int | None, fallback: str) -> str:
-    if not seconds:
+    seconds = _num(seconds)
+    if seconds is None or seconds <= 0:
         return fallback
     hours = seconds / 3600
     if hours < 24:
@@ -69,13 +71,19 @@ def _parse_rate_limit(rl: dict | None, prefix: str = "") -> list[Window]:
     now = datetime.now(timezone.utc).timestamp()
     for key, fallback in (("primary_window", "primary"), ("secondary_window", "secondary")):
         w = rl.get(key)
-        if not isinstance(w, dict) or w.get("used_percent") is None:
+        if not isinstance(w, dict):
             continue
-        reset = w.get("reset_at")
-        if reset is None and w.get("reset_after_seconds") is not None:
-            reset = now + w["reset_after_seconds"]
+        raw_reset = _num(w.get("reset_at"))
+        raw_after = _num(w.get("reset_after_seconds"))
+        reset = raw_reset if raw_reset is not None and raw_reset > 0 else None
+        if reset is None and raw_after is not None and raw_after > 0:
+            reset = now + raw_after
+        try:
+            resets_at = from_epoch(reset)
+        except (OverflowError, OSError, ValueError):
+            resets_at = None
         label = (prefix + _window_label(w.get("limit_window_seconds"), fallback)).strip()
-        out.append(Window(label, float(w["used_percent"]), from_epoch(reset)))
+        out.append(Window(label, _num(w.get("used_percent")), resets_at, raw_reset, raw_after))
     return out
 
 
@@ -96,8 +104,11 @@ def parse_usage(doc: dict) -> tuple[list[Window], dict]:
 
 
 def _num(v) -> float | None:
+    if isinstance(v, bool):
+        return None
     try:
-        return float(v)
+        value = float(v)
+        return value if math.isfinite(value) else None
     except (TypeError, ValueError):
         return None
 

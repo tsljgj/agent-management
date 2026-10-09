@@ -35,6 +35,9 @@ header{display:flex;align-items:center;gap:20px;height:48px;padding:0 10px 0 18p
 .tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--acc);box-shadow:0 0 10px var(--acc)}
 .tab sup{font-size:10px;margin-left:3px;color:var(--dim)}
 .tab.hot sup{color:var(--red)}
+.tab.waiting sup{color:var(--warn)}
+#weeklyNotice{display:none;padding:7px 18px;border-bottom:1px solid var(--line);color:var(--warn);font-size:11px;line-height:1.6;flex-shrink:0}
+#weeklyNotice.on{display:block}
 .sp{flex:1}
 .tools{display:flex;align-items:center;gap:2px;flex-shrink:0}
 .hb{height:30px;min-width:30px;padding:0 6px;color:var(--dim);font-size:13px}
@@ -73,6 +76,13 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 /* token expired but the old numbers are still shown: one click renews it (or logs in) */
 .reauth{align-self:flex-start;font-size:10px;letter-spacing:.06em;font-weight:600;color:var(--warn);white-space:nowrap}
 .reauth:hover{color:var(--acc)}
+.weekly{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:10px;color:var(--dim)}
+.weekly.unstarted{color:var(--warn);font-weight:600}
+.weekly.busy{color:var(--acc)}
+.weekly.error{color:var(--red)}
+.weekly button{color:var(--warn);border:1px solid #665021;padding:2px 5px;border-radius:2px;white-space:nowrap;cursor:pointer}
+.weekly button:hover{border-color:var(--warn);background:rgba(255,176,32,.08)}
+.weekly button:disabled{color:var(--dim);border-color:var(--faint);cursor:wait}
 .rate{display:flex;align-items:flex-end;gap:6px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);white-space:nowrap;overflow:hidden}
 /* LED gauge, lit like the meters: dark segments = the track, lit ones glow in the level's colour */
 .rate{--c:var(--dim)}.rate.low{--c:var(--ok)}.rate.mid{--c:var(--warn)}.rate.high{--c:var(--red)}
@@ -118,8 +128,8 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .acct.open .det{display:grid}
 .ch{position:absolute;right:8px;bottom:4px;font-size:9px;color:var(--dim);opacity:0;transition:opacity .15s;pointer-events:none}
 .acct:hover .ch,.acct.open .ch{opacity:.7}
-.det .acts{display:flex;gap:16px;margin-top:4px}
-.det .acts button{color:var(--dim)}
+.det .acts{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:4px}
+.det .acts button{color:var(--dim);white-space:nowrap}
 .det .acts button:hover{color:var(--acc)}
 .det .acts .del:hover,.det .acts .del.arm{color:var(--red)}
 #sort.on{color:var(--acc)}
@@ -196,7 +206,7 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 @media (max-width:360px){ header{gap:10px;padding-left:12px} .tab{letter-spacing:.02em} #age,#ver{display:none!important} }
 @media (max-width:440px){          /* two-line rows: name, then both meters */
   .acct{grid-template-columns:1fr 1fr;grid-template-rows:none;height:auto;padding:9px 14px 10px;gap:6px 22px}
-  .acct .who{grid-column:1/-1;flex-direction:row;align-items:baseline;gap:10px}.need{grid-column:1/-1}
+  .acct .who{grid-column:1/-1;flex-direction:row;align-items:baseline;gap:10px;flex-wrap:wrap}.need{grid-column:1/-1}
   .rate span{display:inline}
 }
 @media (max-height:300px){ .prompt{display:none} .logopen #log{max-height:90px} }
@@ -233,6 +243,7 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
   <button class="hb win x" id="bhide" title="hide (Esc)">×</button>
   </div>
 </header>
+<div id="weeklyNotice" role="status" aria-live="polite"></div>
 <main id="list"></main>
 <div id="sortm"></div>
 <div id="sheet"></div>
@@ -248,7 +259,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const pad = n => String(n).padStart(2, "0");
 const store = {get(k, d) { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } },
                set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }};
-let DATA = {usages: []}, lastEvent = 0, lastFetched = -1, linkOk = true;
+let DATA = {usages: []}, lastEvent = 0, lastRevision = "", linkOk = true;
 let TAB = store.get("redline.tab", "claude");
 
 /* ---------- api ---------- */
@@ -269,7 +280,9 @@ async function pull(force) {
     }
     DATA = {...d, usages: (d.usages || []).map(projectStale)};
     renderVersion();
-    if (d.fetched_at !== lastFetched && !editing) { lastFetched = d.fetched_at; render(); }
+    // A countdown job changes meta between usage polls; its busy state must be visible immediately.
+    const revision = JSON.stringify([DATA.fetched_at, DATA.usages, DATA.meta]);
+    if (revision !== lastRevision && !editing) { lastRevision = revision; render(); }
   } catch (e) { linkOk = false; tick(); }
 }
 // Old numbers (fetch failed, e.g. an idle account's token expired): a window whose reset time
@@ -319,21 +332,66 @@ const lapsed = u => !u.ok && u.stale && AUTH_ERR.test(u.error || "");
 const reauth = u => needsLogin(u) || lapsed(u);
 
 /* ---------- render ---------- */
-// "↻ 2h 08m" = resets in 2h 08m. No reset time yet means the window hasn't started.
+// "↻ 2h 08m" = resets in 2h 08m. Missing Codex reset data needs an explicit server classification.
 const resetText = l => l == null ? "idle" : l > 0 ? "↻ " + span(l) : "↻ now";
-function meter(w, label) {
+function meter(w, label, weekly = null) {
   if (!w) return `<div class="m none"></div>`;   // e.g. a Codex plan without a 5h window: leave the slot empty
   const p = w.used_percent, l = left(w.resets_at);
-  const tip = `${w.name} ${p == null ? "?" : Math.round(p) + "%"}${w.resets_at ? " · resets in " + span(l) + " (" + new Date(w.resets_at).toLocaleString() + ")" : " · window not started"}`;
+  const tip = `${w.name} ${p == null ? "?" : Math.round(p) + "%"}${w.resets_at ? " · resets in " + span(l) + " (" + new Date(w.resets_at).toLocaleString() + ")" : " · " + (weekly ? weekly.message : "window not started")}`;
   // weekly window resetting soon with quota left = "use it or lose it"
   const urgent = label === "7d" && l != null && l < 36 * 3600 && (p ?? 100) < 80;
-  const t = `<span class="t${urgent ? " urgent" : ""}" data-reset="${esc(w.resets_at || "")}">${resetText(l)}</span>`;
+  const idle = weekly && weekly.state === "unstarted" ? "待启动" : weekly && weekly.state === "unknown" ? "待确认" : resetText(l);
+  const t = `<span class="t${urgent ? " urgent" : ""}" data-reset="${esc(w.resets_at || "")}">${l == null ? idle : resetText(l)}</span>`;
   if (spent(p)) return `<div class="m max" title="${esc(tip)}"><span class="k">${label}</span><div class="bar"></div><span class="v">MAX</span>${t}</div>`;
   const width = p == null ? 0 : Math.min(100, Math.max(0, p));
   return `<div class="m" style="--c:${lvl(p)}" title="${esc(tip)}"><span class="k">${label}</span>
     <div class="bar"><i style="width:${width}%"></i></div><span class="v">${p == null ? "?" : Math.floor(p) + "%"}</span>${t}</div>`;
 }
 const infoOf = u => ((DATA.meta || {}).accounts || {})[`${u.provider}:${u.account}`] || {};
+const accountKey = u => `${u.provider}:${u.account}`;
+const countdownPending = new Set();
+const countdownOf = u => ((DATA.meta || {}).countdown || {})[accountKey(u)] || {};
+const countdownBusy = u => countdownPending.has(accountKey(u)) || ["starting", "verifying"].includes(countdownOf(u).state);
+function weeklyOf(u) {
+  if (u.provider !== "codex") return null;
+  if (!u.ok || u.stale) return {state: "unknown", message: "当前没有实时用量，刷新或重新登录后确认 weekly 计时状态。"};
+  const w = u.windows.find(x => x.name === "7d");
+  // A future reset is positive evidence of an active window, even when usage rounds to 0%.
+  if (w && left(w.resets_at) > 0) return {state: "active", message: "weekly 已开始计时，重置时间：" + when(w.resets_at)};
+  const status = u.weekly_countdown;
+  if (status?.state === "active") return {state: "unknown", message: "weekly 重置时间已过或缺失，刷新用量后确认当前计时状态。"};
+  return status && ["active", "unstarted", "unknown", "unavailable"].includes(status.state)
+    ? status : {state: "unknown", message: "未收到可确认的 weekly 计时状态。"};
+}
+function canStartWeekly(u) {
+  const status = weeklyOf(u), w = u.windows.find(x => x.name === "7d");
+  if (!status || !u.ok || u.stale || u.windows.some(x => spent(x.used_percent))) return false;
+  return status.state === "unstarted" || (status.state === "unknown" && w && w.used_percent === 0 && !(left(w.resets_at) > 0));
+}
+function weeklyTag(u) {
+  const status = weeklyOf(u);
+  if (!status) return "";
+  const job = countdownOf(u), busy = countdownBusy(u), canStart = canStartWeekly(u);
+  if (!busy && status.state !== "unstarted" && status.state !== "unknown") return "";
+  const error = job.state === "error";
+  const label = busy ? (job.state === "verifying" ? "weekly 确认中…" : "weekly 开启中…") : error ? "weekly 开启未确认"
+    : status.state === "unstarted" ? "weekly 未开始" : "weekly 待确认";
+  const tip = [status.message, job.message].filter(Boolean).join(" · ");
+  const button = canStart || busy ? `<button class="act" data-act="start-countdown" ${busy ? "disabled" : ""} title="向此账户发送一个短请求，消耗少量 Codex 额度，然后刷新用量确认 weekly 重置时间。">${busy ? "处理中…" : status.state === "unstarted" ? "▶ 开启计时" : "▶ 尝试开启"}</button>` : "";
+  return `<div class="weekly ${busy ? "busy" : error ? "error" : status.state}" title="${esc(tip)}"><span>${label}</span>${button}</div>`;
+}
+async function startWeekly(u) {
+  if (!BOOT.actions || countdownBusy(u) || !canStartWeekly(u)) return;
+  const key = accountKey(u);
+  countdownPending.add(key); render();
+  try {
+    await action({action: "start-countdown", provider: "codex", name: u.account}, true);
+    await pull(false);
+  } finally {
+    countdownPending.delete(key);
+    if (!editing) render();
+  }
+}
 /* subscriptions: when the paid period ends. Claude only reports when the subscription started;
    monthly plans renew on that day each month, so roll it forward (marked ~ = estimate). */
 function addMonths(d, n) {
@@ -424,14 +482,14 @@ function row(u, bestName) {
     ? `<div class="need"><button class="act" data-act="login">login ›</button><span title="${esc(u.error)}">${esc(shortErr(u.error))}</span></div>`
     : failed(u)
     ? `<div class="need"><button data-act="retry">retry ⟳</button><span title="${esc(u.error)}">${esc(shortErr(u.error))}</span></div>`
-    : meter(u.windows.find(w => w.name === "5h"), "5h") + meter(u.windows.find(w => w.name === "7d"), "7d");
+    : meter(u.windows.find(w => w.name === "5h"), "5h") + meter(u.windows.find(w => w.name === "7d"), "7d", weeklyOf(u));
   const open = isOpen(`${u.provider}:${u.account}`);
   const info = infoOf(u), live = (info.projects || []).filter(p => p.active);
   const flags = live.length ? " live" : "";
   const tip2 = [live.length ? "● running in " + live.map(p => base(p.path)).join(", ") : "", tip]
     .filter(Boolean).join(" · ");
   return `<div class="acct${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}${open ? " open" : ""}${flags}" data-name="${n}"><span class="ch">${open ? "▴" : "▾"}</span>
-    <div class="who"><div class="nm" title="${esc(tip2)} · double-click to rename">${n}</div>${rateTag(u)}${credTag(u)}${reauthTag(u)}</div>${body}
+    <div class="who"><div class="nm" title="${esc(tip2)} · double-click to rename">${n}</div>${rateTag(u)}${credTag(u)}${reauthTag(u)}${weeklyTag(u)}</div>${body}
     ${details(u)}</div>`;
 }
 /* ---------- details: ⋯ opens every row; clicking a row toggles just that row ---------- */
@@ -456,6 +514,10 @@ function details(u) {
   const info = infoOf(u);
   const kv = (k, v, cls = "") => `<div class="wide"><span>${esc(k)}</span><b class="${cls}" title="${esc(v)}">${esc(v)}</b></div>`;
   const rows = [kv("account", [u.email || info.email, u.plan].filter(Boolean).join(" · ") || "–")];
+  if (info.shared_quota_with?.length) rows.push(kv("共享额度", "与 " + info.shared_quota_with.join("、") + " 属于同一 ChatGPT 账户，用量和 weekly 计时共享。", "warn"));
+  const weekly = weeklyOf(u), job = countdownOf(u);
+  if (weekly) rows.push(kv("weekly", weekly.message || weekly.state, weekly.state === "unstarted" ? "warn" : ""));
+  if (job.message) rows.push(kv("开启计时", job.message, job.state === "error" ? "red" : ""));
   for (const name of ["5h", "7d"]) {
     const w = u.windows.find(x => x.name === name);
     if (w) rows.push(kv(name, w.resets_at ? "resets " + when(w.resets_at) : "–", spent(w.used_percent) ? "red" : ""));
@@ -477,6 +539,7 @@ function details(u) {
   rows.push(`<div class="wide acts act">`
     + (info.default ? "" : `<button data-act="use" title="make this the login VS Code and plain ${u.provider} use (moves it to ~/.${u.provider})">◆ use in VS Code</button>`)
     + `<button data-act="web" title="open ${site} in its Chrome profile">↗ ${site}</button>`
+    + (u.provider === "codex" ? `<button data-act="usage" title="在此账户的 Chrome 中打开 Codex 用量页面">↗ 用量</button>` : "")
     + `<button data-act="jack" title="terminal running ${u.provider} as this account">›_ terminal</button>`
     + `<button data-act="rename">✎ rename</button><button class="del" data-act="del" data-label="✕ remove">✕ remove</button></div>`);
   return `<div class="det">${rows.join("")}</div>`;
@@ -491,6 +554,12 @@ const SORTS = {
   default: ["default order", null],
   weekly: ["weekly reset soonest (use it before it resets)", u => {
     const w = u.windows.find(x => x.name === "7d");
+    if (u.provider === "codex") {
+      const weekly = weeklyOf(u);
+      const group = needsLogin(u) || spent(w?.used_percent) || weekly.state === "unavailable" ? 3
+        : weekly.state === "unstarted" ? 0 : weekly.state === "active" ? 1 : 2;
+      return [group, group === 1 && w && left(w.resets_at) > 0 ? new Date(w.resets_at).getTime() : Infinity, w ? -(100 - (w.used_percent ?? 0)) : 0];
+    }
     const dead = needsLogin(u) || !w || spent(w.used_percent);   // nothing left to use: last
     return [dead ? 1 : 0, w && w.resets_at ? new Date(w.resets_at).getTime() : Infinity, w ? -(100 - (w.used_percent ?? 0)) : 0];
   }],
@@ -538,8 +607,18 @@ function render() {
     const mine = us.filter(u => u.provider === p);
     $("#n" + p).textContent = mine.length || "";
     const hot = mine.some(u => reauth(u) || u.windows.some(w => w.name === "5h" && w.used_percent >= 90));
-    document.querySelector(`.tab[data-tab="${p}"]`).classList.toggle("hot", hot);
+    const tab = document.querySelector(`.tab[data-tab="${p}"]`);
+    tab.classList.toggle("hot", hot);
+    if (p === "codex") {
+      const waiting = mine.filter(u => weeklyOf(u).state === "unstarted").length;
+      tab.classList.toggle("waiting", waiting > 0);
+      tab.title = waiting ? `${waiting} 个 Codex 账户的 weekly 尚未开始，点击此标签查看提醒。` : "Codex accounts (Alt+2)";
+      if (waiting) $("#ncodex").textContent = `${mine.length} · !${waiting}`;
+    }
   }
+  const unstarted = us.filter(u => u.provider === "codex" && weeklyOf(u).state === "unstarted").length;
+  $("#weeklyNotice").classList.toggle("on", TAB === "codex" && unstarted > 0);
+  $("#weeklyNotice").textContent = unstarted ? `${unstarted} 个 Codex 账户的 weekly 尚未开始 · 点击「开启计时」发送短请求并确认重置时间。` : "";
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.tab === TAB));
   $("#wake").classList.toggle("hide", TAB === "plans");
   if (TAB === "plans") return renderPlans(us);
@@ -837,6 +916,13 @@ $("#list").addEventListener("click", e => {
   if (b.dataset.act === "wake1") return action({action: "wake", names: [name]});  // renew first, log in only if that fails
   if (b.dataset.act === "code") return action({action: "code", name, path: b.dataset.path}, true);
   if (b.dataset.act === "use") return action({action: "use", name}).then(ok => ok && setTimeout(() => pull(false), 800));
+  if (b.dataset.act === "start-countdown") {
+    if (b.disabled) return;
+    const u = DATA.usages.find(u => u.provider === "codex" && u.account === name);
+    if (u) return startWeekly(u);
+    return;
+  }
+  if (b.dataset.act === "usage") return action({action: "web", provider: "codex", name, usage: true}, true);
   const map = {web: "web", jack: "launch", login: "login"};
   action({action: map[b.dataset.act], name}, b.dataset.act !== "login");
 });
@@ -877,7 +963,7 @@ document.querySelectorAll(".rz").forEach(h => h.addEventListener("pointerdown", 
 }));
 function fitHeight() {
   if (manualSize || !native()) return;
-  const header = $("header").offsetHeight, prompt = $(".prompt").offsetHeight || 0;
+  const header = $("header").offsetHeight + $("#weeklyNotice").offsetHeight, prompt = $(".prompt").offsetHeight || 0;
   const rows = [...$("#list").children].reduce((a, el) => a + el.offsetHeight, 0);
   const logH = document.body.classList.contains("logopen") ? $("#log").offsetHeight : 0;
   window.pywebview.api.fit(innerWidth, header + Math.max(rows, 120) + prompt + logH + 2);

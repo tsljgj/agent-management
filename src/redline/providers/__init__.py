@@ -56,18 +56,73 @@ def load_fingerprint(account: Account) -> str | None:
     return hashlib.sha256(tok.encode()).hexdigest()[:16] if tok else None
 
 
+def _codex_identity_key(account: Account) -> str | None:
+    """Hash the selected ChatGPT identity, never a rotating access token."""
+    import hashlib
+    import json
+
+    from ._util import read_json
+
+    def key(kind, value):
+        material = json.dumps(["codex", kind, value], separators=(",", ":"), ensure_ascii=False)
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+    try:
+        auth = read_json(account.home_path / "auth.json")
+        if not isinstance(auth, dict):
+            return None
+        tokens = auth.get("tokens") or {}
+        if not isinstance(tokens, dict) or not tokens.get("access_token"):
+            api_key = auth.get("OPENAI_API_KEY")
+            return key("api-key", api_key) if isinstance(api_key, str) and api_key else None
+        id_claims = codex.jwt_claims(tokens.get("id_token"))
+        access_claims = codex.jwt_claims(tokens.get("access_token"))
+        claims = [id_claims, access_claims]
+        account_id = tokens.get("account_id") or next(
+            ((c.get(codex.AUTH_CLAIM) or {}).get("chatgpt_account_id") for c in claims
+             if isinstance(c.get(codex.AUTH_CLAIM), dict)
+             and (c.get(codex.AUTH_CLAIM) or {}).get("chatgpt_account_id")), None)
+        if isinstance(account_id, str) and account_id:
+            return key("chatgpt-account", account_id)
+        subject = next((c.get("sub") for c in claims if isinstance(c.get("sub"), str) and c["sub"]), None)
+        email = next((c.get("email") or (c.get(codex.PROFILE_CLAIM) or {}).get("email") for c in claims
+                      if c.get("email") or (isinstance(c.get(codex.PROFILE_CLAIM), dict)
+                                            and c[codex.PROFILE_CLAIM].get("email"))), None)
+        if subject:
+            return key("subject", subject)
+        if isinstance(email, str) and email:
+            return key("email", email.strip().casefold())
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    return None
+
+
+def load_identity_key(account: Account) -> str | None:
+    """Stable anonymized identity used to validate an account's cached usage."""
+    return _codex_identity_key(_eff(account)) if account.provider == "codex" else None
+
+
 def refresh_account(account: Account, manual: bool = False) -> None:
     _MODULES[account.provider].refresh_account(_eff(account), manual=manual)
 
 
 def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
     """Never raises: failures come back as Usage(ok=False, error=...)."""
+    effective = _eff(account)
+    before = _codex_identity_key(effective) if account.provider == "codex" else None
     try:
-        return _MODULES[account.provider].fetch_usage(_eff(account), refresh_tokens=refresh_tokens)
+        u = _MODULES[account.provider].fetch_usage(effective, refresh_tokens=refresh_tokens)
     except ProviderError as e:
-        return Usage(account=account.name, provider=account.provider, ok=False, error=str(e))
+        u = Usage(account=account.name, provider=account.provider, ok=False, error=str(e))
     except Exception as e:  # defensive: one broken account must not kill the dashboard
-        return Usage(
+        u = Usage(
             account=account.name, provider=account.provider, ok=False,
             error=f"{type(e).__name__}: {e}",
         )
+    if account.provider == "codex":
+        current = load_identity_key(account)
+        if u.ok and before != current:
+            u = Usage(account=account.name, provider=account.provider, ok=False,
+                      error="account login changed while fetching usage; refresh to verify")
+        u.identity_key = current
+    return u

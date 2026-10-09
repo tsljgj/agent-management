@@ -17,7 +17,7 @@ from pathlib import Path
 
 URLS = {
     "claude": "https://claude.ai/new",
-    "codex": "https://chatgpt.com/codex",
+    "codex": "https://chatgpt.com/",
 }
 USAGE_URLS = {
     "claude": "https://claude.ai/settings/usage",

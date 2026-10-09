@@ -310,27 +310,60 @@ def test_stuck_pids_lists_other_processes_of_same_image():
 
 
 @pytest.mark.skipif(os.name != "nt", reason="named mutex is Windows-only")
-def test_single_instance_lock_is_released_when_holder_exits():
+def test_single_instance_lock_is_released_when_holder_exits(monkeypatch):
     """Regression: polling the lock used to leak a mutex handle, so after the old
     instance exited we kept the mutex alive ourselves and waited forever."""
+    import ctypes
+    import inspect
     import subprocess
     import sys as _sys
-    import time as _time
+    import textwrap
+    import uuid
 
     from redline import tray
 
-    holder = subprocess.Popen([_sys.executable, "-c",
-                               "from redline.tray import _single_instance as s; import time; h = s(); "
-                               "print('held' if h else 'busy', flush=True); time.sleep(4)"],
-                              stdout=subprocess.PIPE, text=True)
+    def isolated_kernel32(mutex_name):
+        import ctypes
+        from ctypes import wintypes
+        from types import SimpleNamespace
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        create_mutex = kernel32.CreateMutexW
+        create_mutex.restype = wintypes.HANDLE
+        create_mutex.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+
+        def create_isolated_mutex(attributes, owner, name):
+            assert name == "Local\\redline"
+            return create_mutex(attributes, owner, mutex_name)
+
+        return SimpleNamespace(CreateMutexW=create_isolated_mutex, CloseHandle=kernel32.CloseHandle)
+
+    mutex_name = "Local\\redline-test-" + uuid.uuid4().hex
+    kernel32 = isolated_kernel32(mutex_name)
+    monkeypatch.setattr(ctypes, "WinDLL", lambda *args, **kwargs: kernel32)
+    # Both processes exercise the real Windows mutex API through the production
+    # function, with a private name so an open redline app cannot affect the test.
+    script = textwrap.dedent(inspect.getsource(isolated_kernel32)) + (
+        "\nimport ctypes, sys\n"
+        f"sys.path.insert(0, {os.path.dirname(os.path.dirname(tray.__file__))!r})\n"
+        f"kernel32 = isolated_kernel32({mutex_name!r})\n"
+        "ctypes.WinDLL = lambda *args, **kwargs: kernel32\n"
+        "from redline.tray import _single_instance\n"
+        "handle = _single_instance()\n"
+        "print('held' if handle else 'busy', flush=True)\n"
+        "sys.stdin.readline()\n"
+    )
+    holder = subprocess.Popen([_sys.executable, "-c", script],
+                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     try:
         assert holder.stdout.readline().strip() == "held"
         for _ in range(5):  # poll a few times while it is held
             assert tray._single_instance() is None
-            _time.sleep(0.2)
     finally:
-        holder.wait(10)
-    assert tray._single_instance() is not None
+        holder.communicate("release\n", timeout=10)
+    handle = tray._single_instance()
+    assert handle is not None
+    kernel32.CloseHandle(handle)
 
 
 def test_console_page_is_well_formed():
