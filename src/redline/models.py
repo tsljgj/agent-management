@@ -109,6 +109,8 @@ def weekly_countdown(u: Usage, now: datetime | None = None) -> dict:
     if not u.ok or u.stale:
         return result("unknown", "Refresh usage to verify the weekly countdown.")
     if w is None:
+        if any(window.name in ("primary", "secondary") for window in u.windows):
+            return result("unknown", "Usage window duration is missing; refresh usage to verify the weekly countdown.")
         return result("unavailable", "No weekly usage window is reported for this account.")
     if reset is not None:
         if reset > now:

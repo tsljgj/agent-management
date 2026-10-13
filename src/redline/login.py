@@ -39,14 +39,34 @@ Log = Callable[[str, str], None]
 # ------------------------------------------------------------ browser routing
 
 
+def expected_email(acct: Account) -> str | None:
+    """The identity requested by the account configuration, independent of its login."""
+    for value in (acct.note, acct.name):
+        email = value.strip()
+        if re.fullmatch(r"[^@\s]+@[^@\s]+", email):
+            return email
+    return None
+
+
+def login_mismatch(acct: Account, email: str | None) -> bool:
+    expected = expected_email(acct)
+    return bool(acct.provider == "codex" and expected and email
+                and expected.casefold() != email.strip().casefold())
+
+
 def resolve_profile(acct: Account, profiles: list[browsers.Profile] | None = None) -> browsers.Profile | None:
     if acct.browser_profile:
         return browsers.find_profile(acct.browser_profile, profiles)
+    # A previous login may belong to the wrong person. Re-login must follow the
+    # configured identity instead of sending the user back to that wrong profile.
+    if acct.provider == "codex":
+        email = expected_email(acct) or identity(acct)
+        return browsers.find_profile(email, profiles) if email else None
     for email in (identity(acct), acct.note if "@" in acct.note else None):
         if email:
-            p = browsers.find_profile(email, profiles)
-            if p:
-                return p
+            profile = browsers.find_profile(email, profiles)
+            if profile:
+                return profile
     return None
 
 
@@ -163,11 +183,16 @@ class WakeJob:
         for a in self.accounts:
             st = "missing" if self.force else token_state(a)
             if st == "ok":
-                self._done(a, "ok", "ok", f"{a.name}: online" + (f" as {identity(a)}" if identity(a) else ""))
+                email = identity(a)
+                if self._check_identity(a, email, None):
+                    self._done(a, "ok", "ok", f"{a.name}: online" + (f" as {email}" if email else ""))
             elif st == "expired":
+                if not self._check_identity(a, identity(a), None):
+                    continue
                 try:
                     refresh_account(a, manual=True)  # asked for now: don't sit out a rate-limit wait
-                    self._done(a, "ok", "refreshed", f"{a.name}: token refreshed")
+                    if self._check_identity(a, identity(a), None):
+                        self._done(a, "ok", "refreshed", f"{a.name}: token refreshed")
                 except ProviderError as e:
                     self.log("warn", f"{a.name}: refresh failed ({e}); needs a login")
                     queue.append(a)
@@ -258,18 +283,25 @@ class WakeJob:
             if email:
                 break
             time.sleep(1)
-        self._done(a, "ok", "logged-in", f"{a.name}: logged in" + (f" as {email}" if email else ""))
-        self._check_identity(a, email, prof)
+        if self._check_identity(a, email, prof):
+            self._done(a, "ok", "logged-in", f"{a.name}: logged in" + (f" as {email}" if email else ""))
 
-    def _check_identity(self, a: Account, email: str | None, prof: browsers.Profile | None) -> None:
+    def _check_identity(self, a: Account, email: str | None, prof: browsers.Profile | None) -> bool:
         if not email:
-            return
+            return True
+        if login_mismatch(a, email):
+            self._done(a, "crit", "identity-mismatch",
+                       f"{a.name}: logged in as {email}, expected {expected_email(a)}; "
+                       f"sign in with the intended account using `login {a.name}`.")
+            return False
         for other in load_accounts():
-            if other.key != a.key and other.provider == a.provider and identity(other) == email:
+            other_email = identity(other) if other.key != a.key and other.provider == a.provider else None
+            if other_email and other_email.casefold() == email.casefold():
                 self.log("crit", f"{a.name} is logged in as {email} — the same account as {other.name}! "
                                  f"Sign in with the other Google account and run `login {a.name}` again.")
         if prof and prof.email and prof.email.lower() != email.lower():
             self.log("warn", f"{a.name}: logged in as {email} but its browser profile is {prof.email}")
+        return True
 
     # -- subprocess plumbing
 
@@ -286,8 +318,8 @@ class WakeJob:
                 self.log("error", f"could not open the browser ({e}); open this URL: {url}")
 
         email = codex_oauth.login(a.home_path, open_url, cancelled=self.cancelled, timeout=LOGIN_TIMEOUT)
-        self._done(a, "ok", "logged-in", f"{a.name}: logged in" + (f" as {email}" if email else ""))
-        self._check_identity(a, email, prof)
+        if self._check_identity(a, email, prof):
+            self._done(a, "ok", "logged-in", f"{a.name}: logged in" + (f" as {email}" if email else ""))
 
     def _spawn_hidden(self, cmd: list[str], env: dict, open_urls: bool, prof) -> None:
         exe = find_cli(cmd[0])

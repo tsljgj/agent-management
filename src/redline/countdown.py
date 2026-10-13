@@ -90,7 +90,14 @@ def start_countdown(
         raise CountdownError("Weekly activation applies to Codex ChatGPT accounts only.")
     current = _current(account)
     with cli_lock(current.home_path):
-        identity = _auth_identity(read_json(current.home_path / "auth.json"))
+        auth = read_json(current.home_path / "auth.json")
+        identity = _auth_identity(auth)
+        from .login import login_mismatch
+
+        claims = codex.jwt_claims(auth["tokens"].get("id_token"))
+        actual = claims.get("email") or (claims.get(codex.PROFILE_CLAIM) or {}).get("email")
+        if login_mismatch(account, actual):
+            raise CountdownError("This account is signed in as a different email; log in to the intended account before starting weekly.")
     with _lock:
         _identities[account.key] = identity
         if identity in _busy:

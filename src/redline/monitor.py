@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import math
 import threading
 import time
 from collections import deque
@@ -20,6 +21,7 @@ from .models import Usage, weekly_countdown
 DEFAULT_THRESHOLDS = (80, 95)
 FORCE_FLOOR = 15  # seconds; even a manual refresh can't hit upstream more often than this
 RESET_BELOW = 20  # a window that was >= first threshold and is now below this "has reset"
+WEEKLY_REMINDER_INTERVAL = 24 * 60 * 60
 
 # Usage rate: how fast the short window (5h; the first window if there is none) is filling,
 # measured over the last RATE_LOOKBACK seconds. "pace" 1.0 = on track to use exactly the whole
@@ -93,7 +95,8 @@ class Monitor:
         self.meta: dict = {}  # extra status for the console (e.g. {"update": {...}} from the tray)
         self._last_pct: dict[tuple[str, str, str], float] = {}  # (provider, account, window)
         self._samples: dict[tuple[str, str], list[tuple[float, float]]] = {}  # (provider, account) -> [(t, %)]
-        self._weekly_reminded: set[tuple[str, str]] = set()  # unstarted weekly periods already notified
+        # Last warning state and time. A missed active period must not suppress reminders forever.
+        self._weekly_reminders: dict[tuple[str, str], tuple[str, float]] = {}
         self._last_ok: dict[tuple[str, str], Usage] = self._load_last_ok()  # (provider, account)
 
     # ------------------------------------------------------------ lifecycle
@@ -176,8 +179,21 @@ class Monitor:
                 key = (d["provider"], d["account"])
                 out[key] = Usage.from_dict(d)
                 identity_known = d["provider"] != "codex" or bool(out[key].identity_key)
-                if identity_known and d.get("weekly_countdown_reminded") is True:
-                    self._weekly_reminded.add(key)
+                if identity_known:
+                    reminder = d.get("weekly_countdown_reminder")
+                    if (isinstance(reminder, dict)
+                            and reminder.get("state") in ("unstarted", "unknown")
+                            and isinstance(reminder.get("at"), (int, float))
+                            and not isinstance(reminder["at"], bool)
+                            and math.isfinite(reminder["at"])):
+                        self._weekly_reminders[key] = (reminder["state"], min(reminder["at"], time.time()))
+                    elif d.get("weekly_countdown_reminded") is True:
+                        # Older caches only stored a boolean. Their last successful fetch is
+                        # a conservative upper bound on when that warning was shown.
+                        fetched = out[key].fetched_at
+                        if fetched.tzinfo is None:
+                            fetched = fetched.replace(tzinfo=timezone.utc)
+                        self._weekly_reminders[key] = ("unstarted", min(fetched.timestamp(), time.time()))
                 # the rate history too, so a restart (self-update) doesn't blank the gauge for minutes
                 cutoff = time.time() - RATE_LOOKBACK * 2
                 hist = [(float(t), float(p)) for t, p in d.get("rate_samples") or [] if float(t) > cutoff]
@@ -193,7 +209,10 @@ class Monitor:
             p.parent.mkdir(parents=True, exist_ok=True)
             tmp = p.with_suffix(".tmp")
             docs = [{**u.to_dict(), "rate_samples": self._samples.get(k, []),
-                     "weekly_countdown_reminded": k in self._weekly_reminded}
+                     "weekly_countdown_reminded": k in self._weekly_reminders,
+                     "weekly_countdown_reminder": {
+                         "state": self._weekly_reminders[k][0], "at": self._weekly_reminders[k][1],
+                     } if k in self._weekly_reminders else None}
                     for k, u in self._last_ok.items()]
             tmp.write_text(json.dumps(docs, ensure_ascii=False),
                            encoding="utf-8")
@@ -209,7 +228,7 @@ class Monitor:
         if prev is None or prev.identity_key == u.identity_key:
             return
         self._samples.pop(key, None)
-        self._weekly_reminded.discard(key)
+        self._weekly_reminders.pop(key, None)
         for k in [k for k in self._last_pct if k[:2] == key]:
             self._last_pct.pop(k)
         u.rate = None
@@ -260,9 +279,8 @@ class Monitor:
         with self._state_lock:
             for k in [k for k in self._samples if match(*k)]:
                 self._samples[(k[0], new)] = self._samples.pop(k)
-            for k in [k for k in self._weekly_reminded if match(*k)]:
-                self._weekly_reminded.remove(k)
-                self._weekly_reminded.add((k[0], new))
+            for k in [k for k in self._weekly_reminders if match(*k)]:
+                self._weekly_reminders[(k[0], new)] = self._weekly_reminders.pop(k)
             for k in [k for k in self._last_ok if match(*k)]:
                 u = self._last_ok.pop(k)
                 u.account = new
@@ -283,21 +301,31 @@ class Monitor:
 
     def _diff(self, usages: list[Usage]) -> list[dict]:
         alerts = []
+        now = time.time()
         first = self.thresholds[0] if self.thresholds else 101
         for u in usages:
             if not u.ok:  # includes stale snapshots: don't re-alert on old numbers
                 continue
+            details = (self.meta.get("accounts") or {}).get(f"{u.provider}:{u.account}", {})
+            if u.provider == "codex" and details.get("login_mismatch") is True:
+                # These numbers belong to a different login, not the named account.
+                continue
             if not u.stale:
                 key = (u.provider, u.account)
                 state = weekly_countdown(u)["state"]
-                if state == "unstarted" and key not in self._weekly_reminded:
-                    self._weekly_reminded.add(key)
-                    alerts.append({
-                        "level": "warn",
-                        "text": f'{u.account} weekly 尚未开始计时；点「开启计时」发送一次短请求',
-                    })
+                if state in ("unstarted", "unknown"):
+                    previous = self._weekly_reminders.get(key)
+                    # Confirmed inactivity is new actionable evidence after an uncertain
+                    # warning; the reverse transition must not double-notify a transient gap.
+                    if (previous is None or now - previous[1] >= WEEKLY_REMINDER_INTERVAL
+                            or previous[0] == "unknown" and state == "unstarted"):
+                        self._weekly_reminders[key] = (state, now)
+                        text = (f'{u.account} weekly 尚未开始计时；点「开启计时」发送一次短请求'
+                                if state == "unstarted" else
+                                f"{u.account} weekly 待确认；请刷新用量核验计时是否已开启")
+                        alerts.append({"level": "warn", "text": text})
                 elif state == "active":
-                    self._weekly_reminded.discard(key)
+                    self._weekly_reminders.pop(key, None)
             for w in u.windows:
                 if w.used_percent is None:
                     continue

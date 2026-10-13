@@ -76,6 +76,13 @@ def render_table(usages: list[Usage], stream=None) -> str:
                 f"{_c(pct, code, color)}  {humanize_delta(w.resets_at)}"
             )
         for k, v in u.extra.items():
+            if k == "banked_resets" and isinstance(v, dict):
+                available = v.get("available")
+                text = str(available) if available is not None else "unknown"
+                if v.get("applicable") is not None:
+                    text += f" (applicable: {v['applicable']})"
+                lines.append(f"    {_c('Banked resets:', '2', color)} {text}")
+                continue
             lines.append(f"    {_c(k + ':', '2', color)} {v}")
         lines.append("")
     return "\n".join(lines)

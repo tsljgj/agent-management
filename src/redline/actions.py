@@ -77,7 +77,7 @@ def unique_name(base: str, taken: set[str]) -> str:
 def account_details() -> dict[str, dict]:
     """Static per-account facts for the console's details view (no network)."""
     from . import browsers
-    from .login import resolve_profile
+    from .login import expected_email, login_mismatch, resolve_profile
     from .providers import identity
     from .sessions import recent
     from .slots import effective, is_active, is_slot, load_state
@@ -105,13 +105,17 @@ def account_details() -> dict[str, dict]:
              for keys in shared_quota.values() if len(keys) > 1 for key in keys}
     for a in accounts:
         p = resolve_profile(a, profs)
+        email = identity(a)
+        intended_email = expected_email(a)
         try:
             projects = recent(a)
         except Exception:
             projects = []
         out[a.key] = {
             "home": str(a.home_path),
-            "email": identity(a) or (a.note if "@" in a.note else ""),
+            "email": email or intended_email or "",
+            "expected_email": intended_email or "",
+            "login_mismatch": login_mismatch(a, email),
             "profile": {"spec": p.spec, "name": p.name, "email": p.email, "bound": bool(a.browser_profile)} if p else None,
             # the login VS Code and plain `claude` / `codex` use
             "default": is_active(a, state) or (not state.get(a.provider, {}).get("home") and is_slot(a.provider, a.home_path)),
@@ -227,6 +231,7 @@ def adopt_email_names() -> list[tuple[str, str, str]]:
 
     Returns [(provider, old, new)] so callers (the monitor) can carry state over.
     """
+    from .login import login_mismatch
     from .providers import identity
 
     accounts = load_accounts()
@@ -238,7 +243,7 @@ def adopt_email_names() -> list[tuple[str, str, str]]:
         if not auto:
             continue
         email = identity(a) or (a.note if "@" in a.note else None)
-        if not email or a.name == email:
+        if not email or a.name == email or login_mismatch(a, email):
             continue
         try:
             validate_name(email)

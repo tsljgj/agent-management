@@ -117,13 +117,15 @@ def test_countdown_classification_and_visible_reminders(run_console_js):
   assert.match(row(notStarted, null), /weekly 未开始/);
   assert.match(row(notStarted, null), /▶ 开启计时/);
   assert.match(row(placeholder, null), /待确认/);
+  assert.match(row(placeholder, null), /class="acct[^\"]*weekly-attention/);
   DATA = {usages: [notStarted, zeroActive, stale, placeholder, noWindow], meta: {accounts: {
     "codex:unused": {shared_quota_with: ["alias"]},
   }}};
   TAB = "codex"; render();
   assert.equal(elements["#weeklyNotice"].classList.contains("on"), true);
   assert.match(elements["#weeklyNotice"].textContent, /^1 个 Codex/);
-  assert.equal(elements["#ncodex"].textContent, "5 · !1");
+  assert.match(elements["#weeklyNotice"].textContent, /2 个 Codex 账户的 weekly 状态待确认/);
+  assert.equal(elements["#ncodex"].textContent, "5 · !1 · ?2");
   assert.match(details(notStarted), /共享额度/);
   assert.match(details(notStarted), /alias/);
   assert.match(details(notStarted), /data-act="usage"/);
@@ -133,7 +135,70 @@ def test_countdown_classification_and_visible_reminders(run_console_js):
 """)
 
 
-def test_weekly_sort_prioritizes_unstarted_and_keeps_claude_behavior(run_console_js):
+def test_unknown_weekly_states_get_prominent_reminders_without_claiming_unstarted(run_console_js):
+    run_console_js(r"""
+(async () => {
+  const uncertain = usage("uncertain", {weekly_countdown: {state: "unknown", message: "missing reset"}});
+  const stale = usage("stale", {stale: true});
+  const failedAccount = usage("failed", {ok: false, error: "network error"});
+  DATA = {usages: [uncertain, stale, failedAccount], meta: {}};
+  TAB = "codex"; render();
+  const tab = tabs.find(el => el.dataset.tab === "codex");
+  assert.equal(elements["#weeklyNotice"].classList.contains("on"), true);
+  assert.match(elements["#weeklyNotice"].textContent, /3 个 Codex 账户的 weekly 状态待确认/);
+  assert.match(elements["#weeklyNotice"].textContent, /「尝试开启」/);
+  assert.doesNotMatch(elements["#weeklyNotice"].textContent, /尚未开始|「开启计时」/);
+  assert.equal(tab.classList.contains("waiting"), true);
+  assert.match(tab.title, /3 个 Codex 账户的 weekly 状态待确认/);
+  assert.equal(elements["#ncodex"].textContent, "3 · ?3");
+  assert.match(weeklyTag(uncertain), /class="weekly unknown"/);
+  assert.match(weeklyTag(uncertain), /▶ 尝试开启/);
+  let calls = 0;
+  action = async () => { calls++; return true; };
+  for (const u of [stale, failedAccount]) {
+    assert.match(row(u, null), /weekly-attention/);
+    assert.doesNotMatch(weeklyTag(u), /data-act="start-countdown"/);
+    await startWeekly(u);
+  }
+  assert.equal(calls, 0);
+  const noDuration = usage("no-duration", {windows: [{name: "primary", used_percent: 0, resets_at: null}],
+    weekly_countdown: {state: "unknown", message: "window duration missing"}});
+  DATA.usages = [stale, failedAccount, noDuration]; render();
+  assert.equal(elements["#weeklyNotice"].classList.contains("on"), true);
+  assert.match(elements["#weeklyNotice"].textContent, /3 个 Codex 账户的 weekly 状态待确认/);
+  assert.doesNotMatch(elements["#weeklyNotice"].textContent, /「尝试开启」|尚未开始/);
+  assert.equal(canStartWeekly(noDuration), false);
+  assert.doesNotMatch(weeklyTag(noDuration), /data-act="start-countdown"/);
+  await startWeekly(noDuration); assert.equal(calls, 0);
+  TAB = "claude"; render();
+  assert.equal(elements["#weeklyNotice"].classList.contains("on"), false);
+  assert.equal(tab.classList.contains("waiting"), true);
+})();
+""")
+
+
+def test_api_key_accounts_remain_unavailable_and_outside_weekly_reminders(run_console_js):
+    run_console_js(r"""
+(async () => {
+  const apiKey = usage("api-key", {ok: false, error: "API key accounts do not have subscription usage",
+    weekly_countdown: {state: "unavailable", message: "API key account"}});
+  const cachedApiKey = {...apiKey, account: "cached-api-key", stale: true};
+  DATA = {usages: [apiKey, cachedApiKey], meta: {}}; TAB = "codex"; render();
+  for (const u of DATA.usages) {
+    assert.equal(weeklyOf(u).state, "unavailable");
+    assert.equal(canStartWeekly(u), false);
+    assert.equal(weeklyTag(u), "");
+    assert.doesNotMatch(row(u, null), /weekly-attention/);
+  }
+  assert.equal(elements["#weeklyNotice"].classList.contains("on"), false);
+  assert.equal(elements["#weeklyNotice"].textContent, "");
+  assert.equal(tabs.find(el => el.dataset.tab === "codex").classList.contains("waiting"), false);
+  assert.equal(elements["#ncodex"].textContent, 2);
+})();
+""")
+
+
+def test_weekly_sort_prioritizes_unstarted_then_actionable_unknown_and_keeps_claude_behavior(run_console_js):
     run_console_js(r"""
 (() => {
   const active = (name, hours, percent = 0) => usage(name, {windows: [
@@ -141,10 +206,14 @@ def test_weekly_sort_prioritizes_unstarted_and_keeps_claude_behavior(run_console
   ], weekly_countdown: {state: "active", message: "active"}});
   const unused = usage("unused");
   const unknown = usage("unknown", {weekly_countdown: {state: "unknown", message: "unknown"}});
+  const stale = usage("stale", {stale: true});
+  const failedAccount = usage("failed", {ok: false, error: "network error"});
+  const usedUnknown = usage("used-unknown", {windows: [{name: "7d", used_percent: 5, resets_at: null}],
+    weekly_countdown: {state: "unknown", message: "missing reset"}});
   const login = usage("login", {ok: false, error: "not logged in"});
   SORT = "weekly";
-  const list = [login, unknown, active("later", 20), active("full", 1, 100), active("soon", 4), unused];
-  assert.deepEqual(sorted(list).map(u => u.account), ["unused", "soon", "later", "unknown", "login", "full"]);
+  const list = [login, stale, failedAccount, usedUnknown, unknown, active("later", 20), active("full", 1, 100), active("soon", 4), unused];
+  assert.deepEqual(sorted(list).map(u => u.account), ["unused", "unknown", "soon", "later", "stale", "failed", "used-unknown", "login", "full"]);
   const claude = list.filter(u => ["later", "soon", "full"].includes(u.account)).map(u => ({...u, provider: "claude"}));
   assert.deepEqual(sorted(claude).map(u => u.account), ["soon", "later", "full"]);
 })();
@@ -223,5 +292,96 @@ def test_pull_renders_meta_changes_and_completion_alerts_between_usage_polls(run
   deliveries.push(failure); await pull(false);
   assert.equal(elements["#toast"].textContent, "开启失败");
   assert.equal(elements["#toast"].className, "show bad");
+})();
+""")
+
+
+def test_free_accounts_show_reported_main_windows_and_honest_missing_window_state(run_console_js):
+    run_console_js(r"""
+(() => {
+  const free = (name, windows) => usage(name, {plan: "free", windows,
+    weekly_countdown: {state: "unavailable", message: "no weekly limit"}});
+  const weekly = free("weekly", [{name: "7d", used_percent: 17, resets_at: future(100)}]);
+  assert.match(row(weekly, null), /class="plan">Free/);
+  assert.match(quotaMeters(weekly), /^<div class="m none"><\/div><div class="m"/);
+  assert.match(quotaMeters(weekly), /class="k">7d<.*class="v">17%/s);
+  for (const name of ["1d", "primary", "secondary"]) {
+    const u = free("single", [{name, used_percent: 32, resets_at: future(20)}]);
+    const html = quotaMeters(u);
+    assert.ok(html.includes(`class="k">${name}<`));
+    assert.match(html, /class="v">32%/);
+    assert.doesNotMatch(html, /未返回额度窗口/);
+  }
+  const mixed = free("mixed", [{name: "1d", used_percent: 32, resets_at: future(20)},
+    {name: "7d", used_percent: 17, resets_at: future(100)}]);
+  assert.ok(quotaMeters(mixed).indexOf('class="k">1d<') < quotaMeters(mixed).indexOf('class="k">7d<'));
+  for (const windows of [[], [{name: "review 7d", used_percent: 0, resets_at: future(100)}]]) {
+    const u = free("missing", windows);
+    assert.match(quotaMeters(u), /未返回额度窗口/);
+    assert.doesNotMatch(quotaMeters(u), /class="v"|class="bar"/);
+  }
+  const unknownPercent = free("unknown", [{name: "1d", used_percent: null, resets_at: null}]);
+  assert.match(quotaMeters(unknownPercent), /class="v">\?</);
+  assert.match(details(unknownPercent), /1d \?%/);
+})();
+""")
+
+
+def test_banked_resets_are_separate_from_credits_and_preserve_zero_and_partial_counts(run_console_js):
+    run_console_js(r"""
+(() => {
+  const counted = usage("counted", {extra: {credits: "5", banked_resets: {available: 3, applicable: 0}}});
+  const html = row(counted, null), detail = details(counted);
+  assert.match(html, /class="banked">Banked resets: 3 次 · 当前适用 0 次/);
+  assert.match(html, /\+ 5 credits/);
+  assert.match(detail, /<span>Banked resets<\/span>/);
+  assert.match(detail, />3 次 · 当前适用 0 次<\/b>/);
+  assert.doesNotMatch(html, /\[object Object\]|banked_resets/);
+  const zero = usage("zero", {extra: {banked_resets: {available: 0}}});
+  assert.match(row(zero, null), /class="banked">Banked resets: 0 次/);
+  assert.doesNotMatch(row(zero, null), /当前适用/);
+  const partial = usage("partial", {extra: {banked_resets: {applicable: 2}}});
+  assert.match(row(partial, null), /Banked resets: 总数未知 · 当前适用 2 次/);
+  assert.doesNotMatch(row(usage("missing"), null), /Banked resets/);
+  assert.doesNotMatch(row(usage("empty", {extra: {banked_resets: {}}}), null), /Banked resets/);
+})();
+""")
+
+
+def test_login_mismatch_shows_both_identities_and_blocks_wrong_account_quota_actions(run_console_js):
+    run_console_js(r"""
+(async () => {
+  const u = usage("expected", {plan: "free", email: "actual@example.test", extra: {banked_resets: {available: 3}}});
+  const correct = usage("correct", {plan: "plus"});
+  DATA = {usages: [u, correct], meta: {accounts: {"codex:expected": {
+    login_mismatch: true, email: "actual@example.test", expected_email: "expected@example.test",
+  }}}}; TAB = "codex";
+  const html = row(u, null);
+  assert.match(html, /登录账号不符/);
+  assert.match(html, /<span>实际：actual@example.test<\/span>/);
+  assert.match(html, /<span>预期：expected@example.test<\/span>/);
+  assert.match(html, /data-act="login">重新登录预期账号/);
+  assert.doesNotMatch(html, /class="plan"|\bfree\b|Banked resets|class="bar"|data-act="start-countdown"/i);
+  assert.equal(canStartWeekly(u), false);
+  assert.equal(reauthTag({...u, ok: false, stale: true, error: "expired"}), "");
+  const paidMismatch = {...u, plan: "plus", renews_at: future(100), renews_kind: "end"};
+  assert.equal(renewOf(paidMismatch), null);
+  renderPlans([paidMismatch]);
+  assert.match(elements["#list"].innerHTML, /登录账号不符/);
+  assert.doesNotMatch(elements["#list"].innerHTML, /<em>plus<\/em>/);
+  assert.match(elements["#list"].innerHTML, /<span class="dt[^"]*"[^>]*>unknown<\/span>/);
+  assert.equal(best("codex").account, "correct");
+  SORT = "weekly";
+  assert.deepEqual(sorted(DATA.usages).map(x => x.account), ["correct", "expected"]);
+  DATA.usages = [u]; render();
+  assert.doesNotMatch(elements["#weeklyNotice"].textContent, /尚未开始|「开启计时」|「尝试开启」/);
+  let calls = [];
+  action = async body => { calls.push(body); return true; };
+  await startWeekly(u); assert.equal(calls.length, 0);
+  const card = {dataset: {name: "expected"}};
+  const button = {dataset: {act: "login"}, closest: selector => selector === ".acct" ? card : null};
+  const target = {closest: selector => selector === "[data-act]" ? button : null};
+  await elements["#list"].listeners.click[0]({target});
+  assert.deepEqual(calls, [{action: "login", provider: "codex", name: "expected"}]);
 })();
 """)

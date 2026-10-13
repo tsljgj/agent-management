@@ -1,4 +1,4 @@
-"""OpenAI Codex CLI (ChatGPT Plus / Pro / Team login).
+"""OpenAI Codex CLI (ChatGPT Free / paid plan login).
 
 Credentials: $CODEX_HOME/auth.json
 Usage:       GET https://chatgpt.com/backend-api/wham/usage
@@ -97,8 +97,11 @@ def parse_usage(doc: dict) -> tuple[list[Window], dict]:
     c = credits(doc.get("credits"))
     if c:
         extra["credits"] = c
-    rl = doc.get("rate_limit") or {}
-    if rl.get("limit_reached"):
+    resets = banked_resets(doc.get("rate_limit_reset_credits"))
+    if resets is not None:
+        extra["banked_resets"] = resets
+    rl = doc.get("rate_limit")
+    if isinstance(rl, dict) and rl.get("limit_reached"):
         extra["status"] = "LIMIT REACHED"
     return windows, extra
 
@@ -131,6 +134,22 @@ def credits(c) -> str | None:
     elif _num(msgs) is not None:
         text += f" (~{int(_num(msgs))} msgs)"
     return text
+
+
+def banked_resets(value) -> dict[str, int] | None:
+    """Keep banked resets separate from purchased credits and current applicability.
+
+    The usage endpoint can report available resets while none are applicable to
+    the current limits. Missing counts are unknown, not zero.
+    """
+    if not isinstance(value, dict):
+        return None
+    result: dict[str, int] = {}
+    for source, target in (("available_count", "available"), ("applicable_available_count", "applicable")):
+        count = _num(value.get(source))
+        if count is not None and count >= 0 and count.is_integer():
+            result[target] = int(count)
+    return result or None
 
 
 def refresh(account: Account, auth: dict) -> dict:

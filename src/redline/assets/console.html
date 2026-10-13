@@ -62,6 +62,7 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .acct{display:grid;grid-template-columns:minmax(84px,1fr) minmax(120px,180px) minmax(120px,180px);grid-template-rows:minmax(40px,auto);align-items:center;gap:14px 24px;
   position:relative;min-height:60px;padding:10px 18px;border-bottom:1px solid var(--line);transition:opacity .2s,transform .2s}
 .acct:hover{background:rgba(0,229,255,.03)}
+.acct.weekly-attention{box-shadow:inset 2px 0 var(--warn)}
 .acct.gone{opacity:0;transform:translateX(20px)}
 .nm{color:#fff;font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .best .nm{color:var(--acc)}
@@ -73,11 +74,13 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .who{display:flex;flex-direction:column;gap:3px;min-width:0}
 /* extra credits on top of the plan (Codex): usable once the windows run out */
 .cred{font-size:10px;letter-spacing:.06em;color:var(--acc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.banked{font-size:10px;color:var(--acc);overflow-wrap:anywhere}
+.plan{font-size:10px;color:var(--dim)}
 /* token expired but the old numbers are still shown: one click renews it (or logs in) */
 .reauth{align-self:flex-start;font-size:10px;letter-spacing:.06em;font-weight:600;color:var(--warn);white-space:nowrap}
 .reauth:hover{color:var(--acc)}
 .weekly{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:10px;color:var(--dim)}
-.weekly.unstarted{color:var(--warn);font-weight:600}
+.weekly.unstarted,.weekly.unknown{color:var(--warn);font-weight:600}
 .weekly.busy{color:var(--acc)}
 .weekly.error{color:var(--red)}
 .weekly button{color:var(--warn);border:1px solid #665021;padding:2px 5px;border-radius:2px;white-space:nowrap;cursor:pointer}
@@ -104,6 +107,7 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .det b.acc{color:var(--acc)}
 /* meter: label · bar · % on one line, "↻ time to reset" right under its own bar */
 .m{display:grid;grid-template-columns:18px 1fr 40px;align-items:center;gap:4px 8px}
+.m.alt{grid-template-columns:auto 1fr 40px}
 .m .t{grid-column:2/4;color:var(--dim);font-size:10.5px;white-space:nowrap;line-height:1}
 .m .t.urgent{color:var(--acc)}
 .m.max .t{color:var(--fg)}
@@ -118,6 +122,8 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .need{grid-column:2/4;display:flex;gap:12px;align-items:center;color:var(--dim);overflow:hidden;white-space:nowrap}
 .need button{color:var(--acc);font-weight:600}
 .need span{overflow:hidden;text-overflow:ellipsis;font-size:11px}
+.need.identity{align-items:flex-start;flex-direction:column;gap:5px;white-space:normal;color:var(--warn)}
+.need.identity span{overflow:visible;overflow-wrap:anywhere}
 #det{font-size:16px}
 #det.on{color:var(--acc)}
 .acct{cursor:pointer}
@@ -319,14 +325,14 @@ const ago = s => (s = Math.max(0, Math.floor(s))) < 60 ? `${s}s` : s < 3600 ? `$
 const left = iso => iso ? (new Date(iso) - Date.now()) / 1000 : null;
 const short = u => u.windows.find(w => w.name === "5h") || u.windows[0];
 function best(provider) {
-  const c = DATA.usages.filter(u => u.ok && u.provider === provider && u.windows.length && !u.windows.some(w => spent(w.used_percent)));
+  const c = DATA.usages.filter(u => u.ok && !identityMismatch(u) && u.provider === provider && u.windows.length && !u.windows.some(w => spent(w.used_percent)));
   c.sort((a, b) => (short(a)?.used_percent ?? 999) - (short(b)?.used_percent ?? 999));
   return c[0];
 }
 // Only these failures are fixed by logging in; the rest (403, offline, rate limit...) are not.
 const AUTH_ERR = /not logged in|expired|unauthorized|signed out|user:profile|API key|refresh token|log in again|no .*tokens/i;
 const failed = u => !u.ok && !u.stale;
-const needsLogin = u => failed(u) && AUTH_ERR.test(u.error || "");
+const needsLogin = u => identityMismatch(u) || (failed(u) && AUTH_ERR.test(u.error || ""));
 // Old numbers kept on screen, but the token behind them has expired: still worth a ⚡ / ⟳ renew.
 const lapsed = u => !u.ok && u.stale && AUTH_ERR.test(u.error || "");
 const reauth = u => needsLogin(u) || lapsed(u);
@@ -342,31 +348,52 @@ function meter(w, label, weekly = null) {
   const urgent = label === "7d" && l != null && l < 36 * 3600 && (p ?? 100) < 80;
   const idle = weekly && weekly.state === "unstarted" ? "待启动" : weekly && weekly.state === "unknown" ? "待确认" : resetText(l);
   const t = `<span class="t${urgent ? " urgent" : ""}" data-reset="${esc(w.resets_at || "")}">${l == null ? idle : resetText(l)}</span>`;
-  if (spent(p)) return `<div class="m max" title="${esc(tip)}"><span class="k">${label}</span><div class="bar"></div><span class="v">MAX</span>${t}</div>`;
+  const cls = ["5h", "7d"].includes(label) ? "" : " alt";
+  if (spent(p)) return `<div class="m max${cls}" title="${esc(tip)}"><span class="k">${esc(label)}</span><div class="bar"></div><span class="v">MAX</span>${t}</div>`;
   const width = p == null ? 0 : Math.min(100, Math.max(0, p));
-  return `<div class="m" style="--c:${lvl(p)}" title="${esc(tip)}"><span class="k">${label}</span>
+  return `<div class="m${cls}" style="--c:${lvl(p)}" title="${esc(tip)}"><span class="k">${esc(label)}</span>
     <div class="bar"><i style="width:${width}%"></i></div><span class="v">${p == null ? "?" : Math.floor(p) + "%"}</span>${t}</div>`;
 }
 const infoOf = u => ((DATA.meta || {}).accounts || {})[`${u.provider}:${u.account}`] || {};
+const identityMismatch = u => infoOf(u).login_mismatch === true;
+const identityMessage = u => `登录账号不符 · 实际：${infoOf(u).email || u.email || "未知"} · 预期：${infoOf(u).expected_email || "未知"}`;
+const extraEntries = u => Object.entries(u.extra || {}).filter(([k, v]) => k !== "banked_resets" && v != null && typeof v !== "object");
+function bankedResetText(u) {
+  const b = (u.extra || {}).banked_resets;
+  if (!b || (!Number.isFinite(b.available) && !Number.isFinite(b.applicable))) return "";
+  return (Number.isFinite(b.available) ? `${b.available} 次` : "总数未知")
+    + (Number.isFinite(b.applicable) ? ` · 当前适用 ${b.applicable} 次` : "");
+}
+function quotaMeters(u) {
+  const main = u.windows.filter(w => /^(?:primary|secondary|\d+(?:\.\d+)?[hd])$/.test(w.name));
+  if (!main.length) return `<div class="need"><span>未返回额度窗口</span></div>`;
+  const slots = [main.find(w => w.name === "5h"), main.find(w => w.name === "7d")];
+  const other = main.filter(w => !["5h", "7d"].includes(w.name));
+  for (let i = 0; i < slots.length; i++) if (!slots[i]) slots[i] = other.shift();
+  return slots.map((w, i) => meter(w, w?.name || (i ? "7d" : "5h"), w?.name === "7d" ? weeklyOf(u) : null)).join("");
+}
 const accountKey = u => `${u.provider}:${u.account}`;
 const countdownPending = new Set();
 const countdownOf = u => ((DATA.meta || {}).countdown || {})[accountKey(u)] || {};
 const countdownBusy = u => countdownPending.has(accountKey(u)) || ["starting", "verifying"].includes(countdownOf(u).state);
 function weeklyOf(u) {
   if (u.provider !== "codex") return null;
+  const status = u.weekly_countdown;
+  // API-key accounts do not have a subscription window, including when usage cannot be fetched.
+  if (status?.state === "unavailable") return status;
+  if (identityMismatch(u)) return {state: "unknown", message: "登录账号不符，请重新登录预期账号后确认 weekly 计时状态。"};
   if (!u.ok || u.stale) return {state: "unknown", message: "当前没有实时用量，刷新或重新登录后确认 weekly 计时状态。"};
   const w = u.windows.find(x => x.name === "7d");
   // A future reset is positive evidence of an active window, even when usage rounds to 0%.
   if (w && left(w.resets_at) > 0) return {state: "active", message: "weekly 已开始计时，重置时间：" + when(w.resets_at)};
-  const status = u.weekly_countdown;
   if (status?.state === "active") return {state: "unknown", message: "weekly 重置时间已过或缺失，刷新用量后确认当前计时状态。"};
   return status && ["active", "unstarted", "unknown", "unavailable"].includes(status.state)
     ? status : {state: "unknown", message: "未收到可确认的 weekly 计时状态。"};
 }
 function canStartWeekly(u) {
   const status = weeklyOf(u), w = u.windows.find(x => x.name === "7d");
-  if (!status || !u.ok || u.stale || u.windows.some(x => spent(x.used_percent))) return false;
-  return status.state === "unstarted" || (status.state === "unknown" && w && w.used_percent === 0 && !(left(w.resets_at) > 0));
+  if (!status || !u.ok || u.stale || identityMismatch(u) || u.windows.some(x => spent(x.used_percent))) return false;
+  return status.state === "unstarted" || (status.state === "unknown" && !!w && w.used_percent === 0 && !(left(w.resets_at) > 0));
 }
 function weeklyTag(u) {
   const status = weeklyOf(u);
@@ -407,6 +434,7 @@ function rollForward(anchor) {
   return null;
 }
 function renewOf(u) {
+  if (identityMismatch(u)) return null;
   const info = infoOf(u);
   if (info.renews) return {at: rollForward(new Date(info.renews + "T00:00:00")), est: false, set: true};
   if (!u.renews_at) return null;
@@ -464,7 +492,7 @@ function rateTag(u) {
   return `<div class="rate ${esc(r.level)}" title="${esc(tip)}">${gauge(r.pace)}<b>${esc(r.level)}</b>${r.level === "idle" ? "" : `<span> · ${r.per_hour}%/h</span>`}</div>`;
 }
 function reauthTag(u) {
-  if (!lapsed(u)) return "";
+  if (identityMismatch(u) || !lapsed(u)) return "";
   const err = shortErr(u.error), renew = /^token expired/.test(err);
   return `<button class="act reauth" data-act="wake1" title="${esc(err)} · ${renew ? "renew the token now (a login only if that fails)" : "log in again"}">`
     + `${renew ? "⟳ renew" : "login ›"}</button>`;
@@ -475,21 +503,28 @@ function credTag(u) {
 }
 function row(u, bestName) {
   const n = esc(u.account);
-  const extra = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${Math.round(w.used_percent)}%`)
-    .concat(Object.entries(u.extra || {}).filter(([k]) => k !== "credits").map(([k, v]) => `${k} ${v}`));
-  const tip = [u.email, u.plan, ...extra, u.stale ? `as of ${new Date(u.fetched_at).toLocaleString()} · ${u.error}` : ""].filter(Boolean).join(" · ");
-  const body = needsLogin(u)
+  const mismatch = identityMismatch(u);
+  const extra = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${w.used_percent == null ? "?" : Math.round(w.used_percent)}%`)
+    .concat(extraEntries(u).filter(([k]) => k !== "credits").map(([k, v]) => `${k} ${v}`));
+  const tip = mismatch ? identityMessage(u) : [u.email, u.plan, ...extra, u.stale ? `as of ${new Date(u.fetched_at).toLocaleString()} · ${u.error}` : ""].filter(Boolean).join(" · ");
+  const body = mismatch
+    ? `<div class="need identity"><strong>登录账号不符</strong><span>实际：${esc(infoOf(u).email || u.email || "未知")}</span><span>预期：${esc(infoOf(u).expected_email || "未知")}</span><button class="act" data-act="login">重新登录预期账号 ›</button></div>`
+    : needsLogin(u)
     ? `<div class="need"><button class="act" data-act="login">login ›</button><span title="${esc(u.error)}">${esc(shortErr(u.error))}</span></div>`
     : failed(u)
     ? `<div class="need"><button data-act="retry">retry ⟳</button><span title="${esc(u.error)}">${esc(shortErr(u.error))}</span></div>`
-    : meter(u.windows.find(w => w.name === "5h"), "5h") + meter(u.windows.find(w => w.name === "7d"), "7d", weeklyOf(u));
+    : quotaMeters(u);
   const open = isOpen(`${u.provider}:${u.account}`);
   const info = infoOf(u), live = (info.projects || []).filter(p => p.active);
-  const flags = live.length ? " live" : "";
+  const weekly = weeklyOf(u);
+  const flags = (live.length ? " live" : "") + (["unstarted", "unknown"].includes(weekly?.state) ? " weekly-attention" : "");
   const tip2 = [live.length ? "● running in " + live.map(p => base(p.path)).join(", ") : "", tip]
     .filter(Boolean).join(" · ");
+  const banked = bankedResetText(u);
+  const quotaTags = mismatch ? "" : (u.plan === "free" ? `<div class="plan">Free</div>` : "") + rateTag(u) + credTag(u)
+    + (banked ? `<div class="banked">Banked resets: ${esc(banked)}</div>` : "");
   return `<div class="acct${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}${open ? " open" : ""}${flags}" data-name="${n}"><span class="ch">${open ? "▴" : "▾"}</span>
-    <div class="who"><div class="nm" title="${esc(tip2)} · double-click to rename">${n}</div>${rateTag(u)}${credTag(u)}${reauthTag(u)}${weeklyTag(u)}</div>${body}
+    <div class="who"><div class="nm" title="${esc(tip2)} · double-click to rename">${n}</div>${quotaTags}${reauthTag(u)}${weeklyTag(u)}</div>${body}
     ${details(u)}</div>`;
 }
 /* ---------- details: ⋯ opens every row; clicking a row toggles just that row ---------- */
@@ -513,23 +548,30 @@ function when(iso) {
 function details(u) {
   const info = infoOf(u);
   const kv = (k, v, cls = "") => `<div class="wide"><span>${esc(k)}</span><b class="${cls}" title="${esc(v)}">${esc(v)}</b></div>`;
-  const rows = [kv("account", [u.email || info.email, u.plan].filter(Boolean).join(" · ") || "–")];
-  if (info.shared_quota_with?.length) rows.push(kv("共享额度", "与 " + info.shared_quota_with.join("、") + " 属于同一 ChatGPT 账户，用量和 weekly 计时共享。", "warn"));
-  const weekly = weeklyOf(u), job = countdownOf(u);
-  if (weekly) rows.push(kv("weekly", weekly.message || weekly.state, weekly.state === "unstarted" ? "warn" : ""));
-  if (job.message) rows.push(kv("开启计时", job.message, job.state === "error" ? "red" : ""));
-  for (const name of ["5h", "7d"]) {
-    const w = u.windows.find(x => x.name === name);
-    if (w) rows.push(kv(name, w.resets_at ? "resets " + when(w.resets_at) : "–", spent(w.used_percent) ? "red" : ""));
+  const mismatch = identityMismatch(u);
+  const rows = mismatch
+    ? [kv("登录账号不符", "请重新登录预期账号后查看其套餐与额度。", "warn"), kv("预期账号", info.expected_email || "未知"), kv("实际账号", info.email || u.email || "未知", "warn")]
+    : [kv("account", [u.email || info.email, u.plan].filter(Boolean).join(" · ") || "–")];
+  if (!mismatch) {
+    const banked = bankedResetText(u);
+    if (banked) rows.push(kv("Banked resets", banked));
+    if (info.shared_quota_with?.length) rows.push(kv("共享额度", "与 " + info.shared_quota_with.join("、") + " 属于同一 ChatGPT 账户，用量和 weekly 计时共享。", "warn"));
+    const weekly = weeklyOf(u), job = countdownOf(u);
+    if (weekly) rows.push(kv("weekly", weekly.message || weekly.state, ["unstarted", "unknown"].includes(weekly.state) ? "warn" : ""));
+    if (job.message) rows.push(kv("开启计时", job.message, job.state === "error" ? "red" : ""));
+    for (const name of ["5h", "7d"]) {
+      const w = u.windows.find(x => x.name === name);
+      if (w) rows.push(kv(name, w.resets_at ? "resets " + when(w.resets_at) : "–", spent(w.used_percent) ? "red" : ""));
+    }
+    const other = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${w.used_percent == null ? "?" : Math.round(w.used_percent)}%`)
+      .concat(extraEntries(u).map(([k, v]) => `${k} ${v}`));
+    if (other.length) rows.push(kv("other", other.join(" · ")));
+    { const r = renewOf(u), p = renewParts(r);
+      rows.push(`<div class="wide"><span>${r && !r.est ? "paid until" : "renews"}</span><div class="prj">`
+        + `<b class="${p.cls ? "warn" : ""}" title="${r && r.est ? "estimate: the subscription start rolled forward by months (" + esc(u.provider) + " doesn't report the end date)" : r && r.set ? "set by you" : ""}">`
+        + `${esc(p.date)}${p.days != null ? " · in " + esc(p.left) : ""}</b>`
+        + `<button data-act="renew" title="set the real renewal/end date">✎ set</button></div></div>`); }
   }
-  const other = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${Math.round(w.used_percent ?? 0)}%`)
-    .concat(Object.entries(u.extra || {}).map(([k, v]) => `${k} ${v}`));
-  if (other.length) rows.push(kv("other", other.join(" · ")));
-  { const r = renewOf(u), p = renewParts(r);
-    rows.push(`<div class="wide"><span>${r && !r.est ? "paid until" : "renews"}</span><div class="prj">`
-      + `<b class="${p.cls ? "warn" : ""}" title="${r && r.est ? "estimate: the subscription start rolled forward by months (" + esc(u.provider) + " doesn't report the end date)" : r && r.set ? "set by you" : ""}">`
-      + `${esc(p.date)}${p.days != null ? " · in " + esc(p.left) : ""}</b>`
-      + `<button data-act="renew" title="set the real renewal/end date">✎ set</button></div></div>`); }
   if (info.profile) rows.push(kv("chrome", info.profile.name));
   if (!u.ok) rows.push(kv("error", u.error || "", "red"));
   (info.projects || []).forEach((p, i) => rows.push(`<div class="wide"><span>${i ? "" : "used in"}</span><div class="prj">`
@@ -556,9 +598,9 @@ const SORTS = {
     const w = u.windows.find(x => x.name === "7d");
     if (u.provider === "codex") {
       const weekly = weeklyOf(u);
-      const group = needsLogin(u) || spent(w?.used_percent) || weekly.state === "unavailable" ? 3
-        : weekly.state === "unstarted" ? 0 : weekly.state === "active" ? 1 : 2;
-      return [group, group === 1 && w && left(w.resets_at) > 0 ? new Date(w.resets_at).getTime() : Infinity, w ? -(100 - (w.used_percent ?? 0)) : 0];
+      const group = needsLogin(u) || spent(w?.used_percent) || weekly.state === "unavailable" ? 4
+        : weekly.state === "unstarted" ? 0 : canStartWeekly(u) ? 1 : weekly.state === "active" ? 2 : 3;
+      return [group, group === 2 && w && left(w.resets_at) > 0 ? new Date(w.resets_at).getTime() : Infinity, w ? -(100 - (w.used_percent ?? 0)) : 0];
     }
     const dead = needsLogin(u) || !w || spent(w.used_percent);   // nothing left to use: last
     return [dead ? 1 : 0, w && w.resets_at ? new Date(w.resets_at).getTime() : Infinity, w ? -(100 - (w.used_percent ?? 0)) : 0];
@@ -603,6 +645,14 @@ function shortErr(e) {
 }
 function render() {
   const us = DATA.usages || [];
+  const weeklyStates = us.filter(u => u.provider === "codex").map(weeklyOf);
+  const unstarted = weeklyStates.filter(status => status.state === "unstarted").length;
+  const unknown = weeklyStates.filter(status => status.state === "unknown").length;
+  const canTryWeekly = us.some(u => weeklyOf(u)?.state === "unknown" && canStartWeekly(u));
+  const weeklySummary = [
+    unstarted ? `${unstarted} 个 Codex 账户的 weekly 尚未开始` : "",
+    unknown ? `${unknown} 个 Codex 账户的 weekly 状态待确认` : "",
+  ].filter(Boolean).join("；");
   for (const p of ["claude", "codex"]) {
     const mine = us.filter(u => u.provider === p);
     $("#n" + p).textContent = mine.length || "";
@@ -610,15 +660,16 @@ function render() {
     const tab = document.querySelector(`.tab[data-tab="${p}"]`);
     tab.classList.toggle("hot", hot);
     if (p === "codex") {
-      const waiting = mine.filter(u => weeklyOf(u).state === "unstarted").length;
-      tab.classList.toggle("waiting", waiting > 0);
-      tab.title = waiting ? `${waiting} 个 Codex 账户的 weekly 尚未开始，点击此标签查看提醒。` : "Codex accounts (Alt+2)";
-      if (waiting) $("#ncodex").textContent = `${mine.length} · !${waiting}`;
+      tab.classList.toggle("waiting", unstarted + unknown > 0);
+      tab.title = weeklySummary ? `${weeklySummary}，点击此标签查看提醒。` : "Codex accounts (Alt+2)";
+      if (weeklySummary) $("#ncodex").textContent = [mine.length, unstarted ? `!${unstarted}` : "", unknown ? `?${unknown}` : ""].filter(Boolean).join(" · ");
     }
   }
-  const unstarted = us.filter(u => u.provider === "codex" && weeklyOf(u).state === "unstarted").length;
-  $("#weeklyNotice").classList.toggle("on", TAB === "codex" && unstarted > 0);
-  $("#weeklyNotice").textContent = unstarted ? `${unstarted} 个 Codex 账户的 weekly 尚未开始 · 点击「开启计时」发送短请求并确认重置时间。` : "";
+  $("#weeklyNotice").classList.toggle("on", TAB === "codex" && unstarted + unknown > 0);
+  $("#weeklyNotice").textContent = [weeklySummary,
+    unstarted ? "点击「开启计时」发送短请求并确认重置时间。" : "",
+    unknown ? "待确认账户请刷新用量或重新登录。" + (canTryWeekly ? "也可使用账户上的「尝试开启」。" : "") : "",
+  ].filter(Boolean).join(" · ");
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.tab === TAB));
   $("#wake").classList.toggle("hide", TAB === "plans");
   if (TAB === "plans") return renderPlans(us);
@@ -644,7 +695,7 @@ function renderPlans(us) {
     : list.map(u => {
         const r = renewOf(u), p = renewParts(r), gone = p.days != null && p.days <= 0;
         return `<div class="pl ${r ? "" : "unk"}" data-prov="${esc(u.provider)}" data-name="${esc(u.account)}" title="open in ${esc(u.provider)}">`
-          + `<i>${u.provider === "codex" ? "CODEX" : "CLAUDE"}</i><b>${esc(u.account)}</b><em>${esc(u.plan || "")}</em>`
+          + `<i>${u.provider === "codex" ? "CODEX" : "CLAUDE"}</i><b>${esc(u.account)}</b><em>${esc(identityMismatch(u) ? "登录账号不符" : u.plan || "")}</em>`
           + `<span class="dt ${gone ? "gone" : p.cls}" title="${r && r.est ? "estimated from the subscription start (monthly)" : r && r.set ? "set by you" : r ? "reported by " + esc(u.provider) : "not reported · ✎ to set it"}">${esc(p.date)}</span>`
           + `<span class="dl ${gone ? "gone" : p.cls}">${esc(p.left)}</span>`
           + `<button data-act="renew" title="set the real renewal/end date">✎</button></div>`;
@@ -924,7 +975,7 @@ $("#list").addEventListener("click", e => {
   }
   if (b.dataset.act === "usage") return action({action: "web", provider: "codex", name, usage: true}, true);
   const map = {web: "web", jack: "launch", login: "login"};
-  action({action: map[b.dataset.act], name}, b.dataset.act !== "login");
+  action({action: map[b.dataset.act], provider: TAB, name}, b.dataset.act !== "login");
 });
 
 /* ---------- native window (pywebview) ---------- */

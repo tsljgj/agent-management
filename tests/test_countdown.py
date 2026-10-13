@@ -44,6 +44,25 @@ def usage(account, percent=0, reset=None, **kwargs):
                  windows=[Window("7d", percent, reset)], **kwargs)
 
 
+def test_mismatched_email_cannot_start_a_turn_under_another_account(account, monkeypatch):
+    account.note = "free@example.test"
+    save_accounts([account])
+    path = account.home_path / "auth.json"
+    auth = json.loads(path.read_text())
+    auth["tokens"]["id_token"] = jwt({
+        "email": "paid@example.test",
+        countdown.codex.AUTH_CLAIM: {"chatgpt_account_id": "account-one"},
+    })
+    path.write_text(json.dumps(auth))
+    original = path.read_bytes()
+    monkeypatch.setattr(countdown.threading, "Thread", lambda **kwargs: pytest.fail("must not queue a turn"))
+    with pytest.raises(countdown.CountdownError, match="different email"):
+        countdown.start_countdown(account.name, lambda *args: None)
+    assert countdown.status() == {}
+    assert not countdown._busy
+    assert path.read_bytes() == original
+
+
 def run_worker(account, monkeypatch, values, turn=None):
     identity = countdown._auth_identity(json.loads((account.home_path / "auth.json").read_text()))
     countdown._identities[account.key] = identity

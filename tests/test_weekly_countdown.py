@@ -106,7 +106,31 @@ def test_positive_relative_reset_survives_zero_epoch_sentinel():
 def test_unknown_duration_does_not_guess_weekly_from_window_position():
     windows, _ = codex.parse_usage({"rate_limit": {"secondary_window": {"used_percent": 0, "reset_at": 0}}})
     assert windows[0].name == "secondary"
-    assert weekly_countdown(usage(windows[0]), NOW)["state"] == "unavailable"
+    assert weekly_countdown(usage(windows[0]), NOW)["state"] == "unknown"
+
+
+@pytest.mark.parametrize("position", ["primary_window", "secondary_window"])
+@pytest.mark.parametrize("duration", [None, 0, -1, "invalid"])
+def test_missing_duration_does_not_silently_hide_a_possible_weekly_limit(position, duration):
+    windows, _ = codex.parse_usage({"rate_limit": {position: {
+        "limit_window_seconds": duration, "used_percent": 0,
+        "reset_at": (NOW + timedelta(days=1)).timestamp(),
+    }}})
+    # A reset for an unidentified window proves neither a weekly countdown nor
+    # the absence of weekly quota. Keep it visible for verification.
+    state = weekly_countdown(usage(windows[0]), NOW)
+    assert state["state"] == "unknown"
+    assert state["resets_at"] is None
+
+
+def test_known_weekly_window_takes_precedence_over_an_untyped_window():
+    u = usage(Window("7d", 0, reset_at_raw=0))
+    u.windows.insert(0, Window("primary", 0))
+    assert weekly_countdown(u, NOW)["state"] == "unstarted"
+
+
+def test_untyped_additional_limits_do_not_imply_a_missing_main_weekly_limit():
+    assert weekly_countdown(usage(Window("review secondary", 0)), NOW)["state"] == "unavailable"
 
 
 def test_zero_sentinel_survives_cache_round_trip_and_state_is_recomputed():
