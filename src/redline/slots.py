@@ -11,14 +11,21 @@ dir, X's login moves into the slot, and X's own dir is left without one while X
 is the default. `effective(account)` says where an account's login lives now;
 the providers, the wake job and the terminals all go through it.
 
+VS Code's Codex / Claude panels and plain `codex login` / `claude /login` write
+straight into the slot, so it can end up holding someone else's login. `reconcile`
+notices that (by email) and makes whoever is really there the default, so the
+next switch never files that login under the previous owner's name.
+
 State ($REDLINE_HOME/slots.json):
-  {"claude": {"home": "<owner's own dir>", "since": ts, "history": [[home, from, to], ...]}}
+  {"claude": {"home": "<owner's own dir>", "since": ts, "email": "<who was put in the slot>",
+              "history": [[home, from, to], ...]}}
 """
 
 from __future__ import annotations
 
 import dataclasses
 import json
+import re
 import sys
 import threading
 import time
@@ -121,6 +128,94 @@ def read_json_safe(p: Path) -> dict | None:
         return None
 
 
+# ------------------------------------------------------------ whose login is where
+
+
+def email_in(provider: str, home: Path | str) -> str | None:
+    """Email of the login stored in `home` itself (local files; never redirected to the slot)."""
+    from .providers import _MODULES
+
+    try:
+        return _MODULES[provider].identity(Account("probe", provider, str(home)))
+    except Exception:
+        return None
+
+
+def _same(a: str | None, b: str | None) -> bool:
+    return bool(a and b) and a.strip().lower() == b.strip().lower()
+
+
+def _labelled(accounts: list[Account], provider: str, email: str | None) -> Account | None:
+    """The account meant to hold `email` (by its configured email, not its current login)."""
+    from .login import expected_email
+
+    return next((a for a in accounts if a.provider == provider and _same(expected_email(a), email)), None)
+
+
+def _stash(provider: str, home: Path) -> Path | None:
+    """Keep a copy of the login in `home` before it is overwritten: it may be the only one."""
+    login = read_json_safe(home / LOGIN_FILES[provider])
+    if not login:
+        return None
+    email = re.sub(r"[^A-Za-z0-9._@+-]+", "-", email_in(provider, home) or "unknown")
+    d = redline_home() / "stash"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / f"{provider}-{email}-{time.strftime('%Y%m%dT%H%M%S')}.json"
+    write_json_atomic(p, login)
+    return p
+
+
+def reconcile() -> list[str]:
+    """Follow logins that replaced the default one outside redline. Returns what changed."""
+    with _lock:
+        return [m for m in (_reconcile(p) for p in LOGIN_FILES) if m]
+
+
+def _reconcile(provider: str) -> str | None:
+    state = load_state()
+    st = state.get(provider) or {}
+    cur = st.get("home")
+    if not cur:
+        return None
+    there = email_in(provider, slot_dir(provider))
+    if not there:
+        return None  # logged out: nothing to file under anyone
+    from .login import expected_email
+
+    accounts = load_accounts()
+    owner = next((a for a in accounts if a.provider == provider and _resolved(a.home_path) == cur), None)
+    meant = st.get("email") or (expected_email(owner) if owner else None)
+    if not meant or _same(meant, there):
+        if st.get("email") != there:
+            st["email"] = there  # older state without it: remember who is there now
+            _save_state(state)
+        return None
+    # Someone logged a different account in (VS Code, `codex login`, `claude /login`).
+    who = _labelled(accounts, provider, there)
+    if who is not None and owner is not None and who.key == owner.key:
+        st["email"] = there  # the owner's own email showed up late (Claude caches it lazily)
+        _save_state(state)
+        return None
+    if who is None:
+        from .actions import add_account, unique_name
+
+        taken = {a.name for a in accounts if a.provider == provider}
+        who = add_account(provider, unique_name(there, taken), home=str(_new_home(provider, there)),
+                          note=there, auto_name=True)
+    now = time.time()
+    hist = st.setdefault("history", [])
+    hist.append([cur, st.get("since", 0), now])
+    st["history"] = hist[-HISTORY:]
+    st["home"], st["since"], st["email"] = _resolved(who.home_path), now, there
+    state[provider] = st
+    _save_state(state)
+    msg = (f"the default {provider} login was replaced outside redline (VS Code or `{provider} login`): "
+           f"it is {there} now, so {who.name} is the default")
+    if owner is not None and not read_json_safe(owner.home_path / LOGIN_FILES[provider]):
+        msg += f"; {owner.name} lost its login there — log it in again"
+    return msg
+
+
 # ------------------------------------------------------------ switching
 
 
@@ -146,6 +241,7 @@ def _activate(key: str) -> str:
         raise ProviderError(f"unknown provider {provider!r}")
     if provider == "claude" and sys.platform == "darwin":
         raise ProviderError("switching the default login isn't supported on macOS (logins live in the Keychain)")
+    _reconcile(provider)  # whatever is in the slot now must go back to its real owner
     accounts = load_accounts()
     acct = next((a for a in accounts if a.key == key), None)
     if acct is None:
@@ -158,6 +254,12 @@ def _activate(key: str) -> str:
     login = read_json_safe(src)
     if not login:
         raise ProviderError(f"{acct.name} is not logged in; log it in first")
+    from .login import expected_email
+
+    incoming, meant = email_in(provider, acct.home_path), expected_email(acct)
+    if incoming and meant and not _same(incoming, meant):
+        raise ProviderError(f"{acct.name} holds the login of {incoming}, not {meant}; "
+                            f"log {acct.name} in again with the right account first")
 
     with cli_lock(slot), cli_lock(acct.home_path):
         cur = state.get(provider, {}).get("home")
@@ -166,16 +268,19 @@ def _activate(key: str) -> str:
             # First switch: the slot is some account's own dir. Give that account a dir of its own.
             owner = next((a for a in accounts if a.provider == provider and is_slot(provider, a.home_path)), None)
             current = read_json_safe(slot / fname)
+            email = email_in(provider, slot)
             if owner is not None:
                 owner_home = _new_home(provider, owner.name)
                 owner.home = str(owner_home)
                 save_accounts(accounts)
+            elif current and _labelled(accounts, provider, email) is not None:
+                # A second login of an account we already have: keep a copy, don't list it twice.
+                _stash(provider, slot)
+                owner_home = None
             elif current:
                 # An unregistered login sits in the slot: keep it as a new account.
                 from .actions import add_account, unique_name
-                from .providers import identity
 
-                email = identity(Account("probe", provider, str(slot)))
                 taken = {a.name for a in accounts if a.provider == provider}
                 owner_home = _new_home(provider, email or f"{provider}-default")
                 add_account(provider, unique_name(email or f"{provider}-default", taken),
@@ -185,6 +290,8 @@ def _activate(key: str) -> str:
         current = read_json_safe(slot / fname)
         if owner_home is not None and current:
             owner_home.mkdir(parents=True, exist_ok=True)
+            if read_json_safe(owner_home / fname) and not _same(email_in(provider, owner_home), email_in(provider, slot)):
+                _stash(provider, owner_home)
             write_json_atomic(owner_home / fname, current)
             if provider == "claude":
                 _copy_oauth_account(slot, owner_home)
@@ -203,5 +310,10 @@ def _activate(key: str) -> str:
         hist.append([_resolved(owner_home), 0, now])  # everything in the slot so far was theirs
     st["history"] = hist[-HISTORY:]
     st["home"], st["since"] = _resolved(acct.home_path), now
+    there = email_in(provider, slot)  # what the slot reports now; `reconcile` watches for a change
+    if there:
+        st["email"] = there
+    else:
+        st.pop("email", None)
     _save_state(state)
     return f"{acct.name} is now the default {provider} login"

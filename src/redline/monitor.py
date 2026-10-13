@@ -124,6 +124,13 @@ class Monitor:
             if force and time.time() - self.at < FORCE_FLOOR:
                 return
             try:
+                from .slots import reconcile
+
+                for msg in reconcile():  # VS Code / `codex login` put another account in the default slot
+                    self.log("warn", msg, alert=True)
+            except Exception:
+                pass
+            try:
                 from .actions import adopt_email_names
 
                 for prov, old, new in adopt_email_names():

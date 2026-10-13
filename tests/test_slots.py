@@ -117,3 +117,71 @@ def test_codex_recent_projects(home):
     (d / "rollout-1.jsonl").write_text(json.dumps({"type": "session_meta", "payload": {"cwd": "/w/cx"}}) + "\n")
     e = Account("e@x.com", "codex", str(home / "e"))
     assert [p["path"] for p in sessions.recent(e)] == ["/w/cx"]
+
+
+def _codex_trio(home):
+    make_codex(home / ".codex", email="d@x.com")
+    make_codex(home / "e", email="e@x.com")
+    make_codex(home / "f", email="f@x.com")
+    save_accounts([Account("d@x.com", "codex", "~/.codex"), Account("e@x.com", "codex", str(home / "e")),
+                   Account("f@x.com", "codex", str(home / "f"))])
+
+
+def test_outside_login_into_the_slot_is_followed_not_misfiled(home):
+    _codex_trio(home)
+    slots.activate("codex:e@x.com")
+    make_codex(home / ".codex", email="f@x.com")  # VS Code: sign out, sign in with another account
+    msgs = slots.reconcile()
+    assert len(msgs) == 1 and "f@x.com" in msgs[0] and "e@x.com lost its login" in msgs[0]
+    det = actions.account_details()
+    assert det["codex:f@x.com"]["default"] and not det["codex:e@x.com"]["default"]
+    accts = {a.name: a for a in load_accounts()}
+    assert token_state(accts["e@x.com"]) == "missing"  # the truth: e's login is gone
+    assert slots.reconcile() == []
+
+    slots.activate("codex:d@x.com")
+    # f's login went back to f, never into e's dir under e's name
+    assert not (home / "e" / "auth.json").exists() and identity(accts["f@x.com"]) == "f@x.com"
+
+
+def test_unknown_outside_login_becomes_its_own_account(home):
+    _codex_trio(home)
+    slots.activate("codex:e@x.com")
+    make_codex(home / ".codex", email="g@x.com")
+    slots.activate("codex:d@x.com")  # switching reconciles first
+    accts = {a.name: a for a in load_accounts()}
+    assert identity(accts["g@x.com"]) == "g@x.com" and accts["g@x.com"].home_path != home / ".codex"
+    assert not (home / "e" / "auth.json").exists()
+
+
+def test_switch_refuses_an_account_holding_someone_elses_login(home):
+    _codex_trio(home)
+    make_codex(home / "e", email="f@x.com")
+    with pytest.raises(Exception, match="holds the login of f@x.com"):
+        slots.activate("codex:e@x.com")
+    assert identity(Account("p", "codex", "~/.codex")) == "d@x.com"
+
+
+def test_first_switch_stashes_a_second_copy_instead_of_adding_it(home):
+    make_claude(home / ".claude", email="b@x.com")
+    (home / ".claude" / ".claude.json").unlink()
+    (home / ".claude.json").write_text(json.dumps({"oauthAccount": {"emailAddress": "b@x.com"}}))
+    make_claude(home / "b", email="b@x.com")
+    make_claude(home / "c", email="c@x.com")
+    save_accounts([Account("b@x.com", "claude", str(home / "b")), Account("c@x.com", "claude", str(home / "c"))])
+    slots.activate("claude:c@x.com")
+    assert sorted(a.name for a in load_accounts()) == ["b@x.com", "c@x.com"]
+    assert [p.name.startswith("claude-b@x.com-") for p in (home / ".redline" / "stash").iterdir()] == [True]
+    assert _login(home / ".claude") == "rt-c"
+
+
+def test_monitor_reports_an_outside_login_into_the_slot(home):
+    from redline.monitor import Monitor
+
+    _codex_trio(home)
+    slots.activate("codex:e@x.com")
+    make_codex(home / ".codex", email="f@x.com")
+    m = Monitor(collect=lambda a, refresh_tokens=False: [])
+    m.poll()
+    assert any(e["level"] == "warn" and "replaced outside redline" in e["text"] for e in m.payload()["events"])
+    assert actions.account_details()["codex:f@x.com"]["default"]

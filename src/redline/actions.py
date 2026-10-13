@@ -148,10 +148,13 @@ def candidates(provider: str) -> dict:
         p = resolve_profile(a, profs)
         if p:
             used_specs.add(p.spec)
+    logged_in_as = {e.lower() for e in map(identity, accounts) if e}
     removed = [
         {"name": r.name, "email": identity(r) or (r.note if "@" in r.note else ""), "logged_in": has_credentials(r)}
         for r in load_removed() if r.provider == provider
     ]
+    # a removed copy of a login some account already has is just noise (`removed` still lists it)
+    removed = [r for r in removed if r["email"].lower() not in logged_in_as]
     removed_emails = {r["email"].lower() for r in removed if r["email"]}
     profiles = [
         p.to_dict() for p in profs
@@ -280,10 +283,13 @@ def restore_account(name: str, provider: str | None = None) -> Account:
 def scan(register: bool = True, include_removed: bool = False) -> tuple[list[tuple[Account, "Found"]], list["Found"]]:
     """Discover account dirs on this machine; register the new ones.
 
-    Accounts the user removed are skipped unless include_removed.
+    Accounts the user removed are skipped unless include_removed. So is a second dir
+    logged in to an email an account already goes by (backups, old copies): one card per login.
     Returns (newly added, already registered or removed).
     """
     from .discover import discover, suggest_name
+    from .login import expected_email
+    from .providers import identity
 
     accounts = load_accounts()
     removed = load_removed()
@@ -291,14 +297,18 @@ def scan(register: bool = True, include_removed: bool = False) -> tuple[list[tup
     if not include_removed:
         known |= {(a.provider, _resolved(a.home_path)) for a in removed}
     taken = {(a.provider, a.name) for a in accounts}
+    emails = {(a.provider, e.lower()) for a in accounts for e in [expected_email(a) or identity(a)] if e}
     added, existing = [], []
     from .slots import is_slot, managed
 
     for f in discover():
-        if (f.provider, _resolved(f.home)) in known or (is_slot(f.provider, f.home) and managed(f.provider)):
+        if ((f.provider, _resolved(f.home)) in known or (is_slot(f.provider, f.home) and managed(f.provider))
+                or (f.email and (f.provider, f.email.lower()) in emails)):
             # once redline switches the default login, ~/.claude holds whichever account is the default
             existing.append(f)
             continue
+        if f.email:
+            emails.add((f.provider, f.email.lower()))
         mine = {n for p, n in taken if p == f.provider}
         name = unique_name(f.email, mine) if f.email else suggest_name(f, mine)
         taken.add((f.provider, name))

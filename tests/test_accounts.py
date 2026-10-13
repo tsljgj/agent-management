@@ -692,3 +692,15 @@ def test_update_swap_retries_while_file_is_busy(tmp_path, monkeypatch):
     monkeypatch.setattr(update.os, "replace", flaky)
     update.install(update.Release(9, "build-9", "n", "u", "s", "h"))
     assert exe.read_bytes() == payload
+
+
+def test_scan_registers_one_account_per_email(home):
+    make_claude(home / ".claude-a", email="a@x.com")
+    make_claude(home / ".claude-a-backup", email="a@x.com")
+    added, existing = actions.scan()
+    assert [a.name for a, _ in added] == ["a@x.com"] and len(existing) == 1
+    make_claude(home / ".claude-old", email="old@x.com")
+    actions.scan()
+    actions.remove_account("old@x.com")
+    make_claude(home / ".claude-old", email="a@x.com")  # the removed dir now holds a's login again
+    assert actions.candidates("claude")["removed"] == []
