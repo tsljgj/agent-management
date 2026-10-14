@@ -10,12 +10,14 @@ deletes the `.old` file.
 
 from __future__ import annotations
 
+import glob
 import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -75,9 +77,11 @@ def _get_any(url: str, timeout: int = 20) -> bytes:
 
 
 def latest() -> Release | None:
+    """The release GitHub marks "latest". CI marks only `main` builds so: `claude/*` branch
+    builds are prereleases and `v*` tag releases are never made latest (see windows-tray.yml)."""
     doc = json.loads(_get_any(_feed()))
     m = TAG_RE.match(doc.get("tag_name") or "")
-    if not m:
+    if not m or doc.get("prerelease") or doc.get("draft"):
         return None
     assets = {a.get("name"): a.get("browser_download_url") for a in doc.get("assets") or []}
     if ASSET not in assets or ASSET + ".sha256" not in assets:
@@ -112,16 +116,33 @@ def _download(url: str, dest: Path) -> str:
     return h.hexdigest()
 
 
+def _file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(1 << 16):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def install(rel: Release, extra_args: list[str] | None = None, window: dict | None = None) -> None:
     """Download, verify, swap and launch the new exe. The caller must exit afterwards."""
     if not can_self_update():
         raise ProviderError("self-update only works for the packaged Windows exe")
     exe = Path(sys.executable)
-    new = exe.with_name(exe.name + ".download")
     old = exe.with_name(exe.name + ".old")
     log.info("installing build %s from %s", rel.build, rel.exe_url)
     expected = _get_any(rel.sha_url).decode().split()[0].strip().lower()
-    got = _download(rel.exe_url, new)
+    # A name of its own: another download running at the same time must not write into ours.
+    fd, tmp = tempfile.mkstemp(prefix=exe.name + ".", suffix=".download", dir=exe.parent)
+    os.close(fd)
+    new = Path(tmp)
+    try:
+        got = _download(rel.exe_url, new)
+        if got == expected:
+            got = _file_sha256(new)  # what gets installed is the file on disk, not the stream we hashed
+    except BaseException:
+        new.unlink(missing_ok=True)
+        raise
     if got != expected:
         new.unlink(missing_ok=True)
         raise ProviderError(f"checksum mismatch for build {rel.build}; update aborted")
@@ -131,15 +152,32 @@ def install(rel: Release, extra_args: list[str] | None = None, window: dict | No
         pass
     # Renaming a running exe is allowed on Windows, but a scanner (Defender) or our own
     # archive reader may hold a handle for a moment -> WinError 32. Retry briefly.
-    _retry(lambda: os.replace(exe, old))
+    try:
+        _retry(lambda: os.replace(exe, old))
+    except OSError:
+        new.unlink(missing_ok=True)
+        raise
     try:
         _retry(lambda: os.replace(new, exe))
     except OSError:
         _retry(lambda: os.replace(old, exe))
+        new.unlink(missing_ok=True)
         raise
     write_handoff(window)
     log.info("swapped exe, relaunching %s", exe)
-    launch_detached(str(exe), ["--updated-from", str(BUILD), *(extra_args or [])])
+    try:
+        launch_detached(str(exe), ["--updated-from", str(BUILD), *(extra_args or [])])
+    except BaseException:
+        # The new exe can't be started (e.g. blocked by antivirus): put the working one back,
+        # so autostart keeps working, and drop the note that would make the next launch
+        # think it comes from an update (it would take over the running instance unasked).
+        log.exception("relaunch failed; restoring build %s", BUILD)
+        clear_handoff()
+        try:
+            _retry(lambda: os.replace(old, exe))
+        except OSError:
+            log.exception("could not restore %s", exe)
+        raise
 
 
 def handoff_path() -> Path:
@@ -156,6 +194,13 @@ def write_handoff(window: dict | None = None) -> None:
         p.parent.mkdir(parents=True, exist_ok=True)
         doc = {"from": BUILD, "at": time.time(), "pid": os.getpid(), "window": window or {}}
         p.write_text(json.dumps(doc), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def clear_handoff() -> None:
+    try:
+        handoff_path().unlink(missing_ok=True)
     except OSError:
         pass
 
@@ -196,7 +241,13 @@ def _retry(fn, attempts: int = 30, delay: float = 0.2):
 def cleanup_old() -> None:
     if not is_packaged():
         return
-    old = Path(sys.executable).with_name(Path(sys.executable).name + ".old")
+    exe = Path(sys.executable)
+    for leftover in exe.parent.glob(glob.escape(exe.name) + "*.download"):  # interrupted downloads
+        try:
+            leftover.unlink()
+        except OSError:
+            pass
+    old = exe.with_name(exe.name + ".old")
     for _ in range(20):  # the previous process may still be shutting down
         try:
             old.unlink(missing_ok=True)

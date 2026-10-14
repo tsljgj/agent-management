@@ -720,11 +720,15 @@ function renderVersion() {
   v.title = newer ? `build ${u.latest} is available (you have ${u.build}) · click to install`
                   : `build ${u.build}` + (u.checked ? ` · checked ${new Date(u.checked * 1000).toLocaleTimeString()}` : "") + " · click to check for updates";
 }
+// One update request at a time: a double-click must not start two installs side by side.
+let updating = false;
 async function checkUpdate() {
+  if (updating || ((DATA.meta || {}).update || {}).state === "installing") { toast("an update is already in progress"); return; }
   const v = $("#ver");
+  updating = true; v.disabled = true;
   v.textContent = "…"; v.classList.add("busy");
   toast("checking for updates…");
-  await action({action: "update"});
+  try { await action({action: "update"}); } finally { updating = false; v.disabled = false; }
   setTimeout(() => pull(false), 800);
 }
 function setTab(t) {
@@ -747,8 +751,9 @@ function tick() {
 /* ---------- rename in place ---------- */
 let editing = false;
 function startRename(card) {
-  const nm = card.querySelector(".nm"), old = card.dataset.name;
-  if (!nm || nm.querySelector("input")) return;
+  // the row's provider, fixed now: names are unique per provider, not across both tabs
+  const nm = card.querySelector(".nm"), old = card.dataset.name, provider = TAB;
+  if (!nm || nm.querySelector("input") || provider === "plans") return;
   editing = true;
   nm.innerHTML = `<input value="${esc(old)}" spellcheck="false" maxlength="40">`;
   const inp = nm.querySelector("input"); inp.focus(); inp.select();
@@ -758,7 +763,7 @@ function startRename(card) {
     const neu = inp.value.trim();
     if (save && neu && neu !== old) {
       nm.textContent = neu; card.dataset.name = neu;
-      if (!(await action({action: "rename", name: old, new: neu}))) { nm.textContent = old; card.dataset.name = old; }
+      if (!(await action({action: "rename", provider, name: old, new: neu}))) { nm.textContent = old; card.dataset.name = old; }
       pull(false);
     } else { nm.textContent = old; }
   };
@@ -845,8 +850,11 @@ async function run(line) {
         if (await action({action: "add", provider: prov, name}, true)) { setTab(prov); action({action: "login", name}); } }
       break;
     case "login": if (need("login <name>")) await action({action: "login", name: a[0]}); break;
-    case "wake": if (a[0] === "cancel") await action({action: "wake-cancel"});
-      else await action({action: "wake", names: a.length ? a : tabNames()}); break;
+    case "wake": if (a[0] === "cancel") { await action({action: "wake-cancel"}); break; }
+      { const names = a.length ? a : tabNames();   // never an empty list: the server reads [] as "everyone"
+        if (!names.length) { log(`nothing to wake on this tab (no ${TAB === "plans" ? "" : TAB + " "}accounts)`, "warn"); break; }
+        await action({action: "wake", names}); }
+      break;
     case "web": if (need("web <name>")) await action({action: "web", name: a[0]}, true); break;
     case "jack": case "run": if (need("jack <name>")) await action({action: "launch", name: a[0]}, true); break;
     case "use": case "default": if (need("use <name>")) { if (await action({action: "use", name: a[0]})) setTimeout(() => pull(false), 800); } break;
@@ -878,7 +886,7 @@ async function run(line) {
     case "ls": DATA.usages.filter(u => u.provider === TAB).forEach(u => log(`${u.account.padEnd(18)} ${u.email || ""}  ${
       u.windows.map(w => `${w.name} ${Math.round(w.used_percent)}%`).join(" ") || u.error}`, "out")); break;
     case "r": case "sync": await pull(true); log("synced", "ok"); break;
-    case "update": await action({action: "update"}); break;
+    case "update": await checkUpdate(); break;
     case "clear": case "cls": $("#log").innerHTML = ""; openLog(false); break;
     case "hide": case "exit": hideWindow(); break;
     default: log(`unknown: ${c} (help)`, "error");
@@ -928,7 +936,12 @@ $("#sortm").onclick = e => {
 document.addEventListener("click", e => { if (!e.target.closest("#sortm")) $("#sortm").classList.remove("on"); });
 setSort(SORT, false);
 $("#plus").onclick = () => $("#sheet").classList.contains("on") ? closeSheet() : openSheet();
-$("#wake").onclick = () => action({action: "wake", names: DATA.usages.filter(u => u.provider === TAB && reauth(u)).map(u => u.account)});
+$("#wake").onclick = () => {
+  // from the current DATA, which can be newer than the ⚡ count on screen: may have become empty
+  const names = DATA.usages.filter(u => u.provider === TAB && reauth(u)).map(u => u.account);
+  if (!names.length) { toast("nothing to wake on this tab"); return; }
+  action({action: "wake", names});
+};
 $("#list").addEventListener("click", e => {
   const pl = e.target.closest(".pl");
   if (pl) {

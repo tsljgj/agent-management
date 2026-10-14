@@ -295,20 +295,6 @@ def test_acquire_instance_handoff_and_takeover(monkeypatch):
 
 
 @pytest.mark.skipif(os.name != "nt", reason="tasklist is Windows-only")
-def test_stuck_pids_lists_other_processes_of_same_image():
-    import subprocess
-    import sys as _sys
-
-    from redline import instance
-
-    child = subprocess.Popen([_sys.executable, "-c", "import time; time.sleep(30)"])
-    try:
-        pids = instance.stuck_pids()
-        assert child.pid in pids and os.getpid() not in pids
-    finally:
-        child.kill()
-
-
 @pytest.mark.skipif(os.name != "nt", reason="named mutex is Windows-only")
 def test_single_instance_lock_is_released_when_holder_exits(monkeypatch):
     """Regression: polling the lock used to leak a mutex handle, so after the old

@@ -1,7 +1,10 @@
 name: windows-tray
 
 # Every green push to main or a claude/* branch is published as a GitHub release
-# tagged build-<run_number>; installed exes pick it up through the self-updater.
+# tagged build-<run_number>. Only main builds are marked "latest", which is what installed
+# exes pick up through the self-updater (/releases/latest). claude/* builds are published
+# as prereleases: never "latest", so never auto-installed (run_number is shared across
+# branches, so a branch behind main would otherwise roll every install back).
 on:
   push:
     branches: ["main", "claude/**"]
@@ -175,7 +178,8 @@ jobs:
             ${{ github.event.head_commit.message }}
 
             branch `${{ github.ref_name }}` · commit ${{ github.sha }}
-          make_latest: true
+          prerelease: ${{ github.ref != 'refs/heads/main' }}
+          make_latest: ${{ github.ref == 'refs/heads/main' }}
           files: |
             dist/redline.exe
             dist/redline.exe.sha256
@@ -184,6 +188,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          # a new release is "latest" by default; the updater only understands build-<N> tags
+          make_latest: false
           files: |
             dist/redline.exe
             dist/redline.exe.sha256

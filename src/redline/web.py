@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import socket
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -17,6 +18,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from . import __version__, actions
 from ._build import BUILD
+from .config import find_account, load_accounts
 from .monitor import Monitor
 
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
@@ -26,6 +28,27 @@ MAX_BODY = 64 * 1024
 
 def console_html() -> str:
     return resources.files("redline").joinpath("assets/console.html").read_text(encoding="utf-8")
+
+
+def _rename_target(body: dict) -> tuple[str, str] | None:
+    """(provider, plain name) of the account a rename request refers to, resolved the way the
+    rename itself resolves it ("codex:work" works from either tab), or None if it matches none."""
+    try:
+        acct = find_account(load_accounts(), str(body.get("name", "")), body.get("provider") or None)
+    except (KeyError, OSError, ValueError):
+        return None
+    return acct.provider, acct.name
+
+
+class _HTTPServer(ThreadingHTTPServer):
+    if sys.platform == "win32":
+        # Windows lets SO_REUSEADDR bind a port another socket is still listening on. Claim the
+        # port exclusively instead, so a busy port fails the bind (the tray then picks another).
+        allow_reuse_address = False
+
+        def server_bind(self):
+            self.socket.setsockopt(socket.SOL_SOCKET, getattr(socket, "SO_EXCLUSIVEADDRUSE", -5), 1)
+            super().server_bind()
 
 
 class ConsoleServer:
@@ -38,7 +61,7 @@ class ConsoleServer:
         self.allow_actions = self.loopback if allow_actions is None else allow_actions
         self.extra_boot = extra_boot or {}
         self.extra_actions = extra_actions or {}  # action name -> fn(body) -> message (tray-only features)
-        self.httpd = ThreadingHTTPServer((host, port), self._handler())
+        self.httpd = _HTTPServer((host, port), self._handler())
         self.host = host
         self.port = self.httpd.server_address[1]
 
@@ -65,6 +88,7 @@ class ConsoleServer:
 
     def shutdown(self) -> None:
         self.httpd.shutdown()
+        self.httpd.server_close()  # free the port now (the next instance wants it back)
 
     def _handler(self):
         server = self
@@ -143,10 +167,10 @@ class ConsoleServer:
                         body["on_done"] = lambda: mon.poll()
                     name = str(body.get("action", ""))
                     handler = server.extra_actions.get(name)
+                    target = _rename_target(body) if name == "rename" and not handler else None
                     msg = handler(body) if handler else actions.dispatch(name, body)
-                    if name == "rename":
-                        server.monitor.rename(str(body.get("name", "")), str(body.get("new", "")).strip(),
-                                              body.get("provider") or None)
+                    if target is not None:  # the monitor keys state by (provider, plain name)
+                        server.monitor.rename(target[1], str(body.get("new", "")).strip(), target[0])
                 except actions.ActionError as e:
                     return self._json(200, {"ok": False, "message": str(e)})
                 except (json.JSONDecodeError, OSError, ValueError) as e:

@@ -17,7 +17,7 @@
 
 **Windows（不需要 Python）**：从 [Releases](https://github.com/tsljgj/agent-management/releases/latest) 下载 `redline.exe`，放到一个固定的位置，比如 `%LOCALAPPDATA%\redline\`，然后双击运行。第一次启动会自动 `scan` 一遍。之后的版本会**自动更新**，更新时会弹出通知。
 
-> 自动更新的原理：CI 每次在 `main` 或 `claude/*` 分支上构建通过，就发布一个 `build-<N>` release，附带 `redline.exe` 和 `.sha256` 文件。exe 在启动后约 45 秒检查一次，之后每 6 小时检查一次。发现新版本后，先下载并校验 SHA-256，再把自己改名为 `redline.exe.old`（Windows 允许给正在运行的 exe 改名），把新文件放到原位置并启动它，最后旧进程退出。托盘菜单里可以关掉 **Auto-update**，也可以点 **Check for updates** 手动检查，控制台里对应的命令是 `update`。注意 exe 不要放在 `Program Files` 这种需要管理员权限才能写入的目录。
+> 自动更新的原理：CI 每次在 `main` 上构建通过，就发布一个 `build-<N>` release，附带 `redline.exe` 和 `.sha256` 文件。`claude/*` 分支的构建只发布为 prerelease，不会被自动安装。exe 在启动后约 45 秒检查一次，之后每 6 小时检查一次。发现新版本后，先下载并校验 SHA-256，再把自己改名为 `redline.exe.old`（Windows 允许给正在运行的 exe 改名），把新文件放到原位置并启动它，最后旧进程退出。托盘菜单里可以关掉 **Auto-update**，也可以点 **Check for updates** 手动检查，控制台里对应的命令是 `update`。注意 exe 不要放在 `Program Files` 这种需要管理员权限才能写入的目录。
 
 **从源码安装**：
 

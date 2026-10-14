@@ -320,6 +320,9 @@ class TrayApp:
     # ------------------------------------------------------------ self-update
 
     UPDATE_EVERY = 6 * 3600
+    # One install at a time: a double-click on the version, or "Check for updates" racing the
+    # update loop, must not run two swaps of the same exe (one process = one TrayApp).
+    _install_lock = threading.Lock()
 
     def _update_loop(self):
         time.sleep(15)  # let the first sync finish
@@ -331,6 +334,8 @@ class TrayApp:
         self.monitor.meta["update"] = {"build": BUILD, "latest": latest, "state": state, "checked": time.time()}
 
     def check_updates(self, manual: bool = False, install: bool | None = None) -> str:
+        if self._install_lock.locked():
+            return "an update is already being installed"
         try:
             rel, status = update.check()
             self._set_update_meta(rel.build if rel else BUILD)
@@ -359,6 +364,14 @@ class TrayApp:
         return self._install(rel, manual)
 
     def _install(self, rel, manual: bool) -> str:
+        if self.quitting or not self._install_lock.acquire(blocking=False):
+            return "an update is already being installed"
+        try:
+            return self._install_locked(rel, manual)
+        finally:
+            self._install_lock.release()
+
+    def _install_locked(self, rel, manual: bool) -> str:
         self._pending_update = None
         self._set_update_meta(rel.build, "installing")
         log.info("update: build %s -> %s (manual=%s)", BUILD, rel.build, manual)
@@ -456,11 +469,12 @@ class TrayApp:
 
         instance.write_state(self.server.port, self.server.token)
         threading.Thread(target=update.cleanup_old, daemon=True).start()
-        if autostart.is_enabled():
-            try:
-                autostart.set_enabled(True)  # refresh the command (adds --background)
-            except OSError:
-                pass
+        try:
+            # refresh our own entry (adds --background); one for another copy of redline
+            # (the installed exe while a download or a checkout runs) is the user's choice
+            autostart.refresh()
+        except OSError:
+            pass
         if updated_from is not None:
             self.monitor.log("ok", f"updated: build {updated_from} -> {BUILD}")
             if show:  # a background update stays silent; the version tag and the log say it
@@ -614,18 +628,41 @@ def run_tray(interval: int | None = None, refresh_tokens: bool | None = None, se
         interval=interval or settings["interval"],
         refresh_tokens=settings["auto_refresh"] if refresh_tokens is None else refresh_tokens,
     )
-    server = ConsoleServer(monitor, "127.0.0.1", 0, allow_actions=True,
-                           extra_boot={"tray": True, "manual_size": bool(settings.get("window_size"))}).start_background()
+    boot = {"tray": True, "manual_size": bool(settings.get("window_size"))}
     if self_test_mode:
-        return self_test(monitor, server)
+        return self_test(monitor, ConsoleServer(monitor, "127.0.0.1", 0, allow_actions=True,
+                                                extra_boot=boot).start_background())
 
-    lock = _acquire_instance(updated_from is not None)
+    previous = handoff.get("pid") if isinstance(handoff.get("pid"), int) else None
+    lock = _acquire_instance(updated_from is not None, show=show, previous=previous)
     if lock is None:
         log.info("another instance owns redline; exiting")
-        server.shutdown()
         return 0
     log.info("instance lock acquired")
+    from . import instance
+
+    server = _console_server(monitor, settings, boot).start_background()
+    # Right away, not once the GUI is up: a second launch in between must find us answering,
+    # not a missing or stale instance.json that makes it offer to kill a healthy instance.
+    instance.write_state(server.port, server.token)
     return TrayApp(monitor, server, webview).run(updated_from=updated_from, show=show, handoff_window=window)
+
+
+def _console_server(monitor: Monitor, settings: dict, boot: dict) -> ConsoleServer:
+    """The console on the port it had last time when that is free: WebView2 keeps the page's
+    localStorage (tab, sort, details) per origin, and the origin includes the port."""
+    last = settings.get("console_port")
+    if isinstance(last, int) and not isinstance(last, bool) and 1024 <= last <= 65535:
+        try:
+            return ConsoleServer(monitor, "127.0.0.1", last, allow_actions=True, extra_boot=boot)
+        except OSError as e:
+            log.info("console port %s is not available (%s); using a new one", last, e)
+    server = ConsoleServer(monitor, "127.0.0.1", 0, allow_actions=True, extra_boot=boot)
+    try:
+        save_setting("console_port", server.port)
+    except (OSError, ValueError):
+        pass
+    return server
 
 
 def _wait_for_lock(seconds: float):
@@ -637,19 +674,35 @@ def _wait_for_lock(seconds: float):
     return lock
 
 
-def _acquire_instance(after_update: bool):
-    """Become the one tray instance, or hand over to the one that's already running."""
+# An instance that is still starting gets a few seconds to answer (a hung one never will).
+HANDOVER_TRIES, HANDOVER_SECONDS = 5, 5
+
+
+def _acquire_instance(after_update: bool, show: bool = True, previous: int | None = None):
+    """Become the one tray instance, or hand over to the one that's already running.
+    show=False (--background): hand over silently instead of opening its window.
+    previous: the pid of the old instance that started us during a self-update."""
     from . import instance
 
     # Right after a self-update the old process may still be exiting: wait for it.
     lock = _wait_for_lock(20 if after_update else 0)
     if lock is not None:
         return lock
-    if not after_update and instance.ask_running_to_show():
-        log.info("handed over to the running instance")
-        return None  # the live instance just opened its window
-    stuck = instance.stuck_pids()
+    if not after_update:
+        give_up = time.time() + HANDOVER_SECONDS
+        for attempt in range(HANDOVER_TRIES):
+            if instance.ask_running_to_show() if show else instance.ping_running():
+                log.info("handed over to the running instance (show=%s)", show)
+                return None  # the live instance answered (and opened its window if asked to)
+            if attempt == HANDOVER_TRIES - 1 or time.time() >= give_up:
+                break
+            time.sleep(1)
+    stuck = instance.stuck_pids(previous) if after_update and previous else instance.stuck_pids()
     log.warning("lock busy; stuck redline processes: %s (after_update=%s)", stuck, after_update)
+    if not stuck:
+        _message_box("redline is already running but is not responding,\n"
+                     "and its process could not be identified.\nEnd redline in Task Manager and try again.")
+        return None
     if not after_update and not instance.ask_yes_no(
         "redline is already running but is not responding\n"
         "(probably left over from an earlier update).\n\nRestart it?"
