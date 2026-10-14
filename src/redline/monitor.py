@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from .config import load_accounts, redline_home
-from .models import Usage, weekly_countdown
+from .models import Usage, Window, weekly_countdown
 
 DEFAULT_THRESHOLDS = (80, 95)
 FORCE_FLOOR = 15  # seconds; even a manual refresh can't hit upstream more often than this
@@ -29,6 +29,8 @@ WEEKLY_REMINDER_INTERVAL = 24 * 60 * 60
 RATE_LOOKBACK = 30 * 60
 RATE_MIN_SPAN = 4 * 60  # need at least this much history before saying anything
 RATE_LEVELS = ((0.5, "low"), (1.25, "mid"))
+# A cached percentage seeds the threshold baseline after a restart only if it is this recent.
+RESTART_BASELINE_AGE = 15 * 60
 
 
 def _window_hours(name: str) -> float | None:
@@ -56,6 +58,24 @@ def usage_rate(samples, now: float) -> dict | None:
         return None
     per_hour = max(0.0, p1 - base[1]) / (span / 3600)
     return {"per_hour": round(per_hour, 1)}
+
+
+def _ended(w: Window, now: datetime) -> bool:
+    """The window's reset has passed: its percentage describes a window that is over."""
+    reset = w.resets_at
+    if reset is None:
+        return False
+    if reset.tzinfo is None:
+        reset = reset.replace(tzinfo=timezone.utc)
+    return reset <= now
+
+
+def _identity_changed(cached: Usage, current: Usage) -> bool:
+    """Cached state (last-good numbers, rate history, alert baselines) belongs to another login."""
+    if current.provider == "codex":
+        return cached.identity_key != current.identity_key
+    # Claude caches written before identity keys existed have none: only a known mismatch counts.
+    return bool(cached.identity_key and current.identity_key and cached.identity_key != current.identity_key)
 
 
 def rate_level(per_hour: float, hours: float) -> str:
@@ -95,6 +115,9 @@ class Monitor:
         self.meta: dict = {}  # extra status for the console (e.g. {"update": {...}} from the tray)
         self._last_pct: dict[tuple[str, str, str], float] = {}  # (provider, account, window)
         self._samples: dict[tuple[str, str], list[tuple[float, float]]] = {}  # (provider, account) -> [(t, %)]
+        self._rate_windows: dict[tuple[str, str], str] = {}  # window the samples were taken from
+        # Renames made while a poll is fetching; None when no poll is in flight.
+        self._pending_renames: list[tuple[str, str, str | None]] | None = None
         # Last warning state and time. A missed active period must not suppress reminders forever.
         self._weekly_reminders: dict[tuple[str, str], tuple[str, float]] = {}
         self._last_ok: dict[tuple[str, str], Usage] = self._load_last_ok()  # (provider, account)
@@ -112,7 +135,13 @@ class Monitor:
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            self.poll()
+            try:
+                self.poll()
+            except Exception as e:  # one bad poll must not stop polling for good
+                try:
+                    self.log("error", f"poll failed: {type(e).__name__}: {e}")
+                except Exception:
+                    pass
             self.next_at = time.time() + self.interval
             self._wake.wait(self.interval)
             self._wake.clear()
@@ -138,27 +167,43 @@ class Monitor:
                     self.log("info", f"{old} -> {new}")
             except Exception:
                 pass
-            try:
-                usages = self._collect(load_accounts(), refresh_tokens=self.refresh_tokens)
-            except Exception as e:  # config file broken etc. -- keep the loop alive
-                self.log("error", f"sync failed: {e}")
-                return
-            for u in usages:
-                self._reset_changed_codex_identity(u)
-                self._track_rate(u)
-            usages = [self._with_last_good(u) for u in usages]
-            try:
-                from .actions import account_details
-
-                self.meta["accounts"] = account_details()
-            except Exception:
-                pass
-            alerts = self._diff(usages)
-            if any(u.ok for u in usages):
-                self._save_last_ok()
             with self._state_lock:
-                self.usages = usages
-                self.at = time.time()
+                self._pending_renames = []
+            try:
+                try:
+                    usages = self._collect(load_accounts(), refresh_tokens=self.refresh_tokens)
+                except Exception as e:  # config file broken etc. -- keep the loop alive
+                    self.log("error", f"sync failed: {e}")
+                    return
+                details = None
+                try:
+                    from .actions import account_details
+
+                    details = account_details()
+                except Exception:
+                    pass
+                # State changes happen under the lock, so a rename can't interleave with them.
+                with self._state_lock:
+                    if details is not None:
+                        self.meta["accounts"] = details
+                    # A rename during the fetch already moved the state; the usages were fetched
+                    # under the old name and would bring it back (and re-alert) if published as is.
+                    for old, new, provider in self._pending_renames:
+                        self._apply_rename(old, new, provider, usages)
+                    self._pending_renames = None
+                    for u in usages:
+                        self._reset_changed_identity(u)
+                        self._track_rate(u)
+                    usages = [self._with_last_good(u) for u in usages]
+                    pruned = self._prune({(u.provider, u.account) for u in usages})
+                    alerts = self._diff(usages)
+                    if pruned or any(u.ok for u in usages):
+                        self._save_last_ok()
+                    self.usages = usages
+                    self.at = time.time()
+            finally:
+                with self._state_lock:
+                    self._pending_renames = None
             bad = sum(not u.ok for u in usages)
             self.log(
                 "warn" if bad else "info",
@@ -182,6 +227,7 @@ class Monitor:
         try:
             docs = json.loads(self._last_ok_path().read_text(encoding="utf-8"))
             out = {}
+            now = time.time()
             for d in docs:
                 key = (d["provider"], d["account"])
                 out[key] = Usage.from_dict(d)
@@ -206,6 +252,11 @@ class Monitor:
                 hist = [(float(t), float(p)) for t, p in d.get("rate_samples") or [] if float(t) > cutoff]
                 if hist and identity_known:
                     self._samples[key] = hist
+                    w = rate_window(out[key])
+                    if w:
+                        self._rate_windows[key] = w.name
+                if identity_known:
+                    self._seed_baseline(key, out[key], now)
             return out
         except (OSError, ValueError, KeyError, TypeError):
             return {}
@@ -227,18 +278,44 @@ class Monitor:
         except OSError:
             pass
 
-    def _reset_changed_codex_identity(self, u: Usage) -> None:
-        if u.provider != "codex" or not u.ok or u.stale:
+    def _seed_baseline(self, key: tuple[str, str], u: Usage, now: float) -> None:
+        """Threshold baseline from a recent cached fetch, so a crossing during a restart
+        (self-update, reboot) still alerts. Older numbers may predate a reset; the first
+        poll drops these again if the login changed (_reset_changed_identity)."""
+        fetched = u.fetched_at if u.fetched_at.tzinfo else u.fetched_at.replace(tzinfo=timezone.utc)
+        if now - fetched.timestamp() > RESTART_BASELINE_AGE:
+            return
+        at = datetime.fromtimestamp(now, timezone.utc)
+        for w in u.windows:
+            if w.used_percent is not None and not _ended(w, at):
+                self._last_pct[(*key, w.name)] = w.used_percent
+
+    def _forget(self, key: tuple[str, str]) -> None:
+        for d in (self._samples, self._rate_windows, self._weekly_reminders):
+            d.pop(key, None)
+        for k in [k for k in self._last_pct if k[:2] == key]:
+            self._last_pct.pop(k)
+
+    def _reset_changed_identity(self, u: Usage) -> None:
+        if not u.ok or u.stale:
             return
         key = (u.provider, u.account)
         prev = self._last_ok.get(key)
-        if prev is None or prev.identity_key == u.identity_key:
+        if prev is None or not _identity_changed(prev, u):
             return
-        self._samples.pop(key, None)
-        self._weekly_reminders.pop(key, None)
-        for k in [k for k in self._last_pct if k[:2] == key]:
-            self._last_pct.pop(k)
+        self._forget(key)
         u.rate = None
+
+    def _prune(self, live: set[tuple[str, str]]) -> bool:
+        """Forget accounts that are no longer registered, so a later account reusing the
+        name (often an auto name like claude-2) can't inherit their numbers or alerts."""
+        known = {*self._last_ok, *self._samples, *self._rate_windows, *self._weekly_reminders,
+                 *(k[:2] for k in self._last_pct)}
+        gone = known - live
+        for key in gone:
+            self._forget(key)
+        dropped = [key for key in gone if self._last_ok.pop(key, None) is not None]
+        return bool(dropped)  # the cache file must forget them too
 
     def _track_rate(self, u: Usage, now: float | None = None) -> None:
         if not u.ok:
@@ -250,10 +327,18 @@ class Monitor:
         now = time.time() if now is None else now
         key = (u.provider, u.account)
         hist = self._samples.setdefault(key, [])
+        # One response can lack the 5h window (the rate falls back to 7d): never diff 7d against 5h.
+        if self._rate_windows.get(key, w.name) != w.name:
+            hist.clear()
+        self._rate_windows[key] = w.name
         if hist and w.used_percent < hist[-1][1] - 0.5:  # the window reset: start over
             hist.clear()
         hist.append((now, w.used_percent))
-        del hist[:max(0, len([s for s in hist if s[0] < now - RATE_LOOKBACK]) - 1)]  # keep one older sample
+        cutoff = now - RATE_LOOKBACK
+        del hist[:max(0, len([s for s in hist if s[0] < cutoff]) - 1)]  # keep one older sample
+        if hist[0][0] < cutoff - 2 * self.interval:
+            # ...unless it predates a gap (sleep, failing fetches): the rate would average the gap
+            del hist[0]
         r = usage_rate(hist, now)
         if r is not None:
             u.rate = {**r, "level": rate_level(r["per_hour"], hours), "window": w.name,
@@ -267,11 +352,9 @@ class Monitor:
         prev = self._last_ok.get((u.provider, u.account))
         if prev is None or not prev.windows:
             return u
-        if u.provider == "codex" and (
-            not u.identity_key or not prev.identity_key or u.identity_key != prev.identity_key
-        ):
-            # A login directory can now belong to a different account. Old caches or
-            # an unreadable current identity cannot safely supply its usage numbers.
+        if _identity_changed(prev, u) or u.provider == "codex" and not (u.identity_key and prev.identity_key):
+            # A login directory can now belong to a different account. For Codex, old caches
+            # or an unreadable current identity cannot safely supply its usage numbers either.
             return u
         return Usage(
             account=u.account, provider=u.provider, ok=False, email=prev.email, plan=prev.plan,
@@ -282,26 +365,32 @@ class Monitor:
 
     def rename(self, old: str, new: str, provider: str | None = None) -> None:
         """Carry an account's cached state over to its new name (instant UI, no re-alerts)."""
-        match = lambda p, n: n == old and (provider is None or p == provider)  # noqa: E731
         with self._state_lock:
-            for k in [k for k in self._samples if match(*k)]:
-                self._samples[(k[0], new)] = self._samples.pop(k)
-            for k in [k for k in self._weekly_reminders if match(*k)]:
-                self._weekly_reminders[(k[0], new)] = self._weekly_reminders.pop(k)
-            for k in [k for k in self._last_ok if match(*k)]:
-                u = self._last_ok.pop(k)
-                u.account = new
-                self._last_ok[(k[0], new)] = u
-                self._save_last_ok()
-            for k in [k for k in self._last_pct if match(k[0], k[1])]:
-                self._last_pct[(k[0], new, k[2])] = self._last_pct.pop(k)
-            for u in self.usages:
-                if match(u.provider, u.account):
-                    u.account = new
-            accts = self.meta.get("accounts") or {}
-            for k in [k for k in accts if match(*k.split(":", 1))]:
-                accts[f"{k.split(':', 1)[0]}:{new}"] = accts.pop(k)
+            self._apply_rename(old, new, provider, self.usages)
+            if self._pending_renames is not None:  # a poll is fetching under the old name
+                self._pending_renames.append((old, new, provider))
             self.at = time.time()  # makes the console re-render right away
+
+    def _apply_rename(self, old: str, new: str, provider: str | None, usages: list[Usage]) -> None:
+        match = lambda p, n: n == old and (provider is None or p == provider)  # noqa: E731
+        for d in (self._samples, self._rate_windows, self._weekly_reminders):
+            for k in [k for k in d if match(*k)]:
+                d[(k[0], new)] = d.pop(k)
+        moved = [k for k in self._last_ok if match(*k)]
+        for k in moved:
+            u = self._last_ok.pop(k)
+            u.account = new
+            self._last_ok[(k[0], new)] = u
+        if moved:
+            self._save_last_ok()
+        for k in [k for k in self._last_pct if match(k[0], k[1])]:
+            self._last_pct[(k[0], new, k[2])] = self._last_pct.pop(k)
+        for u in usages:
+            if match(u.provider, u.account):
+                u.account = new
+        accts = self.meta.get("accounts") or {}
+        for k in [k for k in accts if match(*k.split(":", 1))]:
+            accts[f"{k.split(':', 1)[0]}:{new}"] = accts.pop(k)
 
     def refresh_now(self) -> None:
         self.poll(force=True)
@@ -382,9 +471,12 @@ class Monitor:
 
     def max_percent(self, window_prefix: str = "5h") -> float | None:
         """Highest usage of the short (session) window across healthy accounts."""
+        now = datetime.now(timezone.utc)
         vals = [
             w.used_percent
             for u in self.usages if u.ok or u.stale
             for w in u.windows if w.used_percent is not None and w.name == window_prefix
+            # a cached number whose window has since reset says nothing about usage now
+            and not (u.stale and _ended(w, now))
         ]
         return max(vals) if vals else None

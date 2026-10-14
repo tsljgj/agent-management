@@ -331,7 +331,7 @@ export class Codex {
     args = [shutil.which("node"), str(runner), str(stub), str(tmp_path), "3"]
     result = subprocess.run(args, capture_output=True, env=env, timeout=10)
     assert result.returncode == 0 and json.loads(result.stdout) == {"ok": True}
-    stub.write_text('export class Codex { constructor() { throw Error("secret-token raw CLI stderr") } }')
+    stub.write_text('export class Codex { constructor() { throw Error("invalid_token: secret-token raw CLI stderr") } }')
     result = subprocess.run(args, capture_output=True, env=env, timeout=10)
     assert json.loads(result.stdout) == {"ok": False, "error": "auth"}
     assert b"secret-token" not in result.stdout + result.stderr

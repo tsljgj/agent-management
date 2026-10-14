@@ -75,8 +75,9 @@ try {
   process.stdout.write(JSON.stringify({ ok: true }));
 } catch (error) {
   const message = String(error?.message ?? "").toLowerCase();
-  const kind = error?.safeKind ?? (abort.signal.aborted ? "timeout" :
-    /unauthori|authentication|token|log.?in|401/.test(message) ? "auth" : "sdk");
+  // Context, stream and rate errors mention "tokens" too; those are not a reason to log in again.
+  const auth = /unauthori|authentication|invalid[_ ]?(?:access[_ ]|refresh[_ ])?token|token[_ ](?:has[_ ])?expired|expired[_ ]token|not logged in|log ?in again|\b401\b/;
+  const kind = error?.safeKind ?? (abort.signal.aborted ? "timeout" : auth.test(message) ? "auth" : "sdk");
   process.stdout.write(JSON.stringify({ ok: false, error: kind }));
   process.exitCode = 1;
 } finally {
