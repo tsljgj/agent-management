@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from ..config import Account
 from ..http import HTTPStatusError, request_json
 from ..models import ProviderError, Usage, Window
-from ._util import cli_lock, from_epoch, parse_iso, read_json, write_json_atomic
+from ._util import cli_lock, from_epoch, parse_iso, read_json, same_login, token_id, write_json_atomic
 
 USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 TOKEN_URL = "https://auth.openai.com/oauth/token"
@@ -40,6 +40,17 @@ def load_auth(account: Account) -> dict | None:
 
 def has_credentials(account: Account) -> bool:
     return load_auth(account) is not None
+
+
+def chatgpt_user_id(tokens: dict) -> str | None:
+    """The person signed in. chatgpt_account_id is the workspace: Team / Business seats share it."""
+    for token in (tokens.get("id_token"), tokens.get("access_token")):
+        claims = jwt_claims(token)
+        auth = claims.get(AUTH_CLAIM) if isinstance(claims.get(AUTH_CLAIM), dict) else {}
+        user = auth.get("chatgpt_user_id") or auth.get("user_id") or claims.get("sub")
+        if isinstance(user, str) and user:
+            return user
+    return None
 
 
 def jwt_claims(token: str | None) -> dict:
@@ -93,6 +104,13 @@ def parse_usage(doc: dict) -> tuple[list[Window], dict]:
         if isinstance(extra_rl, dict):
             name = extra_rl.get("limit_name") or extra_rl.get("metered_feature") or "extra"
             windows += _parse_rate_limit(extra_rl.get("rate_limit"), prefix=f"{name} ")
+    # Alert baselines are keyed by label: limits sharing one (same or missing limit_name)
+    # would overwrite each other every poll and alert each time.
+    seen: dict[str, int] = {}
+    for w in windows:
+        seen[w.name] = seen.get(w.name, 0) + 1
+        if seen[w.name] > 1:
+            w.name = f"{w.name} #{seen[w.name]}"
     extra: dict = {}
     c = credits(doc.get("credits"))
     if c:
@@ -152,30 +170,69 @@ def banked_resets(value) -> dict[str, int] | None:
     return result or None
 
 
-def refresh(account: Account, auth: dict) -> dict:
+MOVED = "login moved while refreshing; retry"
+REJECTED = "access token expired and the refresh token was rejected; log in again"
+# What the token endpoint says about a refresh token that will never work again.
+_DEAD = ("invalid_grant", "refresh_token_reused", "refresh_token_expired", "refresh_token_invalidated")
+# A rejected refresh token, per auth.json: background refreshes don't send it again until the file
+# holds another one (it would be POSTed on every poll forever). A manual wake still tries.
+_rejected: dict[str, str] = {}  # str(path) -> token_id(refresh token)
+
+
+def login_ref(auth: dict | None) -> tuple[str | None, str | None]:
+    """(ChatGPT account id, email) of a login; either None when unknown."""
+    tokens = (auth or {}).get("tokens") or {}
+    claims = jwt_claims(tokens.get("id_token"))
+    account_id = tokens.get("account_id") or (claims.get(AUTH_CLAIM) or {}).get("chatgpt_account_id")
+    email = claims.get("email") or (claims.get(PROFILE_CLAIM) or {}).get("email")
+    return (account_id if isinstance(account_id, str) and account_id else None,
+            email.strip().casefold() if isinstance(email, str) and email.strip() else None)
+
+
+def refresh(account: Account, auth: dict, manual: bool = False) -> dict:
     """Refresh tokens and write them back to auth.json.
 
     OpenAI refresh tokens are single-use, so the new ones must be persisted or the
     Codex CLI will fail with `refresh_token_reused`.
+    manual: someone asked for it (wake), so try even a refresh token that was rejected before.
     """
     with cli_lock(account.home_path):  # redline's own lock: a default-login switch moves this file
         current = read_json(_auth_path(account))
-        if current is None:
-            raise ProviderError("login moved while refreshing; retry")
+        if (current is None or not (current.get("tokens") or {}).get("access_token")
+                or not same_login(login_ref(auth), login_ref(current))):
+            raise ProviderError(MOVED)  # a default-login switch or another login: not ours to adopt
         if (current.get("tokens") or {}).get("refresh_token") != (auth.get("tokens") or {}).get("refresh_token"):
             return current  # refreshed by someone else meanwhile
-        return _refresh_locked(account, current)
+        return _refresh_locked(account, current, manual)
 
 
-def _refresh_locked(account: Account, auth: dict) -> dict:
+def _refresh_locked(account: Account, auth: dict, manual: bool = False) -> dict:
     rt = (auth.get("tokens") or {}).get("refresh_token")
     if not rt:
         raise ProviderError("token rejected and no refresh token stored; run `codex login` again")
-    resp = request_json(
-        "POST", TOKEN_URL,
-        json_body={"client_id": CLIENT_ID, "grant_type": "refresh_token", "refresh_token": rt},
-    )
-    latest = read_json(_auth_path(account)) or auth
+    path = str(_auth_path(account))
+    if not manual and _rejected.get(path) == token_id(rt):
+        raise ProviderError(REJECTED)
+    try:
+        resp = request_json(
+            "POST", TOKEN_URL,
+            json_body={"client_id": CLIENT_ID, "grant_type": "refresh_token", "refresh_token": rt},
+        )
+    except HTTPStatusError as e:
+        if e.status in (400, 401) and any(code in e.body for code in _DEAD):
+            _rejected[path] = token_id(rt)
+            raise ProviderError(REJECTED) from None
+        raise
+    _rejected.pop(path, None)
+    # Write only over the login we refreshed: a switch or a fresh login that landed meanwhile
+    # must not get this login's tokens.
+    latest = read_json(_auth_path(account))
+    if (latest is None or (latest.get("tokens") or {}).get("refresh_token") != rt
+            or not same_login(login_ref(auth), login_ref(latest))):
+        from ..applog import log
+
+        log.warning("codex token refresh: %s changed during the refresh; not writing", path)
+        raise ProviderError(MOVED)
     tokens = dict(latest.get("tokens") or {})
     for k in ("id_token", "access_token", "refresh_token"):
         if resp.get(k):
@@ -208,7 +265,7 @@ def refresh_account(account: Account, manual: bool = False) -> None:
     auth = load_auth(account)
     if auth is None:
         raise ProviderError("not logged in")
-    refresh(account, auth)
+    refresh(account, auth, manual=manual)
 
 
 def _headers(auth: dict) -> dict[str, str]:

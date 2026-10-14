@@ -83,7 +83,8 @@ def _codex_identity_key(account: Account) -> str | None:
              if isinstance(c.get(codex.AUTH_CLAIM), dict)
              and (c.get(codex.AUTH_CLAIM) or {}).get("chatgpt_account_id")), None)
         if isinstance(account_id, str) and account_id:
-            return key("chatgpt-account", account_id)
+            user = codex.chatgpt_user_id(tokens)  # the workspace alone would merge Team seats
+            return key("chatgpt-account", [account_id, user] if user else account_id)
         subject = next((c.get("sub") for c in claims if isinstance(c.get("sub"), str) and c["sub"]), None)
         email = next((c.get("email") or (c.get(codex.PROFILE_CLAIM) or {}).get("email") for c in claims
                       if c.get("email") or (isinstance(c.get(codex.PROFILE_CLAIM), dict)
@@ -97,9 +98,34 @@ def _codex_identity_key(account: Account) -> str | None:
     return None
 
 
+def _claude_identity_key(account: Account) -> str | None:
+    """Hash of the login Claude Code cached for this home (account uuid, else email); never a token."""
+    import hashlib
+    import json
+
+    try:
+        uuid, email = claude.login_ref(account)
+    except Exception:
+        return None
+    kind, value = ("account", uuid) if uuid else ("email", email)
+    if not value:
+        return None
+    material = json.dumps(["claude", kind, value], separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def _identity_key(account: Account) -> str | None:
+    """Identity of the login in exactly this account's dir (no default-slot resolution)."""
+    if account.provider == "codex":
+        return _codex_identity_key(account)
+    if account.provider == "claude":
+        return _claude_identity_key(account)
+    return None
+
+
 def load_identity_key(account: Account) -> str | None:
     """Stable anonymized identity used to validate an account's cached usage."""
-    return _codex_identity_key(_eff(account)) if account.provider == "codex" else None
+    return _identity_key(_eff(account))
 
 
 def refresh_account(account: Account, manual: bool = False) -> None:
@@ -109,7 +135,7 @@ def refresh_account(account: Account, manual: bool = False) -> None:
 def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
     """Never raises: failures come back as Usage(ok=False, error=...)."""
     effective = _eff(account)
-    before = _codex_identity_key(effective) if account.provider == "codex" else None
+    before = _identity_key(effective)
     try:
         u = _MODULES[account.provider].fetch_usage(effective, refresh_tokens=refresh_tokens)
     except ProviderError as e:
@@ -119,10 +145,14 @@ def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
             account=account.name, provider=account.provider, ok=False,
             error=f"{type(e).__name__}: {e}",
         )
-    if account.provider == "codex":
-        current = load_identity_key(account)
-        if u.ok and before != current:
-            u = Usage(account=account.name, provider=account.provider, ok=False,
-                      error="account login changed while fetching usage; refresh to verify")
-        u.identity_key = current
+    current = load_identity_key(account)
+    changed = before != current
+    if account.provider == "claude":
+        # Claude's email comes from the dir after the fetch: if that dir changed hands meanwhile
+        # (a default switch), the numbers and the email may belong to two different logins.
+        changed = changed or before != _identity_key(effective)
+    if u.ok and changed:
+        u = Usage(account=account.name, provider=account.provider, ok=False,
+                  error="account login changed while fetching usage; refresh to verify")
+    u.identity_key = current
     return u

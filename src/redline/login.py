@@ -167,9 +167,13 @@ class WakeJob:
             p.kill()
 
     def run(self) -> dict[str, str]:
+        with _jobs_lock:
+            _jobs.add(self)  # however it was started (console, CLI): see running()
         try:
             return self._run()
         finally:
+            with _jobs_lock:
+                _jobs.discard(self)
             if self.on_done:
                 try:
                     self.on_done()
@@ -193,7 +197,7 @@ class WakeJob:
                     refresh_account(a, manual=True)  # asked for now: don't sit out a rate-limit wait
                     if self._check_identity(a, identity(a), None):
                         self._done(a, "ok", "refreshed", f"{a.name}: token refreshed")
-                except ProviderError as e:
+                except Exception as e:  # one account's failure must not end the wake for the rest
                     self.log("warn", f"{a.name}: refresh failed ({e}); needs a login")
                     queue.append(a)
             else:
@@ -216,6 +220,10 @@ class WakeJob:
         self.log(level, text)
 
     def _login(self, a: Account) -> None:
+        # The previous account's login process (and output) is not this one's: the poll below
+        # would read its exit as this login having finished without a token.
+        self.proc = None
+        self._lines = []
         profiles = browsers.all_profiles()
         prof = resolve_profile(a, profiles)
         if prof:
@@ -355,6 +363,8 @@ class WakeJob:
 
 
 _current: WakeJob | None = None
+_jobs: set[WakeJob] = set()  # jobs inside run() right now
+_jobs_lock = threading.Lock()
 _lock = threading.Lock()
 
 
@@ -385,6 +395,13 @@ def _start(job: WakeJob) -> None:
     global _current_thread
     _current_thread = threading.Thread(target=job.run, name="redline-wake", daemon=True)
     _current_thread.start()
+
+
+def running(provider: str | None = None) -> bool:
+    """Is a wake/login job running (for this provider)? It writes logins where they were at its start."""
+    with _jobs_lock:
+        jobs = list(_jobs)
+    return any(provider is None or any(a.provider == provider for a in job.accounts) for job in jobs)
 
 
 def cancel_wake() -> str:

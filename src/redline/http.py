@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.error
 import urllib.parse
@@ -45,6 +46,10 @@ def request_json(
         raise HTTPStatusError(e.code, body, url, dict(e.headers or {})) from None
     except urllib.error.URLError as e:
         raise ProviderError(f"network error for {url}: {e.reason}") from None
+    except (OSError, http.client.HTTPException) as e:
+        # urllib wraps only the connect: a server that is slow to answer, or a dropped connection,
+        # surfaces as a bare TimeoutError / ConnectionResetError / RemoteDisconnected / IncompleteRead.
+        raise ProviderError(f"network error for {url}: {str(e) or type(e).__name__}") from None
     try:
         return json.loads(raw) if raw else {}
     except json.JSONDecodeError:

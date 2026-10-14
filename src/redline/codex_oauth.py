@@ -13,7 +13,9 @@ import base64
 import hashlib
 import json
 import secrets
+import sys
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -23,14 +25,23 @@ from pathlib import Path
 from typing import Callable
 
 from .models import ProviderError
-from .providers._util import read_json, write_json_atomic
+from .providers._util import cli_lock, read_json, write_json_atomic
 from .providers.codex import AUTH_CLAIM, CLIENT_ID, ORIGINATOR, jwt_claims
 
 ISSUER = "https://auth.openai.com"
 PORTS = (1455, 1457)
 SCOPE = "openid profile email offline_access api.connectors.read api.connectors.invoke"
+CONNECTION_TIMEOUT = 3  # seconds a connection may sit idle (a browser preconnect, a port probe)
 
-PAGE = """<!doctype html><meta charset="utf-8"><title>redline</title>
+
+class _Server(HTTPServer):
+    # On Windows SO_REUSEADDR lets a second socket bind a port that is already listening, so two
+    # logins (tray wake + `redline login`) would share 1455 instead of falling back to 1457.
+    # Elsewhere it only allows rebinding over TIME_WAIT leftovers, which is wanted.
+    allow_reuse_address = sys.platform != "win32"
+
+
+PAGE ="""<!doctype html><meta charset="utf-8"><title>redline</title>
 <body style="background:#07090b;color:#d6eef2;font:15px/1.6 monospace;display:grid;place-items:center;height:90vh">
 <div><b style="color:#00e5ff">REDLINE//</b><br>{msg}<br><span style="color:#50646a">You can close this tab.</span></div>"""
 
@@ -78,23 +89,29 @@ def exchange_code(code: str, redirect_uri: str, verifier: str) -> dict:
 
 
 def save_auth(codex_home: Path, tokens: dict) -> str | None:
-    """Write auth.json the way `codex login` does; returns the account email."""
+    """Write auth.json the way `codex login` does; returns the account email.
+
+    Under the refresh lock: a background refresh of the old login re-reads and rewrites this
+    file, and must not land on top of the new one. Waits out a slow refresh (http.TIMEOUT is
+    20 s) rather than drop tokens the user just signed in for.
+    """
     id_token = tokens["id_token"]
     claims = jwt_claims(id_token)
-    doc = read_json(codex_home / "auth.json") or {}
-    doc.update({
-        "auth_mode": "chatgpt",
-        "OPENAI_API_KEY": doc.get("OPENAI_API_KEY"),
-        "tokens": {
-            "id_token": id_token,
-            "access_token": tokens["access_token"],
-            "refresh_token": tokens["refresh_token"],
-            "account_id": (claims.get(AUTH_CLAIM) or {}).get("chatgpt_account_id"),
-        },
-        "last_refresh": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-    })
     codex_home.mkdir(parents=True, exist_ok=True)
-    write_json_atomic(codex_home / "auth.json", doc)
+    with cli_lock(codex_home, retries=30):
+        doc = read_json(codex_home / "auth.json") or {}
+        doc.update({
+            "auth_mode": "chatgpt",
+            "OPENAI_API_KEY": doc.get("OPENAI_API_KEY"),
+            "tokens": {
+                "id_token": id_token,
+                "access_token": tokens["access_token"],
+                "refresh_token": tokens["refresh_token"],
+                "account_id": (claims.get(AUTH_CLAIM) or {}).get("chatgpt_account_id"),
+            },
+            "last_refresh": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        })
+        write_json_atomic(codex_home / "auth.json", doc)
     return claims.get("email") or (claims.get("https://api.openai.com/profile") or {}).get("email")
 
 
@@ -104,7 +121,7 @@ def login(codex_home: Path, open_url: Callable[[str], None], cancelled: threadin
     server = None
     for port in PORTS:
         try:
-            server = HTTPServer(("127.0.0.1", port), BaseHTTPRequestHandler)
+            server = _Server(("127.0.0.1", port), BaseHTTPRequestHandler)
             break
         except OSError:
             continue
@@ -118,6 +135,8 @@ def login(codex_home: Path, open_url: Callable[[str], None], cancelled: threadin
     done = threading.Event()
 
     class Handler(BaseHTTPRequestHandler):
+        timeout = CONNECTION_TIMEOUT  # else one silent connection blocks handle_request(), cancel and timeout
+
         def log_message(self, *a):
             pass
 
@@ -155,14 +174,13 @@ def login(codex_home: Path, open_url: Callable[[str], None], cancelled: threadin
     server.timeout = 1
     try:
         open_url(authorize_url(redirect_uri, challenge, state))
-        waited = 0.0
+        deadline = time.monotonic() + timeout  # wall clock: handling a request takes time too
         while not done.is_set():
             if cancelled is not None and cancelled.is_set():
                 raise ProviderError("cancelled")
-            if waited >= timeout:
+            if time.monotonic() >= deadline:
                 raise ProviderError(f"no sign-in within {int(timeout // 60)} min")
-            server.handle_request()  # returns after a request or the 1s timeout
-            waited += 1
+            server.handle_request()  # returns after a request (or an idle connection's timeout) or 1 s
     finally:
         server.server_close()
     if "error" in result:

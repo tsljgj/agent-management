@@ -5,10 +5,15 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 PROVIDERS = ("claude", "codex")
+
+# Held around every read-modify-write of config.json / slots.json in this process: the monitor
+# thread and console actions both rewrite them, and a stale write would undo the other's change.
+EDIT_LOCK = threading.RLock()
 
 # Where each CLI keeps its state when no override env var is set.
 DEFAULT_HOMES = {
@@ -102,7 +107,7 @@ def _load_raw() -> dict:
 def _save_raw(data: dict) -> None:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(path)
 

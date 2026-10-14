@@ -21,7 +21,7 @@ from pathlib import Path
 from ..config import Account
 from ..http import HTTPStatusError, request_json
 from ..models import ProviderError, Usage, Window
-from ._util import cli_lock, parse_iso, read_json, write_json_atomic
+from ._util import cli_lock, parse_iso, read_json, same_login, token_id, write_json_atomic
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 PROFILE_URL = "https://api.anthropic.com/api/oauth/profile"
@@ -48,6 +48,8 @@ class Creds:
     data: dict  # whole credentials document (other keys like mcpOAuth must be preserved)
     source: str  # "file" or "keychain"
     path: Path | None = None
+    account: Account | None = None  # whose home the file was read from
+    login: tuple = (None, None)  # login_ref() when it was read: a refresh must not adopt someone else's
 
     @property
     def oauth(self) -> dict:
@@ -91,7 +93,7 @@ def load_creds(account: Account) -> Creds | None:
     path = account.home_path / ".credentials.json"
     data = read_json(path)
     if data and data.get("claudeAiOauth"):
-        return Creds(data=data, source="file", path=path)
+        return Creds(data=data, source="file", path=path, account=account, login=login_ref(account))
     data = _read_keychain(account)
     if data and data.get("claudeAiOauth"):
         return Creds(data=data, source="keychain")
@@ -103,9 +105,14 @@ def has_credentials(account: Account) -> bool:
     return bool(c and c.oauth.get("accessToken"))
 
 
-def _cached_identity(account: Account) -> tuple[str | None, str | None]:
-    """Email / org type cached by Claude Code in its .claude.json (no network needed)."""
-    if account.is_default_home and "CLAUDE_CONFIG_DIR" not in os.environ:
+def _oauth_account(account: Account) -> dict:
+    """oauthAccount cached by Claude Code in its .claude.json (no network needed).
+
+    The default home's lives in ~/.claude.json: that is what Claude Code reads when CLAUDE_CONFIG_DIR
+    is unset, which is how redline runs it for the default account (Account.env) and how VS Code
+    runs it. Redline's own environment doesn't matter (it may be started from another workspace).
+    """
+    if account.is_default_home:
         candidates = [Path("~/.claude.json").expanduser(), account.home_path / ".config.json"]
     else:
         candidates = [account.home_path / ".claude.json", account.home_path / ".config.json"]
@@ -114,10 +121,24 @@ def _cached_identity(account: Account) -> tuple[str | None, str | None]:
             doc = read_json(p)
         except (ValueError, OSError):  # JSONDecodeError / UnicodeDecodeError are ValueErrors
             continue
-        acct = (doc or {}).get("oauthAccount") or {}
-        if acct.get("emailAddress"):
-            return acct.get("emailAddress"), acct.get("organizationName")
-    return None, None
+        acct = (doc or {}).get("oauthAccount") if isinstance(doc, dict) else None
+        if isinstance(acct, dict) and acct.get("emailAddress"):
+            return acct
+    return {}
+
+
+def _cached_identity(account: Account) -> tuple[str | None, str | None]:
+    """Email / org type cached by Claude Code in its .claude.json (no network needed)."""
+    acct = _oauth_account(account)
+    return acct.get("emailAddress"), acct.get("organizationName")
+
+
+def login_ref(account: Account) -> tuple[str | None, str | None]:
+    """(account uuid, email) of the login cached in this home, either None when unknown."""
+    acct = _oauth_account(account)
+    uuid, email = acct.get("accountUuid"), acct.get("emailAddress")
+    return (uuid if isinstance(uuid, str) and uuid else None,
+            email.strip().casefold() if isinstance(email, str) and email.strip() else None)
 
 
 def identity(account: Account) -> str | None:
@@ -155,8 +176,8 @@ def refresh(creds: Creds, force: bool = False, manual: bool = False) -> None:
     with cli_lock(creds.path.parent):
         # Another process (usually the CLI itself) may have refreshed while we waited.
         latest = read_json(creds.path)
-        if latest is None:  # moved away meanwhile (default-login switch): never write a second copy
-            raise ProviderError("login moved while refreshing; retry")
+        if latest is None or _moved(creds):  # a default-login switch: never adopt or write another login
+            raise ProviderError(MOVED)
         fresh = Creds(latest, "file", creds.path)
         rotated = fresh.oauth.get("accessToken") != creds.oauth.get("accessToken")
         if fresh.oauth and (rotated or (not force and not fresh.expired)):
@@ -164,6 +185,20 @@ def refresh(creds: Creds, force: bool = False, manual: bool = False) -> None:
             return
         _refresh_locked(creds, manual)
 
+
+MOVED = "login moved while refreshing; retry"
+REJECTED = "access token expired and the refresh token was rejected; log in again"
+
+
+def _moved(creds: Creds) -> bool:
+    """Does creds' home now hold a different login than when creds were read?"""
+    return creds.account is not None and not same_login(creds.login, login_ref(creds.account))
+
+
+# A refresh token the server rejected, per credentials file: background refreshes don't send it
+# again (the endpoint limits the client, so a dead login would eat every account's budget) until
+# the file holds another one. A manual wake / renew still tries.
+_rejected: dict[str, str] = {}  # str(path) -> token_id(refresh token)
 
 REFRESH_BACKOFF = 30 * 60  # after the token endpoint says 429 (without Retry-After), leave it alone this long
 IDLE_HINT = "it updates the next time you use this account in claude, or log in again"
@@ -218,6 +253,8 @@ def _refresh_locked(creds: Creds, manual: bool = False) -> None:
     rt = creds.oauth.get("refreshToken")
     if not rt:
         raise ProviderError("access token expired and no refresh token is stored; log in again")
+    if not manual and _rejected.get(str(creds.path)) == token_id(rt):
+        raise ProviderError(REJECTED)
     wait = _blocked_until() - time.time()
     if wait > 0 and not manual:
         raise ProviderError(f"access token expired; renewing is rate limited (next try in {max(1, round(wait / 60))} min); "
@@ -237,14 +274,23 @@ def _refresh_locked(creds: Creds, manual: bool = False) -> None:
             _set_blocked(time.time() + (after if after else REFRESH_BACKOFF))
             raise ProviderError("access token expired; renewing it was rate limited; " + IDLE_HINT) from None
         if e.status in (400, 401) and "invalid_grant" in e.body:
-            raise ProviderError("access token expired and the refresh token was rejected; log in again") from None
+            _rejected[str(creds.path)] = token_id(rt)
+            raise ProviderError(REJECTED) from None
         raise
+    _rejected.pop(str(creds.path), None)
     if _blocked_until():
         _set_blocked(0)
     if not resp.get("access_token"):
         raise ProviderError(f"token refresh returned no access_token: {list(resp)}")
-    # Re-read right before writing so we don't clobber a concurrent CLI write of other keys.
-    latest = read_json(creds.path) or creds.data
+    # Re-read right before writing so we don't clobber a concurrent CLI write of other keys. If the
+    # file no longer holds the login we refreshed (a switch or a fresh login landed meanwhile),
+    # writing would put this login's tokens under someone else's: drop them instead.
+    latest = read_json(creds.path)
+    if latest is None or (latest.get("claudeAiOauth") or {}).get("refreshToken") != rt or _moved(creds):
+        from ..applog import log
+
+        log.warning("claude token refresh: %s changed during the refresh; not writing", creds.path)
+        raise ProviderError(MOVED)
     oauth = dict(latest.get("claudeAiOauth") or {})
     oauth["accessToken"] = resp["access_token"]
     if resp.get("refresh_token"):
@@ -336,7 +382,7 @@ def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
         plan = "max 20x"
     elif plan == "max" and "5x" in tier:
         plan = "max 5x"
-    prof = _profile(account, creds.oauth["accessToken"], force=email is None)
+    prof = _profile(_profile_key(account, creds), creds.oauth["accessToken"], force=email is None)
     if email is None:
         a = prof.get("account") or {}
         email = a.get("email_address") or a.get("email")
@@ -348,11 +394,18 @@ def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
 
 
 PROFILE_TTL = 6 * 3600
-_profiles: dict[str, tuple[float, dict]] = {}  # home -> (fetched, profile); it hardly ever changes
+_profiles: dict[str, tuple[float, dict]] = {}  # login -> (fetched, profile); it hardly ever changes
 
 
-def _profile(account: Account, token: str, force: bool = False) -> dict:
-    key = str(account.home_path)
+def _profile_key(account: Account, creds: Creds) -> str:
+    """Whose profile this is. Not the directory: the default one (~/.claude) changes hands on a switch."""
+    uuid, email = login_ref(account)
+    if uuid or email:
+        return f"login:{uuid or ''}:{email or ''}"
+    return "token:" + token_id(creds.oauth.get("refreshToken") or creds.oauth.get("accessToken") or "")
+
+
+def _profile(key: str, token: str, force: bool = False) -> dict:
     hit = _profiles.get(key)
     if hit and not force and time.time() - hit[0] < PROFILE_TTL:
         return hit[1]

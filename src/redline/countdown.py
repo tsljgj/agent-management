@@ -72,7 +72,9 @@ def _auth_identity(auth: dict | None) -> str:
     claim_id = claims.get("chatgpt_account_id")
     if claim_id and claim_id != account_id:
         raise CountdownError("The saved ChatGPT account identity is inconsistent; log in again.")
-    return hashlib.sha256(str(account_id).encode()).hexdigest()
+    # The person within the workspace: Team / Business seats share chatgpt_account_id.
+    who = [str(account_id), codex.chatgpt_user_id(tokens) or ""]
+    return hashlib.sha256(json.dumps(who).encode()).hexdigest()
 
 
 def start_countdown(
@@ -185,8 +187,13 @@ def _work(account: Account, identity: str, log, on_done) -> None:
             if not _preflight(_fetch_checked(account, identity, deadline)):
                 _set_state(identity, "success", "Weekly countdown is already active; no SDK request was sent.")
                 return
-        _remaining(deadline, TURN_TIMEOUT)
-        with tempfile.TemporaryDirectory(prefix="redline-codex-") as temp:
+        # The turn spends quota: send it only while there is still time to run and verify it.
+        needed = TURN_TIMEOUT + 10 + 70 + sum(VERIFY_DELAYS)
+        if _remaining(deadline, needed) < needed:
+            raise CountdownError("Not enough time left to send and verify the request; nothing was sent. Try again.")
+        # A file still held open (lingering child, AV scan) must not turn a sent turn into an
+        # error that skips verification.
+        with tempfile.TemporaryDirectory(prefix="redline-codex-", ignore_cleanup_errors=True) as temp:
             root = Path(temp)
             home, cwd = root / "codex", root / "work"
             home.mkdir(mode=0o700)
@@ -217,6 +224,10 @@ def _work(account: Account, identity: str, log, on_done) -> None:
     finally:
         with _lock:
             _busy.discard(identity)
+            # Cards follow this login only for this job: one re-logged later must not show the
+            # status of a future job for this identity.
+            for key in [k for k, v in _identities.items() if v == identity]:
+                del _identities[key]
         if on_done:
             try:
                 on_done()
@@ -327,7 +338,7 @@ def _ensure_sdk(deadline: float, log) -> tuple[str, Path]:
                 raise CountdownError("npm was not found; install Node.js with npm to enable the SDK button.")
             target.mkdir(parents=True, exist_ok=True)
             _safe_log(log, "info", f"Preparing the local Codex SDK {SDK_VERSION} (first use only)")
-            with tempfile.TemporaryDirectory(prefix="redline-npm-") as temp:
+            with tempfile.TemporaryDirectory(prefix="redline-npm-", ignore_cleanup_errors=True) as temp:
                 env = _clean_env(Path(temp))
                 env["NPM_CONFIG_USERCONFIG"] = str(Path(temp) / "npmrc")
                 result = _process([node, str(npm), "install", "--prefix", str(target),

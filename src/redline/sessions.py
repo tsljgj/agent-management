@@ -42,8 +42,12 @@ def _first_cwd(path: Path, max_lines: int = 40) -> str | None:
     return None
 
 
-def _claude(home: Path, since: float) -> dict[str, float]:
-    out: dict[str, float] = {}
+# Every transcript time per cwd, not just the newest: in the default dir one project can have been
+# used by several accounts in turn, and each of them gets the times from its own periods.
+
+
+def _claude(home: Path, since: float) -> dict[str, list[float]]:
+    out: dict[str, list[float]] = {}
     root = home / "projects"
     try:
         dirs = list(os.scandir(root))
@@ -52,23 +56,25 @@ def _claude(home: Path, since: float) -> dict[str, float]:
     for d in dirs:
         if not d.is_dir():
             continue
-        newest, newest_path = 0.0, None
+        times, newest, newest_path = [], 0.0, None
         try:
             for f in os.scandir(d.path):
                 if f.name.endswith(".jsonl"):
                     m = f.stat().st_mtime
+                    if m >= since:
+                        times.append(m)
                     if m > newest:
                         newest, newest_path = m, f.path
         except OSError:
             continue
-        if newest_path and newest >= since:
+        if newest_path and times:
             cwd = _first_cwd(Path(newest_path)) or d.name
-            out[cwd] = max(out.get(cwd, 0), newest)
+            out.setdefault(cwd, []).extend(times)
     return out
 
 
-def _codex(home: Path, since: float) -> dict[str, float]:
-    out: dict[str, float] = {}
+def _codex(home: Path, since: float) -> dict[str, list[float]]:
+    out: dict[str, list[float]] = {}
     today = date.today()
     for n in range(DAYS + 1):
         day = today - timedelta(days=n)
@@ -88,7 +94,7 @@ def _codex(home: Path, since: float) -> dict[str, float]:
                 continue
             cwd = _first_cwd(Path(f.path), max_lines=3)
             if cwd:
-                out[cwd] = max(out.get(cwd, 0), m)
+                out.setdefault(cwd, []).append(m)
     return out
 
 
@@ -101,11 +107,12 @@ def recent(account: Account, limit: int = 5) -> list[dict]:
     scan = _claude if account.provider == "claude" else _codex
     seen: dict[str, float] = {}
 
-    def add(found: dict[str, float], periods: list[tuple[float, float]] | None = None) -> None:
-        for cwd, at in found.items():
-            if periods is not None and not any(f <= at < t for f, t in periods):  # half-open: a switch instant has one owner
-                continue
-            seen[cwd] = max(seen.get(cwd, 0), at)
+    def add(found: dict[str, list[float]], periods: list[tuple[float, float]] | None = None) -> None:
+        for cwd, times in found.items():
+            for at in times:
+                if periods is not None and not any(f <= at < t for f, t in periods):  # half-open: a switch instant has one owner
+                    continue
+                seen[cwd] = max(seen.get(cwd, 0), at)
 
     if not is_slot(account.provider, account.home_path):
         add(scan(account.home_path, since))

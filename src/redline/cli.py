@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -67,8 +68,9 @@ def _print_log(level: str, text: str) -> None:
 
 def cmd_wake(args) -> int:
     from .login import WakeJob
+    from .slots import effective
 
-    accounts = _select(args.names)
+    accounts = [effective(a) for a in _select(args.names)]  # the default account logs in to the default dir
     if not accounts:
         print("no accounts; run `redline scan` first")
         return 1
@@ -179,6 +181,10 @@ def _exec_with_account(acct: Account, argv: list[str]) -> int:
     from .slots import effective
 
     env = child_env(effective(acct).env())
+    if sys.platform == "win32":
+        # Windows has no exec: os.execvpe would split arguments with spaces and return to the
+        # shell while the child still reads the console.
+        return subprocess.call([exe, *argv[1:]], env=env)
     os.execvpe(exe, argv, env)
     return 0  # unreachable
 

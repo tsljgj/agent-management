@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import os
 import re
 import shlex
@@ -12,6 +13,7 @@ from pathlib import Path
 
 from .config import (
     DEFAULT_HOMES,
+    EDIT_LOCK,
     PROVIDERS,
     Account,
     redline_home,
@@ -37,6 +39,16 @@ class ActionError(Exception):
     pass
 
 
+def _edits_config(fn):
+    """Run under the lock every config.json read-modify-write takes (the monitor rewrites it too)."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with EDIT_LOCK:
+            return fn(*args, **kwargs)
+    return wrapper
+
+
+@_edits_config
 def add_account(provider: str, name: str, home: str | None = None, note: str = "",
                 auto_name: bool = False) -> Account:
     if provider not in PROVIDERS:
@@ -48,7 +60,8 @@ def add_account(provider: str, name: str, home: str | None = None, note: str = "
     accounts = load_accounts()
     if name_taken(accounts, provider, name):
         raise ActionError(f"{provider} account {name!r} already exists")
-    home = home or str(redline_home() / "accounts" / f"{provider}-{name}")
+    # a relative --home must not depend on the working directory of whoever reads it later
+    home = str(Path(home).expanduser().resolve()) if home else str(redline_home() / "accounts" / f"{provider}-{name}")
     acct = Account(name=name, provider=provider, home=home, note=note, auto_name=auto_name)
     acct.home_path.mkdir(parents=True, exist_ok=True)
     accounts.append(acct)
@@ -99,8 +112,8 @@ def account_details() -> dict[str, dict]:
         tokens = auth.get("tokens") or {}
         account_id = tokens.get("account_id") or codex.jwt_claims(tokens.get("id_token")).get(
             codex.AUTH_CLAIM, {}).get("chatgpt_account_id")
-        if account_id:
-            shared_quota.setdefault(account_id, []).append(a.key)
+        if account_id:  # the same person in the same workspace (Team seats share the workspace id)
+            shared_quota.setdefault((account_id, codex.chatgpt_user_id(tokens)), []).append(a.key)
     peers = {key: [other.split(":", 1)[1] for other in keys if other != key]
              for keys in shared_quota.values() if len(keys) > 1 for key in keys}
     for a in accounts:
@@ -163,6 +176,7 @@ def candidates(provider: str) -> dict:
     return {"provider": provider, "removed": removed, "profiles": profiles}
 
 
+@_edits_config
 def add_from_profile(provider: str, spec: str) -> Account:
     """New account for the Google account signed in to browser profile `spec`, bound to it."""
     from . import browsers
@@ -182,6 +196,7 @@ def add_from_profile(provider: str, spec: str) -> Account:
     return acct
 
 
+@_edits_config
 def remove_account(name: str, provider: str | None = None) -> Account:
     """Unregister an account (its login files stay on disk) and keep `scan` from re-adding it."""
     accounts = load_accounts()
@@ -198,6 +213,7 @@ def remove_account(name: str, provider: str | None = None) -> Account:
     return acct
 
 
+@_edits_config
 def rename_account(old: str, new: str, provider: str | None = None, auto: bool = False) -> Account:
     """Change an account's display name. Its login dir and browser binding stay the same."""
     new = new.strip()
@@ -229,6 +245,7 @@ def _looks_auto(a: Account) -> bool:
     return bool(email) and a.name in (email, email.split("@")[0])
 
 
+@_edits_config
 def adopt_email_names() -> list[tuple[str, str, str]]:
     """Rename accounts whose name is still automatic to their login email.
 
@@ -261,6 +278,7 @@ def adopt_email_names() -> list[tuple[str, str, str]]:
     return changed
 
 
+@_edits_config
 def restore_account(name: str, provider: str | None = None) -> Account:
     removed = load_removed()
     provider, name = split_ref(name, provider)
@@ -280,6 +298,7 @@ def restore_account(name: str, provider: str | None = None) -> Account:
     return acct
 
 
+@_edits_config
 def scan(register: bool = True, include_removed: bool = False) -> tuple[list[tuple[Account, "Found"]], list["Found"]]:
     """Discover account dirs on this machine; register the new ones.
 
@@ -297,9 +316,14 @@ def scan(register: bool = True, include_removed: bool = False) -> tuple[list[tup
     if not include_removed:
         known |= {(a.provider, _resolved(a.home_path)) for a in removed}
     taken = {(a.provider, a.name) for a in accounts}
-    emails = {(a.provider, e.lower()) for a in accounts for e in [expected_email(a) or identity(a)] if e}
-    added, existing = [], []
-    from .slots import is_slot, managed
+    # One card per login: skip a dir whose email an account already has a login for (a backup,
+    # an old copy) or that the user removed. An account without a login doesn't hide one.
+    emails = {(a.provider, e.lower()) for a in accounts if has_credentials(a)
+              for e in [expected_email(a) or identity(a)] if e}
+    if not include_removed:
+        emails |= {(r.provider, e.lower()) for r in removed for e in [expected_email(r) or identity(r)] if e}
+    added, existing, linked = [], [], False
+    from .slots import is_active, is_slot, managed
 
     for f in discover():
         if ((f.provider, _resolved(f.home)) in known or (is_slot(f.provider, f.home) and managed(f.provider))
@@ -309,13 +333,22 @@ def scan(register: bool = True, include_removed: bool = False) -> tuple[list[tup
             continue
         if f.email:
             emails.add((f.provider, f.email.lower()))
+            # An account meant for this email but without a login (added from the + panel, say)
+            # gets this dir instead of a second card for the same person.
+            twin = next((a for a in accounts if a.provider == f.provider and f.logged_in
+                         and (expected_email(a) or "").lower() == f.email.lower()
+                         and not has_credentials(a) and not is_active(a)), None)
+            if twin is not None:
+                twin.home, linked = str(f.home), True
+                existing.append(f)
+                continue
         mine = {n for p, n in taken if p == f.provider}
         name = unique_name(f.email, mine) if f.email else suggest_name(f, mine)
         taken.add((f.provider, name))
         acct = Account(name=name, provider=f.provider, home=str(f.home), note=f.email or "", auto_name=True)
         accounts.append(acct)
         added.append((acct, f))
-    if register and added:
+    if register and (added or linked):
         save_accounts(accounts)
         if include_removed:
             back = {(a.provider, _resolved(a.home_path)) for a, _ in added}
@@ -330,6 +363,7 @@ def _resolved(p: Path) -> str:
         return str(p)
 
 
+@_edits_config
 def bind(name: str, spec: str, provider: str | None = None) -> str:
     from . import browsers
 
@@ -350,6 +384,7 @@ def bind(name: str, spec: str, provider: str | None = None) -> str:
     return f"{name} -> {prof.spec} “{prof.name}” {prof.email}"
 
 
+@_edits_config
 def set_renews(name: str, value: str, provider: str | None = None) -> str:
     """Remember the day this subscription renews/ends (the console rolls it on by months)."""
     from datetime import date
@@ -390,6 +425,7 @@ def profiles_text() -> str:
     )
 
 
+@_edits_config
 def import_defaults() -> list[Account]:
     """Register the CLIs' default homes (~/.claude, ~/.codex) if they hold a login."""
     accounts = load_accounts()
@@ -433,9 +469,12 @@ def open_terminal(acct: Account, argv: list[str] | None = None, extra_env: dict 
     title = f"redline: {acct.name}"
 
     if sys.platform == "win32":
+        # One string, the way cmd.exe parses it: /S drops only the outer quotes, so a CLI under a
+        # path with spaces (Program Files, a user name with a space) still runs. A list would get
+        # its /k argument wrapped in backslash-escaped quotes, which cmd.exe can't read.
         cmdline = subprocess.list2cmdline(argv)
         subprocess.Popen(
-            ["cmd.exe", "/k", f"title {title} && {cmdline}"],
+            f'cmd.exe /S /K "title {title} && {cmdline}"',
             env=env, cwd=cwd, creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
     elif sys.platform == "darwin":
@@ -537,7 +576,11 @@ def dispatch(action: str, args: dict) -> str:
 
         if args.get("log") is None:
             raise ActionError("wake needs a log sink")
-        names = [args["name"]] if action == "login" else (args.get("names") or None)
+        names = [args["name"]] if action == "login" else args.get("names")
+        if names is None and prov:  # this tab only, never every account of both providers
+            names = [a.key for a in load_accounts() if a.provider == prov]
+        if names is not None and not names:
+            return f"no {prov} accounts to wake" if prov else "no accounts to wake"
         try:
             return start_wake(names, args["log"], force=action == "login", on_done=args.get("on_done"), provider=prov)
         except KeyError as e:
