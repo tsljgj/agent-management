@@ -453,11 +453,15 @@ def test_last_days_of_a_subscription_show_on_the_main_page(run_console_js):
   const day = n => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() + n); return d.toISOString(); };
   const ends = (name, n, changes = {}) => usage(name, {plan: "plus", renews_at: day(n), renews_kind: "end", ...changes});
   DATA = {usages: [], meta: {accounts: {"codex:set": {renews: day(2).slice(0, 10)}}}};
-  // right of the gauge, coloured like it: green a week out, amber from 3 days, red from 1
+  // right of the gauge, coloured like it in the last week: green, amber from 3 days, red from 1
   assert.match(row(ends("week", 7), null), /class="dial">.*<div class="sub "[^>]*>SUB 7d</s);
   assert.match(row(ends("soon", 3), null), /class="sub mid"[^>]*>SUB 3d</);
   assert.match(row(ends("last", 1), null), /class="sub high"[^>]*>SUB 1d</);
-  assert.doesNotMatch(row(ends("later", 8), null), /class="sub/);
+  // always shown: grey beyond a week; unknown date on a paid plan says so
+  assert.match(row(ends("later", 8), null), /class="sub far"[^>]*>SUB 8d</);
+  assert.match(row(ends("month", 28), null), /class="sub far"[^>]*>SUB 28d</);
+  assert.match(row(usage("nodate", {plan: "plus"}), null), /class="sub far"[^>]*>SUB \?</);
+  assert.doesNotMatch(row(usage("noplan", {plan: null}), null), /class="sub/);
   // a Free plan has nothing to renew, whatever paid-until an old subscription left behind
   const free = ends("free", 3, {plan: "free"});
   assert.equal(renewOf(free), null);
@@ -533,7 +537,7 @@ def test_everything_under_the_name_sits_in_the_same_slots_whatever_the_state(run
   const resets = days => codex({extra: {banked_resets: {available: 2, credits: [{expires_at: day(days)}, {expires_at: day(20)}]}}});
   assert.match(bankedTag(resets(6)), />↺ 2 <b class="sub ">6d<\/b>/);
   assert.match(bankedTag(resets(1)), />↺ 2 <b class="sub high">1d<\/b>/);
-  assert.doesNotMatch(bankedTag(resets(10)), /<b/);
+  assert.doesNotMatch(bankedTag(resets(10)), /<b/);   // banked resets: only in their last week
 })();
 """)
 

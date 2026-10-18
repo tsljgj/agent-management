@@ -83,11 +83,11 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .dial{display:flex;align-items:flex-end;flex-wrap:wrap;gap:3px 10px;min-width:0;min-height:21px}
 .dial>*{flex:none}
 .dial .rate{width:86px}.codex .dial .rate{width:38px}
-.dial .slot{width:52px;overflow:hidden}
+.dial .slot{width:60px;overflow:hidden}   /* fits SUB ~28d */
 .dial .cred{flex:0 1 auto;min-width:0;letter-spacing:0}
-/* days left, coloured like the gauge: green, amber from 3 days, red from 1 */
+/* days left: grey beyond a week, then coloured like the gauge: green, amber from 3 days, red from 1 */
 .sub{--c:var(--ok);font-size:10px;letter-spacing:.08em;font-weight:600;color:var(--c);text-shadow:0 0 6px var(--c);white-space:nowrap}
-.sub.mid{--c:var(--warn)}.sub.high{--c:var(--red)}
+.sub.mid{--c:var(--warn)}.sub.high{--c:var(--red)}.sub.far{--c:var(--dim);font-weight:400;text-shadow:none}
 /* token expired but the old numbers are still shown: one click renews it (or logs in) */
 .reauth{align-self:flex-start;font-size:10px;letter-spacing:.06em;font-weight:600;color:var(--warn);white-space:nowrap}
 .reauth:hover{color:var(--acc)}
@@ -493,17 +493,19 @@ function renewOf(u) {
 const renewTime = u => { const r = renewOf(u); return r && r.at ? r.at.getTime() : Infinity; };
 function renewParts(r) {
   if (!r || !r.at) return {date: "unknown", left: "", cls: "", days: null};
-  const days = Math.ceil((new Date(r.at.toDateString()) - new Date(new Date().toDateString())) / 864e5);
+  // whole calendar days between two local midnights: round, as a DST change makes one 23 or 25 h long
+  const days = Math.round((new Date(r.at.toDateString()) - new Date(new Date().toDateString())) / 864e5);
   return {
     date: (r.est ? "~" : "") + r.at.toLocaleDateString(undefined, {year: "numeric", month: "short", day: "numeric"}),
     left: days <= 0 ? "today" : days === 1 ? "1 day" : `${days} days`,
     cls: days <= 3 ? "soon" : "", days,
   };
 }
-const RENEW_SOON_DAYS = 7;   // from here on the main page counts the subscription's last days down
+const RENEW_SOON_DAYS = 7;   // the last week is in colour (a banked reset only shows then)
 function renewTag(u) {
   const r = renewOf(u), p = renewParts(r);
-  if (p.days == null || p.days > RENEW_SOON_DAYS) return "";
+  if (!r) return isFree(u) || !u.plan || identityMismatch(u) ? ""   // FREE takes the slot, or nothing is known
+    : `<div class="sub far" title="订阅到期日未知 · 在 PLANS 点 ✎ 填写">SUB ?</div>`;
   const src = r.set ? "你设置的日期" : r.est ? "按订阅开始日每月续费估算" : `${u.provider === "codex" ? "Codex" : "Claude"} 报告`;
   const d = Math.max(0, p.days);
   return `<div class="sub ${dayLevel(d)}" title="${esc(`订阅到期 ${p.date}（${src}）`)}">SUB ${r.est ? "~" : ""}${d}d</div>`;
@@ -546,7 +548,7 @@ function rateTag(u) {
     : `${r.window} window filling at ${r.per_hour}%/h over the last 30 min`;
   return `<div class="rate ${esc(r.level)}" title="${esc(tip)}">${gauge(r.pace)}<b>${esc(r.level)}</b>${r.level === "idle" ? "" : `<span> · ${r.per_hour}%/h</span>`}</div>`;
 }
-const dayLevel = d => d <= 1 ? "high" : d <= 3 ? "mid" : "";   // the gauge's colours
+const dayLevel = d => d <= 1 ? "high" : d <= 3 ? "mid" : d <= RENEW_SOON_DAYS ? "" : "far";   // the gauge's colours
 // The same fixed slots in every row (empty ones too), so nothing shifts when an account's state does.
 function dial(u) {
   const gauge = rateTag(u) || `<div class="rate"></div>`;
