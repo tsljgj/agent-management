@@ -346,7 +346,7 @@ def test_banked_reset_expirations_are_individual_and_update_without_a_poll(run_c
   assert.match(html, /已到期/);
   assert.match(html, /另有 1 次未返回到期明细/);
   assert.doesNotMatch(html, /<img/);
-  assert.match(row(u, null), /到期详情 ↓/);
+  assert.match(row(u, null), />↺ 4<\/div>/);
   assert.match(bankedExpiryText(soon), /不足 1 分钟/);
   assert.equal(bankedExpiryText("not a date"), "到期时间未知");
   const el = {dataset: {expiry}, textContent: ""};
@@ -388,16 +388,20 @@ def test_banked_resets_are_separate_from_credits_and_preserve_zero_and_partial_c
 (() => {
   const counted = usage("counted", {extra: {credits: "5", banked_resets: {available: 3, applicable: 0}}});
   const html = row(counted, null), detail = details(counted);
-  assert.match(html, /class="banked">Banked resets: 3 次 · 当前适用 0 次/);
-  assert.match(html, /\+ 5 credits/);
+  assert.match(html, /class="banked"[^>]*>↺ 3<\/div>/);
+  assert.match(html, /class="cred"[^>]*>5 cr<\/div>/);
+  assert.match(html, /class="dial"><div class="rate.*class="dial-values"><div class="cred".*class="banked"/s);
   assert.match(detail, /<span>Banked resets<\/span>/);
-  assert.match(detail, />3 次 · 当前适用 0 次<\/b>/);
-  assert.doesNotMatch(html, /\[object Object\]|banked_resets/);
+  assert.match(detail, />3 次<\/b>/);
+  assert.doesNotMatch(html, /\[object Object\]|banked_resets|当前适用|到期详情 ↓/);
+  assert.match(credTag(usage("messages", {extra: {credits: "12.5 (~40-60 msgs)"}})), />12.5 cr<\/div>/);
+  assert.match(credTag(usage("unlimited", {extra: {credits: "unlimited"}})), />∞ cr<\/div>/);
   const zero = usage("zero", {extra: {banked_resets: {available: 0}}});
-  assert.match(row(zero, null), /class="banked">Banked resets: 0 次/);
+  assert.match(row(zero, null), /class="banked"[^>]*>↺ 0<\/div>/);
   assert.doesNotMatch(row(zero, null), /当前适用/);
   const partial = usage("partial", {extra: {banked_resets: {applicable: 2}}});
-  assert.match(row(partial, null), /Banked resets: 总数未知 · 当前适用 2 次/);
+  assert.match(row(partial, null), /class="banked"[^>]*>↺ \?<\/div>/);
+  assert.doesNotMatch(row(partial, null), /当前适用/);
   assert.doesNotMatch(row(usage("missing"), null), /Banked resets/);
   assert.doesNotMatch(row(usage("empty", {extra: {banked_resets: {}}}), null), /Banked resets/);
 })();
@@ -449,20 +453,22 @@ def test_last_days_of_a_subscription_show_on_the_main_page(run_console_js):
   const day = n => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() + n); return d.toISOString(); };
   const ends = (name, n, changes = {}) => usage(name, {plan: "plus", renews_at: day(n), renews_kind: "end", ...changes});
   DATA = {usages: [], meta: {accounts: {"codex:set": {renews: day(2).slice(0, 10)}}}};
-  assert.match(row(ends("soon", 3), null), /class="renew-soon soon"[^>]*>订阅还剩 3 天</);
-  assert.match(row(ends("week", 6), null), /class="renew-soon "[^>]*>订阅还剩 6 天</);
-  assert.doesNotMatch(row(ends("later", 8), null), /renew-soon/);
+  // right of the gauge, coloured like it: green a week out, amber from 3 days, red from 1
+  assert.match(row(ends("week", 7), null), /class="dial">.*<div class="sub "[^>]*>SUB 7d</s);
+  assert.match(row(ends("soon", 3), null), /class="sub mid"[^>]*>SUB 3d</);
+  assert.match(row(ends("last", 1), null), /class="sub high"[^>]*>SUB 1d</);
+  assert.doesNotMatch(row(ends("later", 8), null), /class="sub/);
   // a Free plan has nothing to renew, whatever paid-until an old subscription left behind
   const free = ends("free", 3, {plan: "free"});
   assert.equal(renewOf(free), null);
-  assert.doesNotMatch(row(free, null), /renew-soon/);
+  assert.doesNotMatch(row(free, null), /class="sub/);
   // Claude's monthly estimate says so
   const claude = {...usage("claude", {plan: "max 20x", renews_at: addMonths(new Date(day(5)), -1).toISOString(),
     renews_kind: "start"}), provider: "claude"};
   const est = renewParts(renewOf(claude)).days;
   assert.ok(est <= 7);
-  assert.match(row(claude, null), new RegExp(`title="[^"]*每月续费估算[^"]*">订阅还剩 约 ${est} 天<`));
-  assert.match(row(ends("set", 30), null), /title="[^"]*你设置的日期[^"]*">订阅还剩 2 天</);
+  assert.match(row(claude, null), new RegExp(`title="[^"]*每月续费估算[^"]*">SUB ~${est}d<`));
+  assert.match(row(ends("set", 30), null), /title="[^"]*你设置的日期[^"]*">SUB 2d</);
 })();
 """)
 
@@ -482,5 +488,24 @@ def test_plans_list_claude_and_codex_apart_soonest_first(run_console_js):
   assert.match(html, /data-name="x-free".*?title="free plan: no subscription">–<\/span>/s);
   renderPlans([usage("only-codex", {plan: "plus"})]);
   assert.doesNotMatch(elements["#list"].innerHTML, /CLAUDE/);
+})();
+""")
+
+
+def test_free_claude_without_claude_code_offers_no_login_or_wake(run_console_js):
+    run_console_js(r"""
+(() => {
+  DATA = {usages: [], meta: {accounts: {}}};
+  const u = {...usage("free", {ok: false, plan: "free", windows: [], weekly_countdown: null,
+    error: "Claude Code is not included in this plan; the usage endpoint says OAuth is not allowed for this organization (subscribe to Pro or Max to use it)"}),
+    provider: "claude"};
+  assert.equal(reauth(u), false);
+  const html = row(u, null);
+  assert.match(html, /class="plan">Free/);
+  assert.match(html, />不含 Claude Code</);
+  assert.match(html, /data-act="web"/);
+  assert.doesNotMatch(html, /data-act="(login|wake1)"|retry/);
+  DATA.usages = [u]; TAB = "claude"; render();
+  assert.equal(elements["#wake"].textContent, "⚡");
 })();
 """)

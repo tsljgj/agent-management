@@ -343,6 +343,8 @@ def parse_usage(doc: dict) -> tuple[list[Window], dict]:
     return windows, extra
 
 
+NO_CLAUDE_CODE = ("Claude Code is not included in this plan; the usage endpoint says OAuth is not allowed for "
+                  "this organization (subscribe to Pro or Max to use it)")
 USAGE_BACKOFF_MAX = 3600
 # The usage endpoint limits each login: a 429 carries Retry-After (about 20 min, seen 2026-10-18 on a
 # Free login). Asking again before then only gets more 429s, so the login is left alone until then.
@@ -377,6 +379,10 @@ def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
             doc = request_json("GET", USAGE_URL, headers=_headers(creds.oauth["accessToken"]))
         elif e.status == 401:
             raise ProviderError("unauthorized (token expired or revoked); run `claude` in this account or pass --refresh-tokens") from None
+        elif e.status == 403 and "oauth_not_allowed_for_organization" in e.body:
+            # A Free plan (a lapsed subscription too): the login is fine, the plan has no Claude Code.
+            # Logging in again or waking can't change that, so don't say the token is at fault.
+            return _unfetched(account, creds, key, NO_CLAUDE_CODE)
         elif e.status == 403:
             raise ProviderError("forbidden: token lacks the user:profile scope (re-run `claude /login`)") from None
         elif e.status == 429:
@@ -416,6 +422,8 @@ def _unfetched(account: Account, creds: Creds, key: str, error: str) -> Usage:
         a = prof.get("account") or {}
         email = a.get("email_address") or a.get("email")
     plan = plan_of(creds.oauth, prof, _oauth_account(account))
+    if plan == "free":  # its usage answers 403 or 429 by turns; either way the plan has no Claude Code
+        error = NO_CLAUDE_CODE
     return Usage(
         account=account.name, provider="claude", ok=False, email=email, plan=plan, error=error,
         **({} if plan == "free" else paid_until(prof)),

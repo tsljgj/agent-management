@@ -667,13 +667,41 @@ def test_claude_plan_without_the_profile_falls_back_to_what_claude_code_cached(h
 def test_claude_usage_429_waits_for_retry_after_and_still_reports_the_plan(home, monkeypatch):
     acct = Account("c", "claude", str(make_claude(home / "c")))
     limited = HTTPStatusError(429, '{"error": {"type": "rate_limit_error"}}', claude.USAGE_URL, {"retry-after": "1231"})
-    calls = _plan_profile(monkeypatch, {"organization_type": "claude_free"}, usage=limited)
+    max20 = {"organization_type": "claude_max", "rate_limit_tier": "default_claude_max_20x"}
+    calls = _plan_profile(monkeypatch, max20, usage=limited)
     u = fetch_usage(acct)
-    assert not u.ok and u.plan == "free" and u.email == "c@x.com"
+    assert not u.ok and u.plan == "max 20x" and u.email == "c@x.com"
     assert "next try in 21 min" in u.error
     u = fetch_usage(acct)  # the next poll leaves the endpoint alone
-    assert not u.ok and u.plan == "free" and calls.count(claude.USAGE_URL) == 1
+    assert not u.ok and u.plan == "max 20x" and calls.count(claude.USAGE_URL) == 1
     monkeypatch.setattr(claude, "_usage_blocked", {k: time.time() - 1 for k in claude._usage_blocked})
-    _plan_profile(monkeypatch, {"organization_type": "claude_free"})
+    _plan_profile(monkeypatch, max20)
     u = fetch_usage(acct)
-    assert u.ok and u.plan == "free" and u.windows[0].used_percent == 10 and not claude._usage_blocked
+    assert u.ok and u.plan == "max 20x" and u.windows[0].used_percent == 10 and not claude._usage_blocked
+
+
+def test_claude_free_plan_without_claude_code_is_not_a_login_problem(home, monkeypatch):
+    acct = Account("c", "claude", str(make_claude(home / "c")))
+    denied = HTTPStatusError(403, json.dumps({"type": "error", "error": {
+        "type": "permission_error", "message": "OAuth authentication is currently not allowed for this organization.",
+        "details": {"error_code": "oauth_not_allowed_for_organization"}}}), claude.USAGE_URL)
+    _plan_profile(monkeypatch, {"organization_type": "claude_free"}, usage=denied)
+    u = fetch_usage(acct)
+    assert not u.ok and u.plan == "free" and u.error == claude.NO_CLAUDE_CODE
+    assert "user:profile" not in u.error and "log in" not in u.error
+    assert token_state_ok(acct)  # the token itself is fine: a wake has nothing to do
+
+
+def token_state_ok(acct):
+    from redline.providers import token_state
+
+    return token_state(acct) == "ok"
+
+
+def test_claude_free_plan_rate_limited_says_it_has_no_claude_code(home, monkeypatch):
+    acct = Account("c", "claude", str(make_claude(home / "c")))
+    limited = HTTPStatusError(429, '{"error": {"type": "rate_limit_error"}}', claude.USAGE_URL, {"retry-after": "1231"})
+    _plan_profile(monkeypatch, {"organization_type": "claude_free"}, usage=limited)
+    u = fetch_usage(acct)
+    assert not u.ok and u.plan == "free" and u.error == claude.NO_CLAUDE_CODE
+    assert claude._usage_blocked  # the Retry-After still holds: a renewed subscription shows up after it

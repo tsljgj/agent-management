@@ -8,9 +8,9 @@ from redline.render import render_table
 
 
 @pytest.mark.parametrize("counts, expected", [
-    ({"available": 3, "applicable": 0}, "Banked resets: 3 (applicable: 0)"),
+    ({"available": 3, "applicable": 0}, "Banked resets: 3"),
     ({"available": 0}, "Banked resets: 0"),
-    ({"applicable": 1}, "Banked resets: unknown (applicable: 1)"),
+    ({"applicable": 1}, "Banked resets: unknown"),
 ])
 def test_banked_resets_render_separately_from_credits(counts, expected):
     u = Usage("free", "codex", True, plan="free",
@@ -19,6 +19,7 @@ def test_banked_resets_render_separately_from_credits(counts, expected):
     assert expected in output
     assert "credits: 12.5" in output
     assert "'available'" not in output
+    assert "applicable" not in output
 
 
 def test_absent_banked_resets_are_not_displayed_as_zero():

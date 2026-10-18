@@ -102,13 +102,18 @@ def test_failed_fetch_that_knows_the_plan_now_does_not_show_the_cached_one():
     m.feed = [claude("w", 30, key="id-a", email="a@x", plan="max 20x", renews_at="2026-09-14T00:00:00+00:00",
                      renews_kind="start")]
     m.poll()
-    m.feed = [claude("w", ok=False, key="id-a", plan="free", error="rate limited by the usage endpoint")]
+    m.feed = [claude("w", ok=False, key="id-a", plan="max 20x", renews_at="2026-10-14T00:00:00+00:00",
+                     renews_kind="start", error="rate limited by the usage endpoint")]
     m.poll()
-    u = m.usages[0]
-    assert u.stale and u.windows[0].used_percent == 30 and u.plan == "free" and u.renews_at is None
+    u = m.usages[0]  # same plan: the cached numbers, the dates as they are now
+    assert u.stale and u.windows[0].used_percent == 30 and u.renews_at.startswith("2026-10-14")
+    m.feed = [claude("w", ok=False, key="id-a", plan="free", error="Claude Code is not included in this plan")]
+    m.poll()
+    u = m.usages[0]  # a lapsed Max: neither the Max plan nor the Max limits' numbers
+    assert not u.stale and u.windows == [] and u.plan == "free" and u.renews_at is None
     m.feed = [claude("w", ok=False, key="id-a", error="HTTP 500")]  # nothing new about the plan: the cached one
     m.poll()
-    assert m.usages[0].plan == "max 20x"
+    assert m.usages[0].stale and m.usages[0].plan == "max 20x"
 
 
 def test_removed_account_state_is_pruned_so_a_reused_name_starts_clean():

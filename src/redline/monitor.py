@@ -357,7 +357,9 @@ class Monitor:
             # or an unreadable current identity cannot safely supply its usage numbers either.
             return u
         # A failed fetch can still know the plan now (Claude's profile is another endpoint): a Max that
-        # lapsed to Free must not keep showing as Max from the cache while its usage is rate limited.
+        # lapsed to Free must not keep showing as Max from the cache, nor the Max limits' numbers.
+        if u.plan and prev.plan and u.plan != prev.plan:
+            return u
         now = u if u.plan else prev
         return Usage(
             account=u.account, provider=u.provider, ok=False, email=prev.email, plan=now.plan,

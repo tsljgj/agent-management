@@ -62,6 +62,7 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .acct{display:grid;grid-template-columns:minmax(84px,1fr) minmax(120px,180px) minmax(120px,180px);grid-template-rows:minmax(40px,auto);align-items:center;gap:14px 24px;
   position:relative;min-height:60px;padding:10px 18px;border-bottom:1px solid var(--line);transition:opacity .2s,transform .2s}
 .acct:hover{background:rgba(0,229,255,.03)}
+.acct.codex{grid-template-columns:minmax(170px,1fr) minmax(105px,180px) minmax(105px,180px);column-gap:16px}
 .acct.weekly-attention{box-shadow:inset 2px 0 var(--warn)}
 .acct.gone{opacity:0;transform:translateX(20px)}
 .nm{color:#fff;font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -74,11 +75,17 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .who{display:flex;flex-direction:column;gap:3px;min-width:0}
 /* extra credits on top of the plan (Codex): usable once the windows run out */
 .cred{font-size:10px;letter-spacing:.06em;color:var(--acc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.banked{font-size:10px;color:var(--acc);overflow-wrap:anywhere}
+.banked{font-size:10px;color:var(--acc);white-space:nowrap}
+.codex .dial{align-items:center;flex-wrap:nowrap;gap:10px}
+.dial-values{display:flex;align-items:center;flex-wrap:wrap;gap:3px 10px;min-width:0}
+.codex .dial .rate,.dial-values .banked{flex:none}
+.dial-values .cred{min-width:0;letter-spacing:0}
+.codex .rate b,.codex .rate span{display:none}
 .plan{font-size:10px;color:var(--dim)}
 /* the last days of a subscription (every date is on the PLANS tab) */
-.renew-soon{font-size:10px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.renew-soon.soon{color:var(--warn);font-weight:600}
+.dial{display:flex;align-items:flex-end;flex-wrap:wrap;gap:3px 16px;min-width:0}
+.sub{--c:var(--ok);font-size:10px;letter-spacing:.08em;font-weight:600;color:var(--c);text-shadow:0 0 6px var(--c);white-space:nowrap}
+.sub.mid{--c:var(--warn)}.sub.high{--c:var(--red)}
 /* token expired but the old numbers are still shown: one click renews it (or logs in) */
 .reauth{align-self:flex-start;font-size:10px;letter-spacing:.06em;font-weight:600;color:var(--warn);white-space:nowrap}
 .reauth:hover{color:var(--acc)}
@@ -217,9 +224,10 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 @media (max-width:345px){ #sort,#det{display:none} }   /* still there as the sort / d commands */
 @media (max-width:360px){ header{gap:10px;padding-left:12px} .tab{letter-spacing:.02em} #age,#ver{display:none!important} }
 @media (max-width:440px){          /* two-line rows: name, then both meters */
-  .acct{grid-template-columns:1fr 1fr;grid-template-rows:none;height:auto;padding:9px 14px 10px;gap:6px 22px}
+  .acct,.acct.codex{grid-template-columns:1fr 1fr;grid-template-rows:none;height:auto;padding:9px 14px 10px;gap:6px 22px}
   .acct .who{grid-column:1/-1;flex-direction:row;align-items:baseline;gap:10px;flex-wrap:wrap}.need{grid-column:1/-1}
   .rate span{display:inline}
+  .codex .dial{flex-basis:100%}
 }
 @media (max-height:300px){ .prompt{display:none} .logopen #log{max-height:90px} }
 @media (max-height:220px){ header{height:40px}.tab{height:40px} }
@@ -342,6 +350,8 @@ const needsLogin = u => identityMismatch(u) || (failed(u) && AUTH_ERR.test(u.err
 // Old numbers kept on screen, but the token behind them has expired: still worth a ⚡ / ⟳ renew.
 const lapsed = u => !u.ok && u.stale && AUTH_ERR.test(u.error || "");
 const reauth = u => needsLogin(u) || lapsed(u);
+// The login is fine but its plan (Claude Free) has no Claude Code: no login or wake can help.
+const noClaudeCode = u => !u.ok && /not included in this plan/.test(u.error || "");
 
 /* ---------- render ---------- */
 // "↻ 2h 08m" = resets in 2h 08m. Missing Codex reset data needs an explicit server classification.
@@ -367,8 +377,7 @@ const extraEntries = u => Object.entries(u.extra || {}).filter(([k, v]) => k !==
 function bankedResetText(u) {
   const b = (u.extra || {}).banked_resets;
   if (!b || (!Number.isFinite(b.available) && !Number.isFinite(b.applicable) && !bankedResetCredits(u).length)) return "";
-  return (Number.isFinite(b.available) ? `${b.available} 次` : "总数未知")
-    + (Number.isFinite(b.applicable) ? ` · 当前适用 ${b.applicable} 次` : "");
+  return Number.isFinite(b.available) ? `${b.available} 次` : "总数未知";
 }
 function bankedResetCredits(u) {
   const credits = (u.extra || {}).banked_resets?.credits;
@@ -489,8 +498,8 @@ function renewTag(u) {
   const r = renewOf(u), p = renewParts(r);
   if (p.days == null || p.days > RENEW_SOON_DAYS) return "";
   const src = r.set ? "你设置的日期" : r.est ? "按订阅开始日每月续费估算" : `${u.provider === "codex" ? "Codex" : "Claude"} 报告`;
-  const text = p.days <= 0 ? "订阅今天到期" : `订阅还剩 ${r.est ? "约 " : ""}${p.days} 天`;
-  return `<div class="renew-soon ${p.cls}" title="${esc(`订阅到期：${p.date}（${src}）· 全部日期见 PLANS`)}">${esc(text)}</div>`;
+  const d = Math.max(0, p.days), level = d <= 1 ? "high" : d <= 3 ? "mid" : "";   // the gauge's colours
+  return `<div class="sub ${level}" title="${esc(`订阅到期 ${p.date}（${src}）`)}">SUB ${r.est ? "~" : ""}${d}d</div>`;
 }
 const base = p => (p || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 const since = s => s < 86400 ? ago(s) : Math.floor(s / 86400) + "d";
@@ -530,6 +539,12 @@ function rateTag(u) {
     : `${r.window} window filling at ${r.per_hour}%/h over the last 30 min`;
   return `<div class="rate ${esc(r.level)}" title="${esc(tip)}">${gauge(r.pace)}<b>${esc(r.level)}</b>${r.level === "idle" ? "" : `<span> · ${r.per_hour}%/h</span>`}</div>`;
 }
+// Compact balances and subscription days sit to the right of the gauge.
+function dial(u) {
+  const values = (u.provider === "codex" ? credTag(u) + bankedTag(u) : "") + renewTag(u);
+  const parts = rateTag(u) + (values ? `<div class="dial-values">${values}</div>` : "");
+  return parts ? `<div class="dial">${parts}</div>` : "";
+}
 function reauthTag(u) {
   if (identityMismatch(u) || !lapsed(u)) return "";
   const err = shortErr(u.error), renew = /^token expired/.test(err);
@@ -538,7 +553,17 @@ function reauthTag(u) {
 }
 function credTag(u) {
   const c = (u.extra || {}).credits;
+  if (c && u.provider === "codex") {
+    const compact = String(c).split(" (")[0];
+    return `<div class="cred" title="${esc(`Credits: ${c}`)}" aria-label="${esc(`Credits: ${c}`)}">${esc(compact === "unlimited" ? "∞" : compact)} cr</div>`;
+  }
   return c ? `<div class="cred" title="extra credits: used after the ${esc(u.provider)} plan limits run out">+ ${esc(c)} credits</div>` : "";
+}
+function bankedTag(u) {
+  const text = bankedResetText(u);
+  if (!text) return "";
+  const count = (u.extra || {}).banked_resets.available;
+  return `<div class="banked" title="${esc(`Banked resets: ${text}`)}" aria-label="${esc(`Banked resets: ${text}`)}">↺ ${Number.isFinite(count) ? count : "?"}</div>`;
 }
 function row(u, bestName) {
   const n = esc(u.account);
@@ -550,6 +575,8 @@ function row(u, bestName) {
     ? `<div class="need identity"><strong>登录账号不符</strong><span>实际：${esc(infoOf(u).email || u.email || "未知")}</span><span>预期：${esc(infoOf(u).expected_email || "未知")}</span><button class="act" data-act="login">重新登录预期账号 ›</button></div>`
     : needsLogin(u)
     ? `<div class="need"><button class="act" data-act="login">login ›</button><span title="${esc(u.error)}">${esc(shortErr(u.error))}</span></div>`
+    : noClaudeCode(u)
+    ? `<div class="need"><span title="${esc(u.error)}">不含 Claude Code</span><button class="act" data-act="web" title="在 claude.ai 订阅 Pro / Max">↗</button></div>`
     : failed(u)
     ? `<div class="need"><button data-act="retry">retry ⟳</button><span title="${esc(u.error)}">${esc(shortErr(u.error))}</span></div>`
     : quotaMeters(u);
@@ -559,10 +586,8 @@ function row(u, bestName) {
   const flags = (live.length ? " live" : "") + (["unstarted", "unknown"].includes(weekly?.state) ? " weekly-attention" : "");
   const tip2 = [live.length ? "● running in " + live.map(p => base(p.path)).join(", ") : "", tip]
     .filter(Boolean).join(" · ");
-  const banked = bankedResetText(u);
-  const quotaTags = mismatch ? "" : (u.plan === "free" ? `<div class="plan">Free</div>` : "") + renewTag(u) + rateTag(u) + credTag(u)
-    + (banked ? `<div class="banked">Banked resets: ${esc(banked)}${bankedResetCredits(u).length ? " · 到期详情 ↓" : ""}</div>` : "");
-  return `<div class="acct${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}${open ? " open" : ""}${flags}" data-name="${n}"><span class="ch">${open ? "▴" : "▾"}</span>
+  const quotaTags = mismatch ? "" : (u.plan === "free" ? `<div class="plan">Free</div>` : "") + dial(u) + (u.provider === "codex" ? "" : credTag(u));
+  return `<div class="acct${u.provider === "codex" ? " codex" : ""}${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}${open ? " open" : ""}${flags}" data-name="${n}"><span class="ch">${open ? "▴" : "▾"}</span>
     <div class="who"><div class="nm" title="${esc(tip2)} · double-click to rename">${n}</div>${quotaTags}${reauthTag(u)}${weeklyTag(u)}</div>${body}
     ${details(u)}</div>`;
 }

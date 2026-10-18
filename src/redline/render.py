@@ -79,8 +79,6 @@ def render_table(usages: list[Usage], stream=None) -> str:
             if k == "banked_resets" and isinstance(v, dict):
                 available = v.get("available")
                 text = str(available) if available is not None else "unknown"
-                if v.get("applicable") is not None:
-                    text += f" (applicable: {v['applicable']})"
                 lines.append(f"    {_c('Banked resets:', '2', color)} {text}")
                 credits = v.get("credits") or []
                 for i, credit in enumerate(credits, 1):
