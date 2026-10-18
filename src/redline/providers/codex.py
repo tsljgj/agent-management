@@ -18,6 +18,7 @@ from ..models import ProviderError, Usage, Window
 from ._util import cli_lock, from_epoch, parse_iso, read_json, same_login, token_id, write_json_atomic
 
 USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
+RESET_CREDITS_URL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
 TOKEN_URL = "https://auth.openai.com/oauth/token"
 CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 # Identify like the Codex CLI does (chatgpt.com's edge is picky about unknown clients).
@@ -154,7 +155,18 @@ def credits(c) -> str | None:
     return text
 
 
-def banked_resets(value) -> dict[str, int] | None:
+def _reset_credit_time(value) -> str | None:
+    """Normalize service dates to UTC without guessing an unreported expiry."""
+    number = _num(value)
+    try:
+        date = (from_epoch(number) if number is not None and number > 0 else
+                parse_iso(value) if isinstance(value, str) and number is None else None)
+        return date.astimezone(timezone.utc).isoformat() if date else None
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def banked_resets(value) -> dict | None:
     """Keep banked resets separate from purchased credits and current applicability.
 
     The usage endpoint can report available resets while none are applicable to
@@ -162,12 +174,38 @@ def banked_resets(value) -> dict[str, int] | None:
     """
     if not isinstance(value, dict):
         return None
-    result: dict[str, int] = {}
+    result: dict = {}
     for source, target in (("available_count", "available"), ("applicable_available_count", "applicable")):
         count = _num(value.get(source))
         if count is not None and count >= 0 and count.is_integer():
             result[target] = int(count)
+    if isinstance(value.get("credits"), list):
+        result["credits"] = []
+        for credit in value["credits"]:
+            if not isinstance(credit, dict) or credit.get("status") != "available":
+                continue
+            result["credits"].append({
+                "id": credit.get("id") if isinstance(credit.get("id"), str) else None,
+                "title": credit.get("title") if isinstance(credit.get("title"), str) else None,
+                "granted_at": _reset_credit_time(credit.get("granted_at")),
+                "expires_at": _reset_credit_time(credit.get("expires_at")),
+            })
+        result["credits"].sort(key=lambda c: (c["expires_at"] is None, c["expires_at"] or ""))
     return result or None
+
+
+def _fetch_banked_reset_details(auth: dict, extra: dict) -> None:
+    resets = extra.get("banked_resets")
+    if resets is None or resets.get("available") == 0 or "credits" in resets:
+        return
+    # /usage only supplies counts. Details are optional: failure here must not
+    # discard valid quota windows or turn a logged-in account into an error.
+    try:
+        details = banked_resets(request_json("GET", RESET_CREDITS_URL, headers=_headers(auth)))
+    except ProviderError:
+        return
+    if details is not None:
+        resets.update(details)
 
 
 MOVED = "login moved while refreshing; retry"
@@ -311,6 +349,7 @@ def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
             raise
 
     windows, extra = parse_usage(doc)
+    _fetch_banked_reset_details(auth, extra)
     if account.key not in _credits_logged:
         from ..applog import log
 

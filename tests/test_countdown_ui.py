@@ -327,6 +327,62 @@ def test_free_accounts_show_reported_main_windows_and_honest_missing_window_stat
 """)
 
 
+def test_banked_reset_expirations_are_individual_and_update_without_a_poll(run_console_js):
+    run_console_js(r"""
+(() => {
+  const expiry = future(49), soon = future(1 / 120);
+  const u = usage("resets", {extra: {banked_resets: {available: 4, credits: [
+    {title: 'Monthly <img src=x onerror="bad()">', expires_at: expiry},
+    {title: "Referral", expires_at: null},
+    {expires_at: future(-1)},
+  ]}}});
+  const html = details(u);
+  assert.match(html, /Reset #1 · Monthly &lt;img/);
+  assert.match(html, /Reset #2 · Referral/);
+  assert.match(html, /Reset #3/);
+  assert.ok(html.includes(esc(bankedExpiryText(expiry))));
+  assert.match(html, /剩余 2d/);
+  assert.match(html, /到期时间未知/);
+  assert.match(html, /已到期/);
+  assert.match(html, /另有 1 次未返回到期明细/);
+  assert.doesNotMatch(html, /<img/);
+  assert.match(row(u, null), /到期详情 ↓/);
+  assert.match(bankedExpiryText(soon), /不足 1 分钟/);
+  assert.equal(bankedExpiryText("not a date"), "到期时间未知");
+  const el = {dataset: {expiry}, textContent: ""};
+  const originalQuery = document.querySelectorAll;
+  document.querySelectorAll = selector => selector === "[data-expiry]" ? [el] : [];
+  tick();
+  assert.equal(el.textContent, bankedExpiryText(expiry));
+  const originalNow = Date.now;
+  Date.now = () => new Date(expiry).getTime() + 1;
+  tick();
+  assert.match(el.textContent, /已到期/);
+  Date.now = originalNow;
+  document.querySelectorAll = originalQuery;
+  DATA = {usages: [u], meta: {accounts: {"codex:resets": {login_mismatch: true}}}};
+  assert.doesNotMatch(details(u), /Reset #|data-expiry/);
+})();
+""")
+
+
+def test_missing_banked_reset_details_are_explicit_including_old_caches(run_console_js):
+    run_console_js(r"""
+(() => {
+  const detail = b => details(usage("work", {extra: {banked_resets: b}}));
+  assert.match(detail({available: 2}), /另有 2 次未返回到期明细/);
+  assert.match(detail({available: 2, credits: null}), /另有 2 次未返回到期明细/);
+  assert.match(detail({available: 2, credits: []}), /另有 2 次未返回到期明细/);
+  assert.match(detail({applicable: 1}), /未取得到期明细/);
+  assert.doesNotMatch(detail({available: 0}), /未返回到期明细|未取得到期明细|Reset #/);
+  assert.doesNotMatch(detail({available: 0, credits: []}), /未返回到期明细|未取得到期明细|Reset #/);
+  const onlyDetails = {credits: [{expires_at: future(12)}]};
+  assert.match(detail(onlyDetails), /Reset #1/);
+  assert.match(bankedResetText(usage("work", {extra: {banked_resets: onlyDetails}})), /总数未知/);
+})();
+""")
+
+
 def test_banked_resets_are_separate_from_credits_and_preserve_zero_and_partial_counts(run_console_js):
     run_console_js(r"""
 (() => {

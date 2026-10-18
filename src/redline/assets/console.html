@@ -165,6 +165,8 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .det span{color:var(--dim)}
 .det b{font-weight:400;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .det b.red{color:var(--red)}.det b.warn{color:var(--warn)}
+.det .banked-credit{grid-template-columns:minmax(0,1fr);gap:3px;padding:3px 0}
+.det .banked-credit span,.det .banked-credit b{white-space:normal;overflow-wrap:anywhere}
 .empty{padding:48px 18px;color:var(--dim);text-align:center;line-height:2}
 .empty button{color:var(--acc);font-size:15px}
 
@@ -360,9 +362,33 @@ const identityMessage = u => `登录账号不符 · 实际：${infoOf(u).email |
 const extraEntries = u => Object.entries(u.extra || {}).filter(([k, v]) => k !== "banked_resets" && v != null && typeof v !== "object");
 function bankedResetText(u) {
   const b = (u.extra || {}).banked_resets;
-  if (!b || (!Number.isFinite(b.available) && !Number.isFinite(b.applicable))) return "";
+  if (!b || (!Number.isFinite(b.available) && !Number.isFinite(b.applicable) && !bankedResetCredits(u).length)) return "";
   return (Number.isFinite(b.available) ? `${b.available} 次` : "总数未知")
     + (Number.isFinite(b.applicable) ? ` · 当前适用 ${b.applicable} 次` : "");
+}
+function bankedResetCredits(u) {
+  const credits = (u.extra || {}).banked_resets?.credits;
+  return Array.isArray(credits) ? credits.filter(c => c && typeof c === "object") : [];
+}
+function bankedExpiryText(iso) {
+  const date = iso ? new Date(iso) : null;
+  if (!date || !Number.isFinite(date.getTime())) return "到期时间未知";
+  const seconds = (date - Date.now()) / 1000;
+  const exact = date.toLocaleString(undefined, {year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZoneName: "short"});
+  return `${exact} · ${seconds <= 0 ? "已到期" : "剩余 " + (seconds < 60 ? "不足 1 分钟" : span(seconds))}`;
+}
+function bankedResetDetails(u) {
+  const b = (u.extra || {}).banked_resets;
+  if (!b) return "";
+  const credits = bankedResetCredits(u);
+  const rows = credits.map((c, i) => `<div class="wide banked-credit"><span>${esc(`Reset #${i + 1}${c.title ? " · " + c.title : ""}`)}</span>`
+    + `<b data-expiry="${esc(c.expires_at || "")}">${esc(bankedExpiryText(c.expires_at))}</b></div>`);
+  const missing = Number.isFinite(b.available) ? Math.max(0, b.available - credits.length) : null;
+  if (missing || (!Array.isArray(b.credits) && b.available !== 0)) {
+    rows.push(`<div class="wide banked-credit"><span>到期明细</span><b>${missing ? `另有 ${missing} 次未返回到期明细` : "未取得到期明细"}，请稍后刷新。</b></div>`);
+  }
+  return rows.join("");
 }
 function quotaMeters(u) {
   const main = u.windows.filter(w => /^(?:primary|secondary|\d+(?:\.\d+)?[hd])$/.test(w.name));
@@ -522,7 +548,7 @@ function row(u, bestName) {
     .filter(Boolean).join(" · ");
   const banked = bankedResetText(u);
   const quotaTags = mismatch ? "" : (u.plan === "free" ? `<div class="plan">Free</div>` : "") + rateTag(u) + credTag(u)
-    + (banked ? `<div class="banked">Banked resets: ${esc(banked)}</div>` : "");
+    + (banked ? `<div class="banked">Banked resets: ${esc(banked)}${bankedResetCredits(u).length ? " · 到期详情 ↓" : ""}</div>` : "");
   return `<div class="acct${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}${open ? " open" : ""}${flags}" data-name="${n}"><span class="ch">${open ? "▴" : "▾"}</span>
     <div class="who"><div class="nm" title="${esc(tip2)} · double-click to rename">${n}</div>${quotaTags}${reauthTag(u)}${weeklyTag(u)}</div>${body}
     ${details(u)}</div>`;
@@ -555,6 +581,7 @@ function details(u) {
   if (!mismatch) {
     const banked = bankedResetText(u);
     if (banked) rows.push(kv("Banked resets", banked));
+    rows.push(bankedResetDetails(u));
     if (info.shared_quota_with?.length) rows.push(kv("共享额度", "与 " + info.shared_quota_with.join("、") + " 属于同一 ChatGPT 账户，用量和 weekly 计时共享。", "warn"));
     const weekly = weeklyOf(u), job = countdownOf(u);
     if (weekly) rows.push(kv("weekly", weekly.message || weekly.state, ["unstarted", "unknown"].includes(weekly.state) ? "warn" : ""));
@@ -593,7 +620,10 @@ function setDetails(on) {
 }
 /* ---------- sort ---------- */
 const SORTS = {
-  default: ["default order", null],
+  default: ["default order (paid first)", u => {
+    const plan = typeof u.plan === "string" ? u.plan.trim().toLowerCase() : "";
+    return [!identityMismatch(u) && plan && !["free", "unknown"].includes(plan) ? 0 : 1];
+  }],
   weekly: ["weekly reset soonest (use it before it resets)", u => {
     const w = u.windows.find(x => x.name === "7d");
     if (u.provider === "codex") {
@@ -739,6 +769,7 @@ function setTab(t) {
 const accountTab = () => store.get("redline.acctab", "claude") === "codex" ? "codex" : "claude";
 function tick() {
   document.querySelectorAll("[data-reset]").forEach(el => { if (el.dataset.reset) el.textContent = resetText(left(el.dataset.reset)); });
+  document.querySelectorAll("[data-expiry]").forEach(el => { el.textContent = bankedExpiryText(el.dataset.expiry); });
   const a = $("#age");
   if (!DATA.fetched_at) return;
   const s = Date.now() / 1000 - DATA.fetched_at, at = new Date(DATA.fetched_at * 1000);

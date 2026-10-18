@@ -82,6 +82,19 @@ def render_table(usages: list[Usage], stream=None) -> str:
                 if v.get("applicable") is not None:
                     text += f" (applicable: {v['applicable']})"
                 lines.append(f"    {_c('Banked resets:', '2', color)} {text}")
+                credits = v.get("credits") or []
+                for i, credit in enumerate(credits, 1):
+                    expiry = credit.get("expires_at")
+                    date = datetime.fromisoformat(expiry) if expiry else None
+                    expires = date.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z") if date else "unknown"
+                    if date and date <= datetime.now(timezone.utc):
+                        expires += " (expired)"
+                    title = f" · {credit['title']}" if credit.get("title") else ""
+                    lines.append(f"      Reset #{i}{title}: expires {expires}")
+                missing = max(0, available - len(credits)) if available is not None else None
+                if missing or ("credits" not in v and available != 0):
+                    note = f"{missing} reset(s)" if missing else "resets"
+                    lines.append(f"      Expiry details unavailable for {note}; refresh to retry.")
                 continue
             lines.append(f"    {_c(k + ':', '2', color)} {v}")
         lines.append("")
