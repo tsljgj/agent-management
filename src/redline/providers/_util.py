@@ -106,7 +106,7 @@ class cli_lock:
     def __init__(self, target: Path, retries: int = 6):
         self.lock = Path(str(target).rstrip("/\\") + ".lock")
         self.retries = retries
-        self._mtime: int | None = None  # the lock dir's mtime as we last set it; None = not ours
+        self._seen: tuple[int, int] | None = None  # _stamp() as we last set it; None = not ours
         self._stop = Event()
         self._beat: Thread | None = None
 
@@ -116,12 +116,12 @@ class cli_lock:
                 self.lock.mkdir()
             except FileExistsError:
                 try:
-                    seen = self.lock.stat().st_mtime_ns
+                    seen = self._stamp()
                 except FileNotFoundError:
                     continue
-                if time.time() - seen / 1e9 > self.STALE:
+                if time.time() - seen[1] / 1e9 > self.STALE:
                     try:
-                        if self.lock.stat().st_mtime_ns == seen:  # not just re-taken by another waiter
+                        if self._stamp() == seen:  # not just re-taken by another waiter
                             self.lock.rmdir()
                     except OSError:
                         pass
@@ -134,11 +134,17 @@ class cli_lock:
                 return self
         raise LockBusy(f"{self.lock} is held by another process")
 
+    def _stamp(self) -> tuple[int, int]:
+        """Which lock dir, and when it was last touched. The mtime alone can't tell two dirs apart: on
+        Windows file times move in ~15 ms ticks, so a dir re-made within one has the old one's mtime."""
+        st = self.lock.stat()
+        return st.st_ino, st.st_mtime_ns
+
     def _hold(self) -> None:
         try:
-            self._mtime = self.lock.stat().st_mtime_ns
+            self._seen = self._stamp()
         except OSError:
-            self._mtime = None
+            self._seen = None
             return
         self._stop = Event()
         self._beat = Thread(target=self._heartbeat, name="redline-lock", daemon=True)
@@ -147,7 +153,7 @@ class cli_lock:
     def _owned(self) -> bool:
         """Still our lock? A holder that stalled past STALE may have lost it to someone else."""
         try:
-            return self._mtime is not None and self.lock.stat().st_mtime_ns == self._mtime
+            return self._seen is not None and self._stamp() == self._seen
         except OSError:
             return False
 
@@ -157,7 +163,7 @@ class cli_lock:
                 return  # taken over: leave the new holder's lock alone
             try:
                 os.utime(self.lock)
-                self._mtime = self.lock.stat().st_mtime_ns
+                self._seen = self._stamp()
             except OSError:
                 pass  # try again next beat
 
@@ -170,5 +176,5 @@ class cli_lock:
                 self.lock.rmdir()
             except OSError:
                 pass
-        self._mtime = None
+        self._seen = None
         return False
