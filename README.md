@@ -138,7 +138,8 @@ eval "$(redline env work)"         # 在当前 shell 切换到 work 账号
 ## 注意
 
 - 控制台只监听 `127.0.0.1`。每次启动会生成随机 token，并校验 Host 头，所以其他网页无法借本地端口去开终端或浏览器。
-- Claude 用量接口的限流比较严格，默认每 120 秒同步一次（`-n` 可调），手动刷新至少间隔 15 秒。被限流时继续显示旧数据。
+- Claude 用量接口的限流比较严格，默认每 120 秒同步一次（`-n` 可调），手动刷新至少间隔 15 秒。被限流时继续显示旧数据；接口给了 Retry-After 的，到点之前不再请求这个账号（Free 账号常见，约 20 分钟）。
+- Claude 的套餐按 profile 接口的实时结果显示（每 6 小时更新一次）。`.credentials.json` 里的 `subscriptionType` 只记着登录那天的套餐，续期 token 不会更新它；以前 Max 退订变成 Free 后仍显示 Max，升级后仍显示旧套餐。Free 账号显示 `Free` 标签，默认排序排在付费账号后面。
 - 托盘和 `serve` 默认开启 auto-refresh，也就是自动刷新过期 token，可以在托盘菜单里关掉。`redline usage` 默认只读，需要刷新时加 `--refresh-tokens`。
 - Claude 的 access token 大约 8 小时过期，redline 会自己续期，没在用的账号也不用重新登录。续期请求要带和 Claude Code 一样的 User-Agent（`axios/…`）：token 接口对 `claude-code/2.1.0` 一律返回 429，早期版本因此一直续期失败。如果真的被限流，redline 会等一段时间再试（遵守 Retry-After，没有就等 30 分钟），期间继续显示这个账号**上次拿到的用量**（重启、自动更新后也会保留）。如果某个窗口的重置时间已经过了，就显示为已重置。
 - refresh token 本身大约在登录 30 天后失效（凭据里的 `refreshTokenExpiresAt`），续期不会延长这个期限。到期后只能重新登录一次，这是服务器的规定。

@@ -356,10 +356,13 @@ class Monitor:
             # A login directory can now belong to a different account. For Codex, old caches
             # or an unreadable current identity cannot safely supply its usage numbers either.
             return u
+        # A failed fetch can still know the plan now (Claude's profile is another endpoint): a Max that
+        # lapsed to Free must not keep showing as Max from the cache while its usage is rate limited.
+        now = u if u.plan else prev
         return Usage(
-            account=u.account, provider=u.provider, ok=False, email=prev.email, plan=prev.plan,
+            account=u.account, provider=u.provider, ok=False, email=prev.email, plan=now.plan,
             windows=prev.windows, extra=prev.extra, error=u.error, fetched_at=prev.fetched_at, stale=True,
-            renews_at=prev.renews_at, renews_kind=prev.renews_kind,
+            renews_at=now.renews_at, renews_kind=now.renews_kind,
             identity_key=u.identity_key,
         )
 

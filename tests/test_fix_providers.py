@@ -28,6 +28,7 @@ no_slots = pytest.mark.skipif(sys.platform == "darwin", reason="no slot switchin
 def fresh_provider_state(monkeypatch):
     monkeypatch.setattr(claude, "_refresh_blocked", {})
     monkeypatch.setattr(claude, "_profiles", {})
+    monkeypatch.setattr(claude, "_usage_blocked", {})
     monkeypatch.setattr(claude, "_rejected", {}, raising=False)
     monkeypatch.setattr(codex, "_rejected", {}, raising=False)
 
@@ -613,3 +614,66 @@ def test_codex_save_auth_waits_for_the_refresh_lock(home):
     t.join(10)
     assert done == ["new@x.com"]
     assert json.loads((d / "auth.json").read_text())["tokens"]["refresh_token"] == "r-new"
+
+
+# ------------------------------------------------------------ 12. the plan is the one the login is on now
+
+
+def _plan_profile(monkeypatch, org, usage=USAGE):
+    calls = []
+
+    def fake(method, url, headers=None, **kw):
+        calls.append(url)
+        if url == claude.PROFILE_URL:
+            if org is None:
+                raise ProviderError("network error")
+            return {"organization": {"subscription_created_at": "2026-09-14T19:22:50Z", **org},
+                    "account": {"email": "c@x.com"}}
+        if isinstance(usage, Exception):
+            raise usage
+        return usage
+
+    monkeypatch.setattr(claude, "request_json", fake)
+    return calls
+
+
+def test_claude_max_that_lapsed_to_free_shows_as_free(home, monkeypatch):
+    acct = Account("c", "claude", str(make_claude(home / "c")))  # subscriptionType "max" from the login day
+    _plan_profile(monkeypatch, {"organization_type": "claude_free", "rate_limit_tier": "default_claude_ai",
+                                "subscription_status": "canceled"})
+    u = fetch_usage(acct)
+    assert u.ok and u.plan == "free"
+    assert u.renews_at is None  # a cancelled subscription's start date is no renewal
+
+
+def test_claude_upgrade_shows_the_new_plan(home, monkeypatch):
+    d = make_claude(home / "c")
+    creds = json.loads((d / ".credentials.json").read_text())
+    creds["claudeAiOauth"].update(subscriptionType="pro", rateLimitTier="default_claude_ai")
+    (d / ".credentials.json").write_text(json.dumps(creds))
+    _plan_profile(monkeypatch, {"organization_type": "claude_max", "rate_limit_tier": "default_claude_max_5x"})
+    assert fetch_usage(Account("c", "claude", str(d))).plan == "max 5x"
+
+
+def test_claude_plan_without_the_profile_falls_back_to_what_claude_code_cached(home, monkeypatch):
+    d = make_claude(home / "c")
+    _plan_profile(monkeypatch, None)
+    assert fetch_usage(Account("c", "claude", str(d))).plan == "max"  # the stored subscriptionType
+    (d / ".claude.json").write_text(json.dumps({"oauthAccount": {
+        "emailAddress": "c@x.com", "organizationType": "claude_free", "organizationRateLimitTier": "default_claude_ai"}}))
+    assert fetch_usage(Account("c", "claude", str(d))).plan == "free"
+
+
+def test_claude_usage_429_waits_for_retry_after_and_still_reports_the_plan(home, monkeypatch):
+    acct = Account("c", "claude", str(make_claude(home / "c")))
+    limited = HTTPStatusError(429, '{"error": {"type": "rate_limit_error"}}', claude.USAGE_URL, {"retry-after": "1231"})
+    calls = _plan_profile(monkeypatch, {"organization_type": "claude_free"}, usage=limited)
+    u = fetch_usage(acct)
+    assert not u.ok and u.plan == "free" and u.email == "c@x.com"
+    assert "next try in 21 min" in u.error
+    u = fetch_usage(acct)  # the next poll leaves the endpoint alone
+    assert not u.ok and u.plan == "free" and calls.count(claude.USAGE_URL) == 1
+    monkeypatch.setattr(claude, "_usage_blocked", {k: time.time() - 1 for k in claude._usage_blocked})
+    _plan_profile(monkeypatch, {"organization_type": "claude_free"})
+    u = fetch_usage(acct)
+    assert u.ok and u.plan == "free" and u.windows[0].used_percent == 10 and not claude._usage_blocked

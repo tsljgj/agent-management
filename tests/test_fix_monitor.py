@@ -97,6 +97,20 @@ def test_claude_failed_fetch_of_another_login_does_not_show_cached_numbers():
     assert m.usages[0].stale and m.usages[0].windows[0].used_percent == 50
 
 
+def test_failed_fetch_that_knows_the_plan_now_does_not_show_the_cached_one():
+    m = fed()
+    m.feed = [claude("w", 30, key="id-a", email="a@x", plan="max 20x", renews_at="2026-09-14T00:00:00+00:00",
+                     renews_kind="start")]
+    m.poll()
+    m.feed = [claude("w", ok=False, key="id-a", plan="free", error="rate limited by the usage endpoint")]
+    m.poll()
+    u = m.usages[0]
+    assert u.stale and u.windows[0].used_percent == 30 and u.plan == "free" and u.renews_at is None
+    m.feed = [claude("w", ok=False, key="id-a", error="HTTP 500")]  # nothing new about the plan: the cached one
+    m.poll()
+    assert m.usages[0].plan == "max 20x"
+
+
 def test_removed_account_state_is_pruned_so_a_reused_name_starts_clean():
     m = fed()
     m.feed = [claude("work", 91, email="old@x"), claude("other", 5), unstarted("cx")]

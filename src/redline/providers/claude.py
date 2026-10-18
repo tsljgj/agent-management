@@ -1,4 +1,4 @@
-"""Claude Code (Pro / Max / Team subscription via OAuth).
+"""Claude Code (Free / Pro / Max / Team claude.ai login via OAuth).
 
 Credentials: $CLAUDE_CONFIG_DIR/.credentials.json (Linux/Windows) or the macOS
 Keychain item "Claude Code-credentials[-<sha256(dir)[:8]>]".
@@ -343,6 +343,12 @@ def parse_usage(doc: dict) -> tuple[list[Window], dict]:
     return windows, extra
 
 
+USAGE_BACKOFF_MAX = 3600
+# The usage endpoint limits each login: a 429 carries Retry-After (about 20 min, seen 2026-10-18 on a
+# Free login). Asking again before then only gets more 429s, so the login is left alone until then.
+_usage_blocked: dict[str, float] = {}  # _profile_key() -> epoch
+
+
 def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
     creds = load_creds(account)
     if creds is None:
@@ -359,6 +365,10 @@ def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
     if not token:
         raise ProviderError("credentials have no access token; log in again")
 
+    key = _profile_key(account, creds)
+    wait = _usage_blocked.get(key, 0) - time.time()
+    if wait > 0:
+        return _unfetched(account, creds, key, _usage_limited(wait))
     try:
         doc = request_json("GET", USAGE_URL, headers=_headers(token))
     except HTTPStatusError as e:
@@ -370,27 +380,75 @@ def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
         elif e.status == 403:
             raise ProviderError("forbidden: token lacks the user:profile scope (re-run `claude /login`)") from None
         elif e.status == 429:
-            raise ProviderError("rate limited by the usage endpoint; poll less often") from None
+            after = _retry_after(e)
+            if after:
+                _usage_blocked[key] = time.time() + min(after, USAGE_BACKOFF_MAX)
+            return _unfetched(account, creds, key, _usage_limited(after))
         else:
             raise
+    _usage_blocked.pop(key, None)
 
     windows, extra = parse_usage(doc)
     email, org = _cached_identity(account)
-    plan = oauth.get("subscriptionType")
-    tier = oauth.get("rateLimitTier") or ""
-    if plan == "max" and "20x" in tier:
-        plan = "max 20x"
-    elif plan == "max" and "5x" in tier:
-        plan = "max 5x"
     prof = _profile(_profile_key(account, creds), creds.oauth["accessToken"], force=email is None)
     if email is None:
         a = prof.get("account") or {}
         email = a.get("email_address") or a.get("email")
+    plan = plan_of(creds.oauth, prof, _oauth_account(account))
     return Usage(
         account=account.name, provider="claude", ok=True,
         email=email, plan=plan, windows=windows, extra=extra,
-        **paid_until(prof),
+        **({} if plan == "free" else paid_until(prof)),
     )
+
+
+def _usage_limited(wait: float | None) -> str:
+    if wait:
+        return f"rate limited by the usage endpoint; next try in {max(1, round(wait / 60))} min"
+    return "rate limited by the usage endpoint; poll less often"
+
+
+def _unfetched(account: Account, creds: Creds, key: str, error: str) -> Usage:
+    """No numbers this time, but whose login it is and its plan still come from the profile endpoint."""
+    email = _cached_identity(account)[0]
+    prof = _profile(key, creds.oauth["accessToken"], force=email is None)
+    if email is None:
+        a = prof.get("account") or {}
+        email = a.get("email_address") or a.get("email")
+    plan = plan_of(creds.oauth, prof, _oauth_account(account))
+    return Usage(
+        account=account.name, provider="claude", ok=False, email=email, plan=plan, error=error,
+        **({} if plan == "free" else paid_until(prof)),
+    )
+
+
+# organization_type -> plan, the way Claude Code maps it (2.1.282); "claude_free" has no subscription
+PLANS = {"claude_max": "max", "claude_pro": "pro", "claude_team": "team", "claude_enterprise": "enterprise"}
+
+
+def plan_of(oauth: dict, prof: dict, cached: dict) -> str | None:
+    """The plan the login is on now: "max 20x", "pro", ..., "free" without a subscription.
+
+    subscriptionType in .credentials.json is the plan on the day of the login (a token refresh doesn't
+    update it): a Max that lapsed to Free kept showing as Max 20x, a Pro upgraded to Max as Pro. The
+    profile says it live; Claude Code's cached oauthAccount comes next, the stored subscriptionType last.
+    """
+    org = prof.get("organization") or {}
+    if org.get("organization_type"):
+        kind, tier = org["organization_type"], org.get("rate_limit_tier")
+    else:
+        kind, tier = cached.get("organizationType"), cached.get("organizationRateLimitTier")
+    if kind == "claude_free":
+        return "free"
+    plan = PLANS.get(kind) if kind else None
+    if plan is None:
+        plan, tier = oauth.get("subscriptionType"), None
+    tier = tier or oauth.get("rateLimitTier") or ""
+    if plan == "max" and "20x" in tier:
+        return "max 20x"
+    if plan == "max" and "5x" in tier:
+        return "max 5x"
+    return plan
 
 
 PROFILE_TTL = 6 * 3600
