@@ -441,3 +441,46 @@ def test_login_mismatch_shows_both_identities_and_blocks_wrong_account_quota_act
   assert.deepEqual(calls, [{action: "login", provider: "codex", name: "expected"}]);
 })();
 """)
+
+
+def test_last_days_of_a_subscription_show_on_the_main_page(run_console_js):
+    run_console_js(r"""
+(() => {
+  const day = n => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() + n); return d.toISOString(); };
+  const ends = (name, n, changes = {}) => usage(name, {plan: "plus", renews_at: day(n), renews_kind: "end", ...changes});
+  DATA = {usages: [], meta: {accounts: {"codex:set": {renews: day(2).slice(0, 10)}}}};
+  assert.match(row(ends("soon", 3), null), /class="renew-soon soon"[^>]*>订阅还剩 3 天</);
+  assert.match(row(ends("week", 6), null), /class="renew-soon "[^>]*>订阅还剩 6 天</);
+  assert.doesNotMatch(row(ends("later", 8), null), /renew-soon/);
+  // a Free plan has nothing to renew, whatever paid-until an old subscription left behind
+  const free = ends("free", 3, {plan: "free"});
+  assert.equal(renewOf(free), null);
+  assert.doesNotMatch(row(free, null), /renew-soon/);
+  // Claude's monthly estimate says so
+  const claude = {...usage("claude", {plan: "max 20x", renews_at: addMonths(new Date(day(5)), -1).toISOString(),
+    renews_kind: "start"}), provider: "claude"};
+  const est = renewParts(renewOf(claude)).days;
+  assert.ok(est <= 7);
+  assert.match(row(claude, null), new RegExp(`title="[^"]*每月续费估算[^"]*">订阅还剩 约 ${est} 天<`));
+  assert.match(row(ends("set", 30), null), /title="[^"]*你设置的日期[^"]*">订阅还剩 2 天</);
+})();
+""")
+
+
+def test_plans_list_claude_and_codex_apart_soonest_first(run_console_js):
+    run_console_js(r"""
+(() => {
+  const day = n => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() + n); return d.toISOString(); };
+  const claude = (name, n, plan) => ({...usage(name, {plan, renews_at: day(n), renews_kind: "end"}), provider: "claude"});
+  DATA = {usages: [], meta: {accounts: {}}};
+  renderPlans([usage("x-free", {plan: "free", renews_at: day(-40), renews_kind: "end"}), claude("c-late", 20, "max 20x"),
+               usage("x-soon", {plan: "plus", renews_at: day(1), renews_kind: "end"}), claude("c-soon", 2, "pro")]);
+  const html = elements["#list"].innerHTML;
+  assert.deepEqual([...html.matchAll(/class="plh">(\w+)|data-name="([^"]+)"/g)].map(m => m[1] || m[2]),
+                   ["CLAUDE", "c-soon", "c-late", "CODEX", "x-soon", "x-free"]);
+  assert.match(html, /class="plh">CLAUDE<span>2<\/span>/);
+  assert.match(html, /data-name="x-free".*?title="free plan: no subscription">–<\/span>/s);
+  renderPlans([usage("only-codex", {plan: "plus"})]);
+  assert.doesNotMatch(elements["#list"].innerHTML, /CLAUDE/);
+})();
+""")

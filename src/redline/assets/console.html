@@ -76,6 +76,9 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .cred{font-size:10px;letter-spacing:.06em;color:var(--acc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .banked{font-size:10px;color:var(--acc);overflow-wrap:anywhere}
 .plan{font-size:10px;color:var(--dim)}
+/* the last days of a subscription (every date is on the PLANS tab) */
+.renew-soon{font-size:10px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.renew-soon.soon{color:var(--warn);font-weight:600}
 /* token expired but the old numbers are still shown: one click renews it (or logs in) */
 .reauth{align-self:flex-start;font-size:10px;letter-spacing:.06em;font-weight:600;color:var(--warn);white-space:nowrap}
 .reauth:hover{color:var(--acc)}
@@ -146,11 +149,12 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 #sortm button:hover{color:var(--fg);background:rgba(0,229,255,.05)}
 #sortm button.on{color:var(--acc)}
 #sortm button.on::before{content:"› "}
-/* plans: every subscription, soonest renewal first */
-.pl{display:grid;grid-template-columns:52px minmax(0,1fr) 64px 118px 58px 34px;align-items:center;gap:10px;min-height:44px;
+/* plans: every subscription, Claude and Codex apart, soonest renewal first in each */
+.plh{display:flex;justify-content:space-between;padding:12px 12px 6px 18px;font-size:10px;letter-spacing:.12em;color:var(--dim);border-bottom:1px solid var(--line)}
+.plh span{color:var(--faint)}
+.pl{display:grid;grid-template-columns:minmax(0,1fr) 64px 118px 58px 34px;align-items:center;gap:10px;min-height:44px;
   padding:0 12px 0 18px;border-bottom:1px solid var(--line);cursor:pointer}
 .pl:hover{background:rgba(0,229,255,.03)}
-.pl i{font-style:normal;font-size:10px;letter-spacing:.12em;color:var(--dim)}
 .pl b{color:#fff;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pl em{font-style:normal;color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pl .dt{white-space:nowrap}
@@ -159,7 +163,7 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .pl.unk .dt,.pl.unk .dl{color:var(--faint)}
 .pl button{color:var(--dim)}.pl button:hover{color:var(--acc)}
 .plnote{padding:12px 18px;color:var(--dim);font-size:11px;line-height:1.7}
-@media (max-width:470px){ .pl{grid-template-columns:44px minmax(0,1fr) 104px 46px 26px;padding-left:14px} .pl em{display:none} }
+@media (max-width:470px){ .pl{grid-template-columns:minmax(0,1fr) 104px 46px 26px;padding-left:14px} .pl em{display:none} }
 .det div{display:grid;grid-template-columns:84px 1fr;gap:8px;min-width:0}
 .det div.wide{grid-column:1/-1}
 .det span{color:var(--dim)}
@@ -459,11 +463,12 @@ function rollForward(anchor) {
   for (let n = 1; n < 1200; n++) { const d = addMonths(anchor, n); if (d.getTime() > now) return d; }
   return null;
 }
+const isFree = u => typeof u.plan === "string" && u.plan.trim().toLowerCase() === "free";
 function renewOf(u) {
   if (identityMismatch(u)) return null;
   const info = infoOf(u);
   if (info.renews) return {at: rollForward(new Date(info.renews + "T00:00:00")), est: false, set: true};
-  if (!u.renews_at) return null;
+  if (!u.renews_at || isFree(u)) return null;   // a Free plan renews nothing (an old paid-until would roll on)
   const a = new Date(u.renews_at);
   if (isNaN(a)) return null;
   if (u.renews_kind === "end" && a.getTime() > Date.now()) return {at: a, est: false};
@@ -478,6 +483,14 @@ function renewParts(r) {
     left: days <= 0 ? "today" : days === 1 ? "1 day" : `${days} days`,
     cls: days <= 3 ? "soon" : "", days,
   };
+}
+const RENEW_SOON_DAYS = 7;   // from here on the main page counts the subscription's last days down
+function renewTag(u) {
+  const r = renewOf(u), p = renewParts(r);
+  if (p.days == null || p.days > RENEW_SOON_DAYS) return "";
+  const src = r.set ? "你设置的日期" : r.est ? "按订阅开始日每月续费估算" : `${u.provider === "codex" ? "Codex" : "Claude"} 报告`;
+  const text = p.days <= 0 ? "订阅今天到期" : `订阅还剩 ${r.est ? "约 " : ""}${p.days} 天`;
+  return `<div class="renew-soon ${p.cls}" title="${esc(`订阅到期：${p.date}（${src}）· 全部日期见 PLANS`)}">${esc(text)}</div>`;
 }
 const base = p => (p || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 const since = s => s < 86400 ? ago(s) : Math.floor(s / 86400) + "d";
@@ -547,7 +560,7 @@ function row(u, bestName) {
   const tip2 = [live.length ? "● running in " + live.map(p => base(p.path)).join(", ") : "", tip]
     .filter(Boolean).join(" · ");
   const banked = bankedResetText(u);
-  const quotaTags = mismatch ? "" : (u.plan === "free" ? `<div class="plan">Free</div>` : "") + rateTag(u) + credTag(u)
+  const quotaTags = mismatch ? "" : (u.plan === "free" ? `<div class="plan">Free</div>` : "") + renewTag(u) + rateTag(u) + credTag(u)
     + (banked ? `<div class="banked">Banked resets: ${esc(banked)}${bankedResetCredits(u).length ? " · 到期详情 ↓" : ""}</div>` : "");
   return `<div class="acct${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}${open ? " open" : ""}${flags}" data-name="${n}"><span class="ch">${open ? "▴" : "▾"}</span>
     <div class="who"><div class="nm" title="${esc(tip2)} · double-click to rename">${n}</div>${quotaTags}${reauthTag(u)}${weeklyTag(u)}</div>${body}
@@ -719,17 +732,21 @@ function render() {
   tick();
   if (typeof fitHeight === "function") requestAnimationFrame(fitHeight);
 }
+function planRow(u) {
+  const r = renewOf(u), p = renewParts(r), gone = p.days != null && p.days <= 0;
+  const free = !r && !identityMismatch(u) && isFree(u);
+  return `<div class="pl ${r ? "" : "unk"}" data-prov="${esc(u.provider)}" data-name="${esc(u.account)}" title="open in ${esc(u.provider)}">`
+    + `<b>${esc(u.account)}</b><em>${esc(identityMismatch(u) ? "登录账号不符" : u.plan || "")}</em>`
+    + `<span class="dt ${gone ? "gone" : p.cls}" title="${free ? "free plan: no subscription" : r && r.est ? "estimated from the subscription start (monthly)" : r && r.set ? "set by you" : r ? "reported by " + esc(u.provider) : "not reported · ✎ to set it"}">${free ? "–" : esc(p.date)}</span>`
+    + `<span class="dl ${gone ? "gone" : p.cls}">${esc(p.left)}</span>`
+    + `<button data-act="renew" title="set the real renewal/end date">✎</button></div>`;
+}
 function renderPlans(us) {
-  const list = us.map((u, i) => [renewTime(u), i, u]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
-  $("#list").innerHTML = !list.length ? `<div class="empty">${DATA.fetched_at ? "no accounts" : "…"}</div>`
-    : list.map(u => {
-        const r = renewOf(u), p = renewParts(r), gone = p.days != null && p.days <= 0;
-        return `<div class="pl ${r ? "" : "unk"}" data-prov="${esc(u.provider)}" data-name="${esc(u.account)}" title="open in ${esc(u.provider)}">`
-          + `<i>${u.provider === "codex" ? "CODEX" : "CLAUDE"}</i><b>${esc(u.account)}</b><em>${esc(identityMismatch(u) ? "登录账号不符" : u.plan || "")}</em>`
-          + `<span class="dt ${gone ? "gone" : p.cls}" title="${r && r.est ? "estimated from the subscription start (monthly)" : r && r.set ? "set by you" : r ? "reported by " + esc(u.provider) : "not reported · ✎ to set it"}">${esc(p.date)}</span>`
-          + `<span class="dl ${gone ? "gone" : p.cls}">${esc(p.left)}</span>`
-          + `<button data-act="renew" title="set the real renewal/end date">✎</button></div>`;
-      }).join("")
+  const groups = ["claude", "codex"].map(prov => [prov, us.filter(u => u.provider === prov)
+    .map((u, i) => [renewTime(u), i, u]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2])]).filter(([, list]) => list.length);
+  $("#list").innerHTML = !groups.length ? `<div class="empty">${DATA.fetched_at ? "no accounts" : "…"}</div>`
+    : groups.map(([prov, list]) => `<div class="plh">${prov === "codex" ? "CODEX" : "CLAUDE"}<span>${list.length}</span></div>`
+        + list.map(planRow).join("")).join("")
       + `<div class="plnote">~ estimated: Claude only reports when a subscription started, so this assumes monthly renewals on that day.<br>`
       + `✎ or <code>renew &lt;name&gt; YYYY-MM-DD</code> sets the real date (<code>renew &lt;name&gt; -</code> undoes it).</div>`;
   if (typeof fitHeight === "function") requestAnimationFrame(fitHeight);
@@ -861,7 +878,7 @@ function toast(text, kind = "") {
 const HELP = [
   ["claude | codex", "switch tab (Alt+1/2)"], ["add", "open the + panel"], ["add <name>", "new account, then log in"],
   ["login <name>", "log in via its Chrome"], ["wake", "log in / refresh this tab"], ["web <name>", "open its web page"],
-  ["jack <name>", "terminal as <name>"], ["use <name>", "◆ make it the login VS Code uses"], ["code <name> <folder>", "VS Code window as <name>"], ["plans", "subscriptions, soonest renewal first"], ["renew <name> <date>", "set when a subscription renews/ends (- = auto)"], ["d | details", "expand all rows (or click one)"], ["sort [default|weekly|headroom|name|renews]", "row order"], ["fit", "auto-size the window again"], ["log", "open the log file (send it when reporting a bug)"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
+  ["jack <name>", "terminal as <name>"], ["use <name>", "◆ make it the login VS Code uses"], ["code <name> <folder>", "VS Code window as <name>"], ["plans", "subscriptions, Claude and Codex apart, soonest renewal first"], ["renew <name> <date>", "set when a subscription renews/ends (- = auto)"], ["d | details", "expand all rows (or click one)"], ["sort [default|weekly|headroom|name|renews]", "row order"], ["fit", "auto-size the window again"], ["log", "open the log file (send it when reporting a bug)"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
   ["scan [all]", "find logins on this PC"], ["bind <name> <email>", "pin a Chrome profile"], ["ls | r | update | clear", ""],
 ];
 const COMMANDS = ["help","claude","codex","details","add","login","wake","web","jack","use","code","rename","rm","restore","removed","scan","bind","profiles","ls","sync","update","clear","hide"];
