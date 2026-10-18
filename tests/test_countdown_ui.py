@@ -302,7 +302,7 @@ def test_free_accounts_show_reported_main_windows_and_honest_missing_window_stat
   const free = (name, windows) => usage(name, {plan: "free", windows,
     weekly_countdown: {state: "unavailable", message: "no weekly limit"}});
   const weekly = free("weekly", [{name: "7d", used_percent: 17, resets_at: future(100)}]);
-  assert.match(row(weekly, null), /class="plan">Free/);
+  assert.match(row(weekly, null), /class="slot"><div class="plan">FREE</);
   assert.match(quotaMeters(weekly), /^<div class="m none"><\/div><div class="m"/);
   assert.match(quotaMeters(weekly), /class="k">7d<.*class="v">17%/s);
   for (const name of ["1d", "primary", "secondary"]) {
@@ -346,7 +346,7 @@ def test_banked_reset_expirations_are_individual_and_update_without_a_poll(run_c
   assert.match(html, /已到期/);
   assert.match(html, /另有 1 次未返回到期明细/);
   assert.doesNotMatch(html, /<img/);
-  assert.match(row(u, null), />↺ 4<\/div>/);
+  assert.match(row(u, null), />↺ 4 <b class="sub mid">[23]d<\/b><\/div>/);   // the first still to expire, in 49 h
   assert.match(bankedExpiryText(soon), /不足 1 分钟/);
   assert.equal(bankedExpiryText("not a date"), "到期时间未知");
   const el = {dataset: {expiry}, textContent: ""};
@@ -390,7 +390,7 @@ def test_banked_resets_are_separate_from_credits_and_preserve_zero_and_partial_c
   const html = row(counted, null), detail = details(counted);
   assert.match(html, /class="banked"[^>]*>↺ 3<\/div>/);
   assert.match(html, /class="cred"[^>]*>5 cr<\/div>/);
-  assert.match(html, /class="dial"><div class="rate.*class="dial-values"><div class="cred".*class="banked"/s);
+  assert.match(html, /class="dial"><div class="rate[^]*<div class="slot"><div class="banked"[^]*<div class="slot"><\/div><div class="cred"/);
   assert.match(detail, /<span>Banked resets<\/span>/);
   assert.match(detail, />3 次<\/b>/);
   assert.doesNotMatch(html, /\[object Object\]|banked_resets|当前适用|到期详情 ↓/);
@@ -501,11 +501,50 @@ def test_free_claude_without_claude_code_offers_no_login_or_wake(run_console_js)
     provider: "claude"};
   assert.equal(reauth(u), false);
   const html = row(u, null);
-  assert.match(html, /class="plan">Free/);
+  assert.match(html, /class="slot"><div class="plan">FREE</);
   assert.match(html, />不含 Claude Code</);
   assert.match(html, /data-act="web"/);
   assert.doesNotMatch(html, /data-act="(login|wake1)"|retry/);
   DATA.usages = [u]; TAB = "claude"; render();
   assert.equal(elements["#wake"].textContent, "⚡");
+})();
+""")
+
+
+def test_everything_under_the_name_sits_in_the_same_slots_whatever_the_state(run_console_js):
+    run_console_js(r"""
+(() => {
+  const day = n => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() + n); return d.toISOString(); };
+  const slots = html => [...html.matchAll(/<div class="(rate[^"]*|slot|cred)"/g)].map(m => m[1].split(" ")[0]);
+  DATA = {usages: [], meta: {accounts: {}}};
+  const claude = changes => ({...usage("c", {plan: "max 20x", weekly_countdown: null, ...changes}), provider: "claude"});
+  // with or without a gauge, a SUB, a level: one gauge slot, then one SUB slot
+  for (const u of [claude({rate: {level: "high", pace: 2, per_hour: 30, window: "5h"}, renews_at: day(2), renews_kind: "end"}),
+                   claude({}), claude({plan: "free", ok: false, windows: [], error: "Claude Code is not included in this plan"}),
+                   claude({ok: false, windows: [], error: "not logged in"})])
+    assert.deepEqual(slots(row(u, null)), ["rate", "slot"]);
+  // Codex: gauge, banked resets, SUB / FREE, then the credits (the one slot of free width)
+  const codex = changes => usage("x", {plan: "plus", ...changes});
+  for (const u of [codex({extra: {credits: "5", banked_resets: {available: 1}}, renews_at: day(3), renews_kind: "end"}),
+                   codex({plan: "free"}), codex({extra: {credits: "12345.67"}})])
+    assert.match(slots(row(u, null)).join(" "), /^rate slot slot( cred)?$/);
+  assert.match(row(codex({plan: "free"}), null), /<div class="slot"><\/div><div class="slot"><div class="plan">FREE</);
+  // a banked reset in its last week is counted down too, coloured like SUB
+  const resets = days => codex({extra: {banked_resets: {available: 2, credits: [{expires_at: day(days)}, {expires_at: day(20)}]}}});
+  assert.match(bankedTag(resets(6)), />↺ 2 <b class="sub ">6d<\/b>/);
+  assert.match(bankedTag(resets(1)), />↺ 2 <b class="sub high">1d<\/b>/);
+  assert.doesNotMatch(bankedTag(resets(10)), /<b/);
+})();
+""")
+
+
+def test_long_windows_line_up_under_7d(run_console_js):
+    run_console_js(r"""
+(() => {
+  const free = usage("free", {plan: "free", windows: [{name: "30d", used_percent: 5, resets_at: future(500)}]});
+  assert.match(quotaMeters(free), /^<div class="m none"><\/div><div class="m"[^>]*><span class="k">30d</);
+  const short = usage("short", {windows: [{name: "3h", used_percent: 5, resets_at: future(2)}]});
+  assert.match(quotaMeters(short), /^<div class="m"[^>]*><span class="k">3h<.*<div class="m none"><\/div>$/s);
+  assert.doesNotMatch(quotaMeters(free), /class="m alt"/);   // same label width as 5h / 7d
 })();
 """)

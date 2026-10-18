@@ -76,14 +76,16 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 /* extra credits on top of the plan (Codex): usable once the windows run out */
 .cred{font-size:10px;letter-spacing:.06em;color:var(--acc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .banked{font-size:10px;color:var(--acc);white-space:nowrap}
-.codex .dial{align-items:center;flex-wrap:nowrap;gap:10px}
-.dial-values{display:flex;align-items:center;flex-wrap:wrap;gap:3px 10px;min-width:0}
-.codex .dial .rate,.dial-values .banked{flex:none}
-.dial-values .cred{min-width:0;letter-spacing:0}
 .codex .rate b,.codex .rate span{display:none}
-.plan{font-size:10px;color:var(--dim)}
-/* the last days of a subscription (every date is on the PLANS tab) */
-.dial{display:flex;align-items:flex-end;flex-wrap:wrap;gap:3px 16px;min-width:0}
+.plan{font-size:10px;letter-spacing:.08em;color:var(--dim)}
+/* under the name, in fixed slots so every row lines up whatever its state: the gauge (and level),
+   [Codex: banked resets], the subscription's last days or FREE, [Codex: credits, the only free width] */
+.dial{display:flex;align-items:flex-end;flex-wrap:wrap;gap:3px 10px;min-width:0;min-height:21px}
+.dial>*{flex:none}
+.dial .rate{width:86px}.codex .dial .rate{width:38px}
+.dial .slot{width:52px;overflow:hidden}
+.dial .cred{flex:0 1 auto;min-width:0;letter-spacing:0}
+/* days left, coloured like the gauge: green, amber from 3 days, red from 1 */
 .sub{--c:var(--ok);font-size:10px;letter-spacing:.08em;font-weight:600;color:var(--c);text-shadow:0 0 6px var(--c);white-space:nowrap}
 .sub.mid{--c:var(--warn)}.sub.high{--c:var(--red)}
 /* token expired but the old numbers are still shown: one click renews it (or logs in) */
@@ -116,7 +118,8 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .det .prj button:hover{color:var(--acc)}
 .det b.acc{color:var(--acc)}
 /* meter: label · bar · % on one line, "↻ time to reset" right under its own bar */
-.m{display:grid;grid-template-columns:18px 1fr 40px;align-items:center;gap:4px 8px}
+/* one label width for 5h / 7d / 30d, so the bars start in line; only a long name (primary) widens it */
+.m{display:grid;grid-template-columns:22px 1fr 40px;align-items:center;gap:4px 8px}
 .m.alt{grid-template-columns:auto 1fr 40px}
 .m .t{grid-column:2/4;color:var(--dim);font-size:10.5px;white-space:nowrap;line-height:1}
 .m .t.urgent{color:var(--acc)}
@@ -226,7 +229,7 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 @media (max-width:440px){          /* two-line rows: name, then both meters */
   .acct,.acct.codex{grid-template-columns:1fr 1fr;grid-template-rows:none;height:auto;padding:9px 14px 10px;gap:6px 22px}
   .acct .who{grid-column:1/-1;flex-direction:row;align-items:baseline;gap:10px;flex-wrap:wrap}.need{grid-column:1/-1}
-  .rate span{display:inline}
+  .rate span{display:inline}.dial .rate{width:auto}
   .codex .dial{flex-basis:100%}
 }
 @media (max-height:300px){ .prompt{display:none} .logopen #log{max-height:90px} }
@@ -364,7 +367,7 @@ function meter(w, label, weekly = null) {
   const urgent = label === "7d" && l != null && l < 36 * 3600 && (p ?? 100) < 80;
   const idle = weekly && weekly.state === "unstarted" ? "待启动" : weekly && weekly.state === "unknown" ? "待确认" : resetText(l);
   const t = `<span class="t${urgent ? " urgent" : ""}" data-reset="${esc(w.resets_at || "")}">${l == null ? idle : resetText(l)}</span>`;
-  const cls = ["5h", "7d"].includes(label) ? "" : " alt";
+  const cls = label.length > 3 ? " alt" : "";
   if (spent(p)) return `<div class="m max${cls}" title="${esc(tip)}"><span class="k">${esc(label)}</span><div class="bar"></div><span class="v">MAX</span>${t}</div>`;
   const width = p == null ? 0 : Math.min(100, Math.max(0, p));
   return `<div class="m${cls}" style="--c:${lvl(p)}" title="${esc(tip)}"><span class="k">${esc(label)}</span>
@@ -408,7 +411,11 @@ function quotaMeters(u) {
   if (!main.length) return `<div class="need"><span>未返回额度窗口</span></div>`;
   const slots = [main.find(w => w.name === "5h"), main.find(w => w.name === "7d")];
   const other = main.filter(w => !["5h", "7d"].includes(w.name));
-  for (let i = 0; i < slots.length; i++) if (!slots[i]) slots[i] = other.shift();
+  for (const w of other) {   // a window of a day or more goes under 7d, a shorter one under 5h
+    const want = /d$/.test(w.name) || w.name === "secondary" ? 1 : 0;
+    const at = !slots[want] ? want : !slots[1 - want] ? 1 - want : -1;
+    if (at >= 0) slots[at] = w;
+  }
   return slots.map((w, i) => meter(w, w?.name || (i ? "7d" : "5h"), w?.name === "7d" ? weeklyOf(u) : null)).join("");
 }
 const accountKey = u => `${u.provider}:${u.account}`;
@@ -498,8 +505,8 @@ function renewTag(u) {
   const r = renewOf(u), p = renewParts(r);
   if (p.days == null || p.days > RENEW_SOON_DAYS) return "";
   const src = r.set ? "你设置的日期" : r.est ? "按订阅开始日每月续费估算" : `${u.provider === "codex" ? "Codex" : "Claude"} 报告`;
-  const d = Math.max(0, p.days), level = d <= 1 ? "high" : d <= 3 ? "mid" : "";   // the gauge's colours
-  return `<div class="sub ${level}" title="${esc(`订阅到期 ${p.date}（${src}）`)}">SUB ${r.est ? "~" : ""}${d}d</div>`;
+  const d = Math.max(0, p.days);
+  return `<div class="sub ${dayLevel(d)}" title="${esc(`订阅到期 ${p.date}（${src}）`)}">SUB ${r.est ? "~" : ""}${d}d</div>`;
 }
 const base = p => (p || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 const since = s => s < 86400 ? ago(s) : Math.floor(s / 86400) + "d";
@@ -539,11 +546,13 @@ function rateTag(u) {
     : `${r.window} window filling at ${r.per_hour}%/h over the last 30 min`;
   return `<div class="rate ${esc(r.level)}" title="${esc(tip)}">${gauge(r.pace)}<b>${esc(r.level)}</b>${r.level === "idle" ? "" : `<span> · ${r.per_hour}%/h</span>`}</div>`;
 }
-// Compact balances and subscription days sit to the right of the gauge.
+const dayLevel = d => d <= 1 ? "high" : d <= 3 ? "mid" : "";   // the gauge's colours
+// The same fixed slots in every row (empty ones too), so nothing shifts when an account's state does.
 function dial(u) {
-  const values = (u.provider === "codex" ? credTag(u) + bankedTag(u) : "") + renewTag(u);
-  const parts = rateTag(u) + (values ? `<div class="dial-values">${values}</div>` : "");
-  return parts ? `<div class="dial">${parts}</div>` : "";
+  const gauge = rateTag(u) || `<div class="rate"></div>`;
+  const sub = renewTag(u) || (isFree(u) ? `<div class="plan">FREE</div>` : "");
+  const slots = (u.provider === "codex" ? [bankedTag(u), sub] : [sub]).map(s => `<div class="slot">${s}</div>`).join("");
+  return `<div class="dial">${gauge}${slots}${u.provider === "codex" ? credTag(u) : ""}</div>`;
 }
 function reauthTag(u) {
   if (identityMismatch(u) || !lapsed(u)) return "";
@@ -563,7 +572,13 @@ function bankedTag(u) {
   const text = bankedResetText(u);
   if (!text) return "";
   const count = (u.extra || {}).banked_resets.available;
-  return `<div class="banked" title="${esc(`Banked resets: ${text}`)}" aria-label="${esc(`Banked resets: ${text}`)}">↺ ${Number.isFinite(count) ? count : "?"}</div>`;
+  // the first one still to expire, counted down like a subscription in its last week
+  const first = bankedResetCredits(u).map(c => new Date(c.expires_at || NaN)).filter(d => d.getTime() > Date.now())
+    .sort((a, b) => a - b)[0];
+  const p = first ? renewParts({at: first}) : null, soon = p && p.days <= RENEW_SOON_DAYS;
+  const tip = `Banked resets: ${text}` + (p ? ` · 最早 ${p.date} 到期` : "");
+  return `<div class="banked" title="${esc(tip)}" aria-label="${esc(tip)}">↺ ${Number.isFinite(count) ? count : "?"}`
+    + (soon ? ` <b class="sub ${dayLevel(Math.max(0, p.days))}">${Math.max(0, p.days)}d</b>` : "") + `</div>`;
 }
 function row(u, bestName) {
   const n = esc(u.account);
@@ -586,7 +601,7 @@ function row(u, bestName) {
   const flags = (live.length ? " live" : "") + (["unstarted", "unknown"].includes(weekly?.state) ? " weekly-attention" : "");
   const tip2 = [live.length ? "● running in " + live.map(p => base(p.path)).join(", ") : "", tip]
     .filter(Boolean).join(" · ");
-  const quotaTags = mismatch ? "" : (u.plan === "free" ? `<div class="plan">Free</div>` : "") + dial(u) + (u.provider === "codex" ? "" : credTag(u));
+  const quotaTags = mismatch ? "" : dial(u) + (u.provider === "codex" ? "" : credTag(u));
   return `<div class="acct${u.provider === "codex" ? " codex" : ""}${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}${open ? " open" : ""}${flags}" data-name="${n}"><span class="ch">${open ? "▴" : "▾"}</span>
     <div class="who"><div class="nm" title="${esc(tip2)} · double-click to rename">${n}</div>${quotaTags}${reauthTag(u)}${weeklyTag(u)}</div>${body}
     ${details(u)}</div>`;
