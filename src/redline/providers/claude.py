@@ -459,6 +459,24 @@ def plan_of(oauth: dict, prof: dict, cached: dict) -> str | None:
     return plan
 
 
+def org_uuid(account: Account) -> str | None:
+    """The claude.ai organization of the login in this home, live from the profile endpoint
+    (Claude Code's cached copy if that can't be reached). Used to tell whose Console session it is."""
+    creds = load_creds(account)
+    if creds is None or not creds.oauth.get("accessToken"):
+        raise ProviderError("not logged in")
+    try:
+        if creds.expired:
+            refresh(creds, manual=True)
+        prof = request_json("GET", PROFILE_URL, headers=_headers(creds.oauth["accessToken"])) or {}
+        uuid = (prof.get("organization") or {}).get("uuid")
+    except ProviderError:
+        uuid = None
+    if not (isinstance(uuid, str) and uuid):
+        uuid = _oauth_account(account).get("organizationUuid")
+    return uuid if isinstance(uuid, str) and uuid else None
+
+
 PROFILE_TTL = 6 * 3600
 _profiles: dict[str, tuple[float, dict]] = {}  # login -> (fetched, profile); it hardly ever changes
 

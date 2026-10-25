@@ -55,6 +55,49 @@ def _pct_color(p: float | None) -> str:
     return "32"  # green
 
 
+def _usd(v: float | None) -> str:
+    return "$?" if v is None else f"${v:,.2f}"
+
+
+def _can_print(stream, text: str) -> bool:
+    try:
+        text.encode(getattr(stream, "encoding", None) or "utf-8")
+        return True
+    except (UnicodeEncodeError, LookupError):
+        return False
+
+
+def credit_line(c: dict | None, now: datetime | None = None, name: str = "", arrow: str = "↻") -> str | None:
+    """`API credit  $0.01 / $200.00 · $199.99 left · ↻ 11-21 27d` (None when no Console is connected)."""
+    if not isinstance(c, dict):
+        return None
+    now = now or datetime.now(timezone.utc)
+    state = c.get("state")
+    exp = None
+    if isinstance(c.get("expires_at"), str):
+        try:
+            exp = datetime.fromisoformat(c["expires_at"])
+            exp = exp if exp.tzinfo else exp.replace(tzinfo=timezone.utc)
+        except ValueError:
+            exp = None
+    if state == "none" or (exp is not None and exp <= now):  # this month's credit isn't there (or lapsed)
+        text = "–"
+    else:
+        granted, remaining = c.get("granted"), c.get("remaining")
+        used = round(granted - remaining, 2) if granted is not None and remaining is not None else None
+        text = f"{_usd(used)} / {_usd(granted)} · {_usd(remaining)} left"
+        if exp is not None:
+            secs = (exp - now).total_seconds()
+            days = int(secs // 86400)
+            left = f"{days}d" if days else f"{int(secs // 3600)}h" if secs >= 3600 else f"{max(1, int(secs // 60))}m"
+            text += f" · {arrow} {exp.astimezone():%m-%d} {left}"
+    if state == "reconnect":
+        text += (" · reconnect: redline console " + name) if name else " · reconnect"
+    elif state == "stale":
+        text += " · stale"
+    return f"API credit  {text}"
+
+
 def render_table(usages: list[Usage], stream=None) -> str:
     stream = stream or sys.stdout
     color = _color_enabled(stream)
@@ -95,5 +138,8 @@ def render_table(usages: list[Usage], stream=None) -> str:
                     lines.append(f"      Expiry details unavailable for {note}; refresh to retry.")
                 continue
             lines.append(f"    {_c(k + ':', '2', color)} {v}")
+        credit = credit_line(u.credit, name=u.account, arrow="↻" if _can_print(stream, "↻") else "->")
+        if credit:
+            lines.append("    " + credit)
         lines.append("")
     return "\n".join(lines)

@@ -76,6 +76,10 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 /* extra credits on top of the plan (Codex): usable once the windows run out */
 .cred{font-size:10px;letter-spacing:.06em;color:var(--acc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .banked{font-size:10px;color:var(--acc);white-space:nowrap}
+/* the plan's monthly API credit (Claude Max / Team): whole dollars left, coloured like the meters as it
+   runs low (amber at 30% left, red at 10%); cyan = most of it left and it lapses within 3 days */
+.usd{--c:var(--ok);color:var(--c);letter-spacing:.06em}
+.usd.mid{--c:var(--warn)}.usd.high{--c:var(--red)}.usd.urgent{--c:var(--acc)}.usd.old{opacity:.45}
 .codex .rate b,.codex .rate span{display:none}
 .plan{font-size:10px;letter-spacing:.08em;color:var(--dim)}
 /* under the name, in fixed slots so every row lines up whatever its state: the gauge (and level),
@@ -84,6 +88,7 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .dial>*{flex:none}
 .dial .rate{width:86px}.codex .dial .rate{width:38px}
 .dial .slot{width:60px;overflow:hidden}   /* fits SUB ~28d */
+.dial .slot.cr{width:34px}                /* fits $200 */
 .dial .cred{flex:0 1 auto;min-width:0;letter-spacing:0}
 /* days left: grey beyond a week, then coloured like the gauge: green, amber from 3 days, red from 1 */
 .sub{--c:var(--ok);font-size:10px;letter-spacing:.08em;font-weight:600;color:var(--c);text-shadow:0 0 6px var(--c);white-space:nowrap}
@@ -553,8 +558,55 @@ const dayLevel = d => d <= 1 ? "high" : d <= 3 ? "mid" : d <= RENEW_SOON_DAYS ? 
 function dial(u) {
   const gauge = rateTag(u) || `<div class="rate"></div>`;
   const sub = renewTag(u) || (isFree(u) ? `<div class="plan">FREE</div>` : "");
-  const slots = (u.provider === "codex" ? [bankedTag(u), sub] : [sub]).map(s => `<div class="slot">${s}</div>`).join("");
+  const slots = (u.provider === "codex" ? [bankedTag(u), sub] : [sub]).map(s => `<div class="slot">${s}</div>`).join("")
+    + (u.provider === "claude" && creditSlot() ? `<div class="slot cr">${creditTag(u)}</div>` : "");
   return `<div class="dial">${gauge}${slots}${u.provider === "codex" ? credTag(u) : ""}</div>`;
+}
+/* the plan's monthly API credit, read from its Console org (Claude Max / Team) */
+const CREDIT_MID = 30, CREDIT_HIGH = 10, CREDIT_USE_DAYS = 3;   // % left: amber, red · days: use it or lose it
+const paidClaude = u => u.provider === "claude" && /^(max|team)\b/i.test(String(u.plan || "").trim());
+function creditOf(u) {
+  const c = u.credit;
+  if (u.provider !== "claude" || !c || typeof c !== "object" || identityMismatch(u)) return null;
+  const l = left(c.expires_at);
+  return {...c, l, live: c.state !== "none" && !(l != null && l <= 0)};   // no rollover: a lapsed one is gone
+}
+function creditLevel(c) {
+  if (!c || !c.live || c.remaining == null || !(c.granted > 0)) return "";
+  const share = c.remaining / c.granted * 100;
+  if (share <= CREDIT_HIGH) return "high";
+  if (share >= 20 && c.l != null && c.l < CREDIT_USE_DAYS * 86400) return "urgent";
+  return share <= CREDIT_MID ? "mid" : "";
+}
+const usd = v => v == null ? "$?" : "$" + Math.max(0, v).toFixed(2);
+const creditDate = iso => { const d = new Date(iso); return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+const creditLeft = iso => { const l = left(iso); return `↻ ${creditDate(iso)} ${l >= 86400 ? span(l).split(" ")[0] : span(l)}`; };
+function creditTag(u) {
+  const c = creditOf(u);
+  if (!c || !c.live) return "";
+  const date = c.expires_at ? new Date(c.expires_at).toLocaleDateString(undefined, {year: "numeric", month: "short", day: "numeric"}) : "未知";
+  const tip = `API credit · ${date} 到期` + (c.state === "reconnect" ? " · 需重新连接" : c.state === "stale" ? " · 未更新" : "");
+  return `<div class="cred usd ${creditLevel(c)}${c.state === "ok" ? "" : " old"}" title="${esc(tip)}">`
+    + `$${c.remaining == null ? "?" : Math.floor(c.remaining + 1e-9)}</div>`;
+}
+// a slot in every Claude row once any account on the page has a credit, so the rows stay in line
+const creditSlot = () => (DATA.usages || []).some(x => creditOf(x)?.live);
+function creditDetail(u) {
+  const c = creditOf(u);
+  if (u.provider !== "claude" || identityMismatch(u) || (!c && !paidClaude(u))) return "";
+  const button = paidClaude(u) && (!c || c.state === "reconnect")
+    ? `<button class="act" data-act="console">${c ? "重新连接" : "连接 Console"}</button>` : "";
+  let value = `<b>–</b>`;
+  if (c && c.live) {
+    const lv = creditLevel(c), cls = {high: "red", mid: "warn", urgent: "acc"}[lv] || "";
+    const used = c.granted != null && c.remaining != null ? c.granted - c.remaining : null;
+    const text = `${usd(used)} / ${usd(c.granted)} · ${usd(c.remaining)} left`;
+    const tip = c.state === "reconnect" ? "需重新连接" : c.state === "stale" ? "未更新" : "";
+    value = c.expires_at
+      ? `<b class="${cls}" title="${esc(tip)}" data-credit="${esc(c.expires_at)}" data-text="${esc(text)}">${esc(text + " · " + creditLeft(c.expires_at))}</b>`
+      : `<b class="${cls}" title="${esc(tip)}">${esc(text)}</b>`;
+  }
+  return `<div class="wide"><span>API credit</span><div class="prj">${value}${button}</div></div>`;
 }
 function reauthTag(u) {
   if (identityMismatch(u) || !lapsed(u)) return "";
@@ -653,6 +705,7 @@ function details(u) {
         + `<b class="${p.cls ? "warn" : ""}" title="${r && r.est ? "estimate: the subscription start rolled forward by months (" + esc(u.provider) + " doesn't report the end date)" : r && r.set ? "set by you" : ""}">`
         + `${esc(p.date)}${p.days != null ? " · in " + esc(p.left) : ""}</b>`
         + `<button data-act="renew" title="set the real renewal/end date">✎ set</button></div></div>`); }
+    rows.push(creditDetail(u));
   }
   if (info.profile) rows.push(kv("chrome", info.profile.name));
   if (!u.ok) rows.push(kv("error", u.error || "", "red"));
@@ -829,6 +882,7 @@ const accountTab = () => store.get("redline.acctab", "claude") === "codex" ? "co
 function tick() {
   document.querySelectorAll("[data-reset]").forEach(el => { if (el.dataset.reset) el.textContent = resetText(left(el.dataset.reset)); });
   document.querySelectorAll("[data-expiry]").forEach(el => { el.textContent = bankedExpiryText(el.dataset.expiry); });
+  document.querySelectorAll("[data-credit]").forEach(el => { el.textContent = el.dataset.text + " · " + creditLeft(el.dataset.credit); });
   const a = $("#age");
   if (!DATA.fetched_at) return;
   const s = Date.now() / 1000 - DATA.fetched_at, at = new Date(DATA.fetched_at * 1000);
@@ -1069,6 +1123,7 @@ $("#list").addEventListener("click", e => {
   if (b.dataset.act === "retry") { toast("syncing…"); return pull(true); }
   if (b.dataset.act === "wake1") return action({action: "wake", names: [name]});  // renew first, log in only if that fails
   if (b.dataset.act === "code") return action({action: "code", name, path: b.dataset.path}, true);
+  if (b.dataset.act === "console") return action({action: "console-connect", provider: "claude", name});
   if (b.dataset.act === "use") return action({action: "use", name}).then(ok => ok && setTimeout(() => pull(false), 800));
   if (b.dataset.act === "start-countdown") {
     if (b.disabled) return;

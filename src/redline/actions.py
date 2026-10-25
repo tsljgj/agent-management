@@ -625,6 +625,12 @@ def dispatch(action: str, args: dict) -> str:
         return launch(args.get("name", ""), prov)
     if action in ("use", "default"):
         return make_default(args.get("name", ""), prov)
+    if action == "console-connect":
+        from .console_signin import start
+
+        if args.get("log") is None:
+            raise ActionError("console-connect needs a log sink")
+        return start(get_account(args.get("name", ""), prov or "claude"), args["log"], on_done=args.get("on_done"))
     if action == "renew":
         return set_renews(args.get("name", ""), args.get("date", ""), prov)
     if action == "code":

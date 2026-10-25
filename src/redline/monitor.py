@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from .config import load_accounts, redline_home
+from .credit import carry as carry_credit
 from .models import Usage, Window, weekly_countdown
 
 DEFAULT_THRESHOLDS = (80, 95)
@@ -346,10 +347,13 @@ class Monitor:
 
     def _with_last_good(self, u: Usage) -> Usage:
         """Keep showing an account's last good numbers when a fetch fails (429, offline, expired...)."""
+        prev = self._last_ok.get((u.provider, u.account))
+        if prev is not None and not _identity_changed(prev, u) and (u.identity_key or not prev.identity_key):
+            # the API credit is read on its own: a failed read keeps the last amounts (marked stale)
+            u.credit = carry_credit(u.credit, prev.credit)
         if u.ok:
             self._last_ok[(u.provider, u.account)] = u
             return u
-        prev = self._last_ok.get((u.provider, u.account))
         if prev is None or not prev.windows:
             return u
         if _identity_changed(prev, u) or u.provider == "codex" and not (u.identity_key and prev.identity_key):
@@ -365,7 +369,7 @@ class Monitor:
             account=u.account, provider=u.provider, ok=False, email=prev.email, plan=now.plan,
             windows=prev.windows, extra=prev.extra, error=u.error, fetched_at=prev.fetched_at, stale=True,
             renews_at=now.renews_at, renews_kind=now.renews_kind,
-            identity_key=u.identity_key,
+            identity_key=u.identity_key, credit=u.credit,
         )
 
     def rename(self, old: str, new: str, provider: str | None = None) -> None:

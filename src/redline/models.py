@@ -44,6 +44,8 @@ class Usage:
     # Stable, hashed login identity for matching cached Codex quota to its owner.
     # Access tokens rotate and are deliberately not used as this key.
     identity_key: str | None = None
+    # Claude Max / Team monthly API credit from the linked Console org (see credit.py); None = not connected
+    credit: dict | None = None
 
     def to_dict(self) -> dict:
         d = {
@@ -61,6 +63,7 @@ class Usage:
             "renews_kind": self.renews_kind,
             "rate": self.rate,
             "weekly_countdown": weekly_countdown(self),
+            "credit": self.credit,
         }
         if self.identity_key is not None:
             d["identity_key"] = self.identity_key
@@ -81,6 +84,7 @@ class Usage:
             fetched_at=dt(d.get("fetched_at")) or datetime.now(timezone.utc), stale=bool(d.get("stale")),
             renews_at=d.get("renews_at"), renews_kind=d.get("renews_kind"),
             identity_key=d.get("identity_key"),
+            credit=d["credit"] if isinstance(d.get("credit"), dict) else None,  # older caches have none
         )
 
 

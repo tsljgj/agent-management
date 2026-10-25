@@ -159,11 +159,11 @@ class ConsoleServer:
                         raise ValueError("body must be an object")
                     for k in ("log", "on_done"):  # never accept callables from the client
                         body.pop(k, None)
-                    if body.get("action") in ("wake", "login", "add-profile", "start-countdown"):
+                    if body.get("action") in ("wake", "login", "add-profile", "start-countdown", "console-connect"):
                         mon = server.monitor
-                        countdown_action = body.get("action") == "start-countdown"
+                        outcome_alert = body.get("action") in ("start-countdown", "console-connect")
                         body["log"] = lambda level, text: mon.log(
-                            level, text, alert=level == "crit" or countdown_action and level in ("ok", "error"))
+                            level, text, alert=level == "crit" or outcome_alert and level in ("ok", "error"))
                         body["on_done"] = lambda: mon.poll()
                     name = str(body.get("action", ""))
                     handler = server.extra_actions.get(name)

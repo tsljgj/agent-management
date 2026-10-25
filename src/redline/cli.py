@@ -21,8 +21,10 @@ from .render import render_table
 def collect(accounts: list[Account], refresh_tokens: bool = False) -> list[Usage]:
     if not accounts:
         return []
+    from .credit import attach
+
     with ThreadPoolExecutor(max_workers=min(8, len(accounts))) as pool:
-        return list(pool.map(lambda a: fetch_usage(a, refresh_tokens=refresh_tokens), accounts))
+        return list(pool.map(lambda a: attach(fetch_usage(a, refresh_tokens=refresh_tokens)), accounts))
 
 
 def _select(names: list[str] | None) -> list[Account]:
@@ -199,6 +201,12 @@ def cmd_login(args) -> int:
     return 0 if results.get(acct.name) == "logged-in" else 2
 
 
+def cmd_console(args) -> int:
+    from .console_signin import main as signin
+
+    return signin(find_account(load_accounts(), args.name, "claude"))
+
+
 def cmd_run(args) -> int:
     acct = find_account(load_accounts(), args.name)
     extra = args.args[1:] if args.args[:1] == ["--"] else args.args
@@ -324,6 +332,10 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("login", help="log this account in (browser opens in its bound Chrome profile)")
     s.add_argument("name")
     s.set_defaults(func=cmd_login)
+
+    s = sub.add_parser("console", help="connect a Claude Max / Team account to its Claude Console (monthly API credit)")
+    s.add_argument("name")
+    s.set_defaults(func=cmd_console)
 
     s = sub.add_parser("run", help="run claude/codex as this account: redline run work -- --resume")
     s.add_argument("name")
