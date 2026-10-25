@@ -17,7 +17,7 @@ from typing import Callable
 
 from .config import load_accounts, redline_home
 from .credit import carry as carry_credit
-from .models import Usage, Window, weekly_countdown
+from .models import Usage, Window, pct, weekly_countdown
 
 DEFAULT_THRESHOLDS = (80, 95)
 FORCE_FLOOR = 15  # seconds; even a manual refresh can't hit upstream more often than this
@@ -425,7 +425,7 @@ class Monitor:
                     if (previous is None or now - previous[1] >= WEEKLY_REMINDER_INTERVAL
                             or previous[0] == "unknown" and state == "unstarted"):
                         self._weekly_reminders[key] = (state, now)
-                        text = (f'{u.account} weekly 尚未开始计时；点「开启计时」发送一次短请求'
+                        text = (f'{u.account} weekly 尚未开始计时；点 weekly 下方的 ▶ 开始计时'
                                 if state == "unstarted" else
                                 f"{u.account} weekly 待确认；请刷新用量核验计时是否已开启")
                         alerts.append({"level": "warn", "text": text})
@@ -445,10 +445,10 @@ class Monitor:
                     t = crossed[-1]
                     alerts.append({
                         "level": "crit" if t == self.thresholds[-1] else "warn",
-                        "text": f"{u.account} {w.name} usage hit {cur:.0f}% (>= {t}%)",
+                        "text": f"{u.account} {w.name} usage hit {pct(cur)} (>= {t}%)",
                     })
                 elif prev >= first and cur < RESET_BELOW:
-                    alerts.append({"level": "ok", "text": f"{u.account} {w.name} window reset -> {cur:.0f}%"})
+                    alerts.append({"level": "ok", "text": f"{u.account} {w.name} window reset -> {pct(cur)}"})
         return alerts
 
     # ------------------------------------------------------------ views

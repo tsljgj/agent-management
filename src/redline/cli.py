@@ -207,6 +207,12 @@ def cmd_console(args) -> int:
     return signin(find_account(load_accounts(), args.name, "claude"))
 
 
+def cmd_start(args) -> int:
+    from .start5h import main as start
+
+    return start(find_account(load_accounts(), args.name, "claude"))
+
+
 def cmd_run(args) -> int:
     acct = find_account(load_accounts(), args.name)
     extra = args.args[1:] if args.args[:1] == ["--"] else args.args
@@ -336,6 +342,10 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("console", help="connect a Claude Max / Team account to its Claude Console (monthly API credit)")
     s.add_argument("name")
     s.set_defaults(func=cmd_console)
+
+    s = sub.add_parser("start", help="start an idle Claude 5h window now with one tiny request")
+    s.add_argument("name")
+    s.set_defaults(func=cmd_start)
 
     s = sub.add_parser("run", help="run claude/codex as this account: redline run work -- --resume")
     s.add_argument("name")

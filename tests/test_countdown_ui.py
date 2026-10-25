@@ -110,12 +110,14 @@ def test_countdown_classification_and_visible_reminders(run_console_js):
     assert.doesNotMatch(weeklyTag(u), /data-act="start-countdown"/);
   }
   assert.equal(canStartWeekly(placeholder), true);
-  assert.match(weeklyTag(placeholder), /▶ 尝试开启/);
+  assert.doesNotMatch(weeklyTag(placeholder), /<button/);
+  assert.match(row(placeholder, null), /待确认<button class="act go" data-act="start-countdown" title="开始计时">▶/);
   assert.equal(canStartWeekly(noWindow), false);
   assert.equal(weeklyTag(noWindow), "");
   assert.equal(weeklyOf(usage("claude", {provider: "claude"})), null);
   assert.match(row(notStarted, null), /weekly 未开始/);
-  assert.match(row(notStarted, null), /▶ 开启计时/);
+  assert.match(row(notStarted, null), /待启动<button class="act go" data-act="start-countdown" title="开始计时">▶/);
+  assert.equal(row(notStarted, null).match(/data-act="start-countdown"/g).length, 1);
   assert.match(row(placeholder, null), /待确认/);
   assert.match(row(placeholder, null), /class="acct[^\"]*weekly-attention/);
   DATA = {usages: [notStarted, zeroActive, stale, placeholder, noWindow], meta: {accounts: {
@@ -146,18 +148,18 @@ def test_unknown_weekly_states_get_prominent_reminders_without_claiming_unstarte
   const tab = tabs.find(el => el.dataset.tab === "codex");
   assert.equal(elements["#weeklyNotice"].classList.contains("on"), true);
   assert.match(elements["#weeklyNotice"].textContent, /3 个 Codex 账户的 weekly 状态待确认/);
-  assert.match(elements["#weeklyNotice"].textContent, /「尝试开启」/);
-  assert.doesNotMatch(elements["#weeklyNotice"].textContent, /尚未开始|「开启计时」/);
+  assert.match(elements["#weeklyNotice"].textContent, /▶ 尝试开始/);
+  assert.doesNotMatch(elements["#weeklyNotice"].textContent, /尚未开始|▶ 开始计时/);
   assert.equal(tab.classList.contains("waiting"), true);
   assert.match(tab.title, /3 个 Codex 账户的 weekly 状态待确认/);
   assert.equal(elements["#ncodex"].textContent, "3 · ?3");
   assert.match(weeklyTag(uncertain), /class="weekly unknown"/);
-  assert.match(weeklyTag(uncertain), /▶ 尝试开启/);
+  assert.match(row(uncertain, null), /data-act="start-countdown"/);
   let calls = 0;
   action = async () => { calls++; return true; };
   for (const u of [stale, failedAccount]) {
     assert.match(row(u, null), /weekly-attention/);
-    assert.doesNotMatch(weeklyTag(u), /data-act="start-countdown"/);
+    assert.doesNotMatch(row(u, null), /data-act="start-countdown"/);
     await startWeekly(u);
   }
   assert.equal(calls, 0);
@@ -166,9 +168,9 @@ def test_unknown_weekly_states_get_prominent_reminders_without_claiming_unstarte
   DATA.usages = [stale, failedAccount, noDuration]; render();
   assert.equal(elements["#weeklyNotice"].classList.contains("on"), true);
   assert.match(elements["#weeklyNotice"].textContent, /3 个 Codex 账户的 weekly 状态待确认/);
-  assert.doesNotMatch(elements["#weeklyNotice"].textContent, /「尝试开启」|尚未开始/);
+  assert.doesNotMatch(elements["#weeklyNotice"].textContent, /尝试开始|尚未开始/);
   assert.equal(canStartWeekly(noDuration), false);
-  assert.doesNotMatch(weeklyTag(noDuration), /data-act="start-countdown"/);
+  assert.doesNotMatch(row(noDuration, null), /data-act="start-countdown"/);
   await startWeekly(noDuration); assert.equal(calls, 0);
   TAB = "claude"; render();
   assert.equal(elements["#weeklyNotice"].classList.contains("on"), false);
@@ -236,7 +238,7 @@ def test_button_routes_actions_without_expanding_and_blocks_duplicate_requests(r
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0], {action: "start-countdown", provider: "codex", name: "work"});
   assert.equal(countdownBusy(u), true);
-  assert.match(weeklyTag(u), /disabled/);
+  assert.match(row(u, null), /data-act="start-countdown" disabled title="正在开始计时"/);
   assert.match(weeklyTag(u), /开启中/);
   resolveRequest(true); await first;
   assert.equal(countdownPending.has("codex:work"), false);
@@ -247,8 +249,8 @@ def test_button_routes_actions_without_expanding_and_blocks_duplicate_requests(r
   assert.equal(countdownBusy(u), false);
   assert.match(weeklyTag(u), /class="weekly error"/);
   assert.match(weeklyTag(u), /weekly 开启未确认/);
-  assert.match(weeklyTag(u), /data-act="start-countdown"/);
-  assert.doesNotMatch(weeklyTag(u), /disabled/);
+  assert.match(row(u, null), /data-act="start-countdown" title="开始计时"/);
+  assert.doesNotMatch(row(u, null), /disabled/);
   action = async body => { calls.push(body); return true; };
   button.dataset.act = "usage";
   await click({target});
@@ -266,7 +268,7 @@ def test_pull_renders_meta_changes_and_completion_alerts_between_usage_polls(run
     snapshot({state: "verifying", message: "刷新确认"}), snapshot({state: "error", message: "SDK missing"})];
   fetch = async () => ({ok: true, json: async () => deliveries.shift()});
   await pull(false);
-  assert.match(elements["#list"].innerHTML, /▶ 开启计时/);
+  assert.match(elements["#list"].innerHTML, /data-act="start-countdown" title="开始计时">▶/);
   await pull(false);
   assert.match(elements["#list"].innerHTML, /weekly 开启中/);
   assert.match(elements["#list"].innerHTML, /disabled/);
@@ -322,7 +324,7 @@ def test_free_accounts_show_reported_main_windows_and_honest_missing_window_stat
   }
   const unknownPercent = free("unknown", [{name: "1d", used_percent: null, resets_at: null}]);
   assert.match(quotaMeters(unknownPercent), /class="v">\?</);
-  assert.match(details(unknownPercent), /1d \?%/);
+  assert.match(details(unknownPercent), /1d \?/);
 })();
 """)
 
@@ -434,7 +436,7 @@ def test_login_mismatch_shows_both_identities_and_blocks_wrong_account_quota_act
   SORT = "weekly";
   assert.deepEqual(sorted(DATA.usages).map(x => x.account), ["correct", "expected"]);
   DATA.usages = [u]; render();
-  assert.doesNotMatch(elements["#weeklyNotice"].textContent, /尚未开始|「开启计时」|「尝试开启」/);
+  assert.doesNotMatch(elements["#weeklyNotice"].textContent, /尚未开始|▶ 开始计时|▶ 尝试开始/);
   let calls = [];
   action = async body => { calls.push(body); return true; };
   await startWeekly(u); assert.equal(calls.length, 0);

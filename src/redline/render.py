@@ -6,7 +6,9 @@ import os
 import sys
 from datetime import datetime, timezone
 
-from .models import Usage
+import math
+
+from .models import Usage, pct
 
 BAR_WIDTH = 20
 
@@ -22,7 +24,8 @@ def _c(text: str, code: str, on: bool) -> str:
 def bar(percent: float | None, width: int = BAR_WIDTH) -> str:
     if percent is None:
         return "?" * width
-    filled = round(max(0.0, min(100.0, percent)) / 100 * width)
+    # rounded down: the bar is full only at 100%
+    filled = math.floor(max(0.0, min(100.0, percent)) / 100 * width)
     return "█" * filled + "░" * (width - filled)
 
 
@@ -112,11 +115,11 @@ def render_table(usages: list[Usage], stream=None) -> str:
         elif not u.windows:
             lines.append("    " + _c("no usage windows reported", "2", color))
         for w in u.windows:
-            pct = "  ?%" if w.used_percent is None else f"{w.used_percent:3.0f}%"
+            pct_text = f"{pct(w.used_percent):>4}"
             code = _pct_color(w.used_percent)
             lines.append(
                 f"    {w.name:<10} {_c(bar(w.used_percent), code, color)} "
-                f"{_c(pct, code, color)}  {humanize_delta(w.resets_at)}"
+                f"{_c(pct_text, code, color)}  {humanize_delta(w.resets_at)}"
             )
         for k, v in u.extra.items():
             if k == "banked_resets" and isinstance(v, dict):

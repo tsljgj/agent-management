@@ -100,9 +100,6 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .weekly.unstarted,.weekly.unknown{color:var(--warn);font-weight:600}
 .weekly.busy{color:var(--acc)}
 .weekly.error{color:var(--red)}
-.weekly button{color:var(--warn);border:1px solid #665021;padding:2px 5px;border-radius:2px;white-space:nowrap;cursor:pointer}
-.weekly button:hover{border-color:var(--warn);background:rgba(255,176,32,.08)}
-.weekly button:disabled{color:var(--dim);border-color:var(--faint);cursor:wait}
 .rate{display:flex;align-items:flex-end;gap:6px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);white-space:nowrap;overflow:hidden}
 /* LED gauge, lit like the meters: dark segments = the track, lit ones glow in the level's colour */
 .rate{--c:var(--dim)}.rate.low{--c:var(--ok)}.rate.mid{--c:var(--warn)}.rate.high{--c:var(--red)}
@@ -129,6 +126,10 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .m .t{grid-column:2/4;color:var(--dim);font-size:10.5px;white-space:nowrap;line-height:1}
 .m .t.urgent{color:var(--acc)}
 .m.max .t{color:var(--fg)}
+/* ▶ on an idle label: start that window now */
+.m .t .go{margin-left:6px;padding:0;font-size:9px;line-height:1;color:var(--warn);cursor:pointer}
+.m .t .go:hover{color:var(--acc);text-shadow:0 0 6px var(--acc)}
+.m .t .go:disabled{color:var(--dim);text-shadow:none;cursor:wait}
 .m .k{font-size:10px;color:var(--dim)}
 .bar{height:4px;background:var(--faint);position:relative}
 .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--c);box-shadow:0 0 6px var(--c)}
@@ -337,7 +338,9 @@ async function action(body, quiet) {
 
 /* ---------- formatting ---------- */
 const lvl = p => p == null ? "var(--dim)" : p >= 90 ? "var(--red)" : p >= 70 ? "var(--warn)" : "var(--ok)";
-const spent = p => p != null && p >= 99.5;
+// MAX only when truly used up; every percentage shown is rounded down (99.6 reads 99%, never 100%)
+const spent = p => p != null && p >= 100;
+const pct = p => p == null ? "?" : Math.floor(p) + "%";
 function span(s) {
   s = Math.max(0, Math.floor(s));
   const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
@@ -364,19 +367,19 @@ const noClaudeCode = u => !u.ok && /not included in this plan/.test(u.error || "
 /* ---------- render ---------- */
 // "↻ 2h 08m" = resets in 2h 08m. Missing Codex reset data needs an explicit server classification.
 const resetText = l => l == null ? "idle" : l > 0 ? "↻ " + span(l) : "↻ now";
-function meter(w, label, weekly = null) {
+function meter(w, label, weekly = null, go = "") {
   if (!w) return `<div class="m none"></div>`;   // e.g. a Codex plan without a 5h window: leave the slot empty
   const p = w.used_percent, l = left(w.resets_at);
-  const tip = `${w.name} ${p == null ? "?" : Math.round(p) + "%"}${w.resets_at ? " · resets in " + span(l) + " (" + new Date(w.resets_at).toLocaleString() + ")" : " · " + (weekly ? weekly.message : "window not started")}`;
+  const tip = `${w.name} ${pct(p)}${w.resets_at ? " · resets in " + span(l) + " (" + new Date(w.resets_at).toLocaleString() + ")" : " · " + (weekly ? weekly.message : "window not started")}`;
   // weekly window resetting soon with quota left = "use it or lose it"
   const urgent = label === "7d" && l != null && l < 36 * 3600 && (p ?? 100) < 80;
   const idle = weekly && weekly.state === "unstarted" ? "待启动" : weekly && weekly.state === "unknown" ? "待确认" : resetText(l);
-  const t = `<span class="t${urgent ? " urgent" : ""}" data-reset="${esc(w.resets_at || "")}">${l == null ? idle : resetText(l)}</span>`;
+  const t = `<span class="t${urgent ? " urgent" : ""}" data-reset="${esc(w.resets_at || "")}">${l == null ? idle : resetText(l)}${go}</span>`;
   const cls = label.length > 3 ? " alt" : "";
   if (spent(p)) return `<div class="m max${cls}" title="${esc(tip)}"><span class="k">${esc(label)}</span><div class="bar"></div><span class="v">MAX</span>${t}</div>`;
   const width = p == null ? 0 : Math.min(100, Math.max(0, p));
   return `<div class="m${cls}" style="--c:${lvl(p)}" title="${esc(tip)}"><span class="k">${esc(label)}</span>
-    <div class="bar"><i style="width:${width}%"></i></div><span class="v">${p == null ? "?" : Math.floor(p) + "%"}</span>${t}</div>`;
+    <div class="bar"><i style="width:${width}%"></i></div><span class="v">${pct(p)}</span>${t}</div>`;
 }
 const infoOf = u => ((DATA.meta || {}).accounts || {})[`${u.provider}:${u.account}`] || {};
 const identityMismatch = u => infoOf(u).login_mismatch === true;
@@ -421,7 +424,35 @@ function quotaMeters(u) {
     const at = !slots[want] ? want : !slots[1 - want] ? 1 - want : -1;
     if (at >= 0) slots[at] = w;
   }
-  return slots.map((w, i) => meter(w, w?.name || (i ? "7d" : "5h"), w?.name === "7d" ? weeklyOf(u) : null)).join("");
+  return slots.map((w, i) => meter(w, w?.name || (i ? "7d" : "5h"), w?.name === "7d" ? weeklyOf(u) : null, startControl(u, w))).join("");
+}
+// One entry point per window: a small ▶ on the meter's idle label (Claude 5h, Codex weekly).
+function startControl(u, w) {
+  const [act, busy, can] = w?.name === "5h" && u.provider === "claude" ? ["start-5h", start5hBusy(u), canStart5h(u)]
+    : w?.name === "7d" && u.provider === "codex" ? ["start-countdown", countdownBusy(u), canStartWeekly(u)] : [];
+  if (busy) return `<button class="act go" data-act="${act}" disabled title="正在开始计时">…</button>`;
+  return can ? `<button class="act go" data-act="${act}" title="开始计时">▶</button>` : "";
+}
+const start5hPending = new Set();
+const start5hOf = u => ((DATA.meta || {}).start5h || {})[accountKey(u)] || {};
+const start5hBusy = u => start5hPending.has(accountKey(u)) || ["starting", "verifying"].includes(start5hOf(u).state);
+// An idle 5h window (no reset time yet) on a live login whose weekly quota isn't spent.
+function canStart5h(u) {
+  if (u.provider !== "claude" || !u.ok || u.stale || identityMismatch(u)) return false;
+  const five = u.windows.find(x => x.name === "5h"), week = u.windows.find(x => x.name === "7d");
+  return !!five && five.resets_at == null && !spent(five.used_percent) && !spent(week?.used_percent);
+}
+async function start5h(u) {
+  if (!BOOT.actions || start5hBusy(u) || !canStart5h(u)) return;
+  const key = accountKey(u);
+  start5hPending.add(key); render();
+  try {
+    await action({action: "start-5h", provider: "claude", name: u.account}, true);
+    await pull(false);
+  } finally {
+    start5hPending.delete(key);
+    if (!editing) render();
+  }
 }
 const accountKey = u => `${u.provider}:${u.account}`;
 const countdownPending = new Set();
@@ -449,14 +480,13 @@ function canStartWeekly(u) {
 function weeklyTag(u) {
   const status = weeklyOf(u);
   if (!status) return "";
-  const job = countdownOf(u), busy = countdownBusy(u), canStart = canStartWeekly(u);
+  const job = countdownOf(u), busy = countdownBusy(u);
   if (!busy && status.state !== "unstarted" && status.state !== "unknown") return "";
   const error = job.state === "error";
   const label = busy ? (job.state === "verifying" ? "weekly 确认中…" : "weekly 开启中…") : error ? "weekly 开启未确认"
     : status.state === "unstarted" ? "weekly 未开始" : "weekly 待确认";
   const tip = [status.message, job.message].filter(Boolean).join(" · ");
-  const button = canStart || busy ? `<button class="act" data-act="start-countdown" ${busy ? "disabled" : ""} title="向此账户发送一个短请求，消耗少量 Codex 额度，然后刷新用量确认 weekly 重置时间。">${busy ? "处理中…" : status.state === "unstarted" ? "▶ 开启计时" : "▶ 尝试开启"}</button>` : "";
-  return `<div class="weekly ${busy ? "busy" : error ? "error" : status.state}" title="${esc(tip)}"><span>${label}</span>${button}</div>`;
+  return `<div class="weekly ${busy ? "busy" : error ? "error" : status.state}" title="${esc(tip)}"><span>${label}</span></div>`;
 }
 async function startWeekly(u) {
   if (!BOOT.actions || countdownBusy(u) || !canStartWeekly(u)) return;
@@ -637,7 +667,7 @@ function bankedTag(u) {
 function row(u, bestName) {
   const n = esc(u.account);
   const mismatch = identityMismatch(u);
-  const extra = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${w.used_percent == null ? "?" : Math.round(w.used_percent)}%`)
+  const extra = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${pct(w.used_percent)}`)
     .concat(extraEntries(u).filter(([k]) => k !== "credits").map(([k, v]) => `${k} ${v}`));
   const tip = mismatch ? identityMessage(u) : [u.email, u.plan, ...extra, u.stale ? `as of ${new Date(u.fetched_at).toLocaleString()} · ${u.error}` : ""].filter(Boolean).join(" · ");
   const body = mismatch
@@ -693,11 +723,13 @@ function details(u) {
     const weekly = weeklyOf(u), job = countdownOf(u);
     if (weekly) rows.push(kv("weekly", weekly.message || weekly.state, ["unstarted", "unknown"].includes(weekly.state) ? "warn" : ""));
     if (job.message) rows.push(kv("开启计时", job.message, job.state === "error" ? "red" : ""));
+    const five = u.provider === "claude" ? start5hOf(u) : {};
+    if (five.message) rows.push(kv("开启计时", five.message, five.state === "error" ? "red" : ""));
     for (const name of ["5h", "7d"]) {
       const w = u.windows.find(x => x.name === name);
       if (w) rows.push(kv(name, w.resets_at ? "resets " + when(w.resets_at) : "–", spent(w.used_percent) ? "red" : ""));
     }
-    const other = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${w.used_percent == null ? "?" : Math.round(w.used_percent)}%`)
+    const other = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${pct(w.used_percent)}`)
       .concat(extraEntries(u).map(([k, v]) => `${k} ${v}`));
     if (other.length) rows.push(kv("other", other.join(" · ")));
     { const r = renewOf(u), p = renewParts(r);
@@ -805,8 +837,8 @@ function render() {
   }
   $("#weeklyNotice").classList.toggle("on", TAB === "codex" && unstarted + unknown > 0);
   $("#weeklyNotice").textContent = [weeklySummary,
-    unstarted ? "点击「开启计时」发送短请求并确认重置时间。" : "",
-    unknown ? "待确认账户请刷新用量或重新登录。" + (canTryWeekly ? "也可使用账户上的「尝试开启」。" : "") : "",
+    unstarted ? "点 weekly 下方的 ▶ 开始计时。" : "",
+    unknown ? "待确认账户请刷新用量或重新登录。" + (canTryWeekly ? "也可点 weekly 下方的 ▶ 尝试开始。" : "") : "",
   ].filter(Boolean).join(" · ");
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.tab === TAB));
   $("#wake").classList.toggle("hide", TAB === "plans");
@@ -1028,7 +1060,7 @@ async function run(line) {
       await action({action: "bind", name: a[0], profile: a.slice(1).join(" ")}); break;
     case "profiles": await action({action: "profiles"}, true); break;
     case "ls": DATA.usages.filter(u => u.provider === TAB).forEach(u => log(`${u.account.padEnd(18)} ${u.email || ""}  ${
-      u.windows.map(w => `${w.name} ${Math.round(w.used_percent)}%`).join(" ") || u.error}`, "out")); break;
+      u.windows.map(w => `${w.name} ${pct(w.used_percent)}`).join(" ") || u.error}`, "out")); break;
     case "r": case "sync": await pull(true); log("synced", "ok"); break;
     case "update": await checkUpdate(); break;
     case "clear": case "cls": $("#log").innerHTML = ""; openLog(false); break;
@@ -1129,6 +1161,12 @@ $("#list").addEventListener("click", e => {
     if (b.disabled) return;
     const u = DATA.usages.find(u => u.provider === "codex" && u.account === name);
     if (u) return startWeekly(u);
+    return;
+  }
+  if (b.dataset.act === "start-5h") {
+    if (b.disabled) return;
+    const u = DATA.usages.find(u => u.provider === "claude" && u.account === name);
+    if (u) return start5h(u);
     return;
   }
   if (b.dataset.act === "usage") return action({action: "web", provider: "codex", name, usage: true}, true);

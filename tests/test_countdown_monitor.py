@@ -44,7 +44,7 @@ def test_unstarted_alerts_once_until_a_new_weekly_period():
         m.poll()
     assert [len(a) for a in seen] == [1, 0, 0, 1]
     assert all(a["level"] == "warn" for a in alerts(m))
-    assert 'work weekly 尚未开始计时；点「开启计时」' in seen[0][0]["text"]
+    assert 'work weekly 尚未开始计时；点 weekly 下方的 ▶' in seen[0][0]["text"]
 
 
 def test_unknown_fault_and_stale_snapshots_do_not_reset_a_reminder():

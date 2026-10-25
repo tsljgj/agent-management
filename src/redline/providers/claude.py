@@ -20,7 +20,7 @@ from pathlib import Path
 
 from ..config import Account
 from ..http import HTTPStatusError, request_json
-from ..models import ProviderError, Usage, Window
+from ..models import ProviderError, Usage, Window, pct
 from ._util import cli_lock, parse_iso, read_json, same_login, token_id, write_json_atomic
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
@@ -339,7 +339,7 @@ def parse_usage(doc: dict) -> tuple[list[Window], dict]:
             # Values are reported in cents.
             extra["extra usage"] = f"{used / 100:.2f} / {limit / 100:.2f} {cur}"
         elif eu.get("utilization") is not None:
-            extra["extra usage"] = f"{eu['utilization']:.0f}%"
+            extra["extra usage"] = pct(float(eu["utilization"]))
     return windows, extra
 
 

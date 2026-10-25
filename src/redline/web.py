@@ -134,10 +134,12 @@ class ConsoleServer:
                         return self._json(401, {"error": "missing token"})
                     q = parse_qs(parts.query)
                     since = int((q.get("since") or ["0"])[0] or 0)
+                    from . import start5h
                     from .countdown import status
 
                     payload = server.monitor.payload(force="1" in q.get("force", []), since=since)
                     payload["meta"]["countdown"] = status()
+                    payload["meta"]["start5h"] = start5h.status()
                     return self._json(200, payload)
                 self._send(404, b"not found", "text/plain")
 
@@ -159,9 +161,10 @@ class ConsoleServer:
                         raise ValueError("body must be an object")
                     for k in ("log", "on_done"):  # never accept callables from the client
                         body.pop(k, None)
-                    if body.get("action") in ("wake", "login", "add-profile", "start-countdown", "console-connect"):
+                    if body.get("action") in ("wake", "login", "add-profile", "start-countdown", "start-5h",
+                                              "console-connect"):
                         mon = server.monitor
-                        outcome_alert = body.get("action") in ("start-countdown", "console-connect")
+                        outcome_alert = body.get("action") in ("start-countdown", "start-5h", "console-connect")
                         body["log"] = lambda level, text: mon.log(
                             level, text, alert=level == "crit" or outcome_alert and level in ("ok", "error"))
                         body["on_done"] = lambda: mon.poll()

@@ -8,6 +8,7 @@ BG = (4, 7, 10, 255)
 CYAN = (0, 240, 255, 255)
 MAGENTA = (255, 43, 214, 255)
 TRACK = (22, 40, 46, 255)
+GAP = 12.0  # degrees left open below 100%: a visible notch even at 16 px
 
 
 def level_color(pct: float | None, fault: bool = False) -> tuple[int, int, int, int]:
@@ -30,7 +31,8 @@ def render_icon(pct: float | None, fault: bool = False, size: int = 64) -> Image
     color = level_color(pct, fault)
     box = (10, 10, s - 10, s - 10)
     d.arc(box, 0, 360, fill=TRACK, width=46)
-    sweep = 360 if pct is None else max(8.0, min(100.0, pct) * 3.6)
+    # Closed only at 100%: below that a gap stays visible even at tray size (99.6% must not look full).
+    sweep = 360 if pct is None or pct >= 100 else min(max(8.0, pct * 3.6), 360 - GAP)
     d.arc(box, -90, -90 + sweep, fill=color, width=46)
 
     # ">_" prompt glyph in the middle

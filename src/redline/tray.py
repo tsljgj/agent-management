@@ -20,7 +20,7 @@ from . import actions, autostart, update
 from ._build import BUILD
 from .applog import log
 from .config import load_accounts, load_settings, redline_home, save_setting
-from .models import Usage
+from .models import Usage, pct
 from .monitor import Monitor
 from .web import TOKEN_HEADER, ConsoleServer
 
@@ -80,7 +80,7 @@ def tooltip(usages: list[Usage]) -> str:
             continue
         w = next((w for w in u.windows if w.name == "5h"), u.windows[0] if u.windows else None)
         mark = "?" if u.stale else ""
-        parts.append(f"{u.account} {w.used_percent:.0f}%{mark}" if w and w.used_percent is not None else u.account)
+        parts.append(f"{u.account} {pct(w.used_percent)}{mark}" if w and w.used_percent is not None else u.account)
     stamp = max(u.fetched_at for u in usages).astimezone().strftime("%H:%M")
     text = f"redline · {stamp}\n" + "\n".join(parts)
     return text if len(text) <= TOOLTIP_MAX else text[: TOOLTIP_MAX - 1] + "…"
@@ -207,7 +207,7 @@ class TrayApp:
         for a in load_accounts():
             u = by_name.get(a.key)
             w = next((w for w in u.windows if w.name == "5h"), None) if u and (u.ok or u.stale) else None
-            label = f"{a.name}  ({a.provider}{f', 5h {w.used_percent:.0f}%' if w and w.used_percent is not None else ''})"
+            label = f"{a.name}  ({a.provider}{f', 5h {pct(w.used_percent)}' if w and w.used_percent is not None else ''})"
             items.append(Item(label, make_handler(a.key)))
         return items or [Item("no accounts", None, enabled=False)]
 
@@ -261,7 +261,7 @@ class TrayApp:
         self.icon.icon = self.render_icon(peak, fault=fault)
         self.icon.title = tooltip(usages)
         ok = sum(u.ok for u in usages)
-        self.status = f"5h peak {peak:.0f}%  ·  {ok}/{len(usages)} online" if peak is not None else f"{ok}/{len(usages)} online"
+        self.status = f"5h peak {pct(peak)}  ·  {ok}/{len(usages)} online" if peak is not None else f"{ok}/{len(usages)} online"
         try:
             self.icon.update_menu()
         except Exception:

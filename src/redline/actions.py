@@ -599,6 +599,15 @@ def dispatch(action: str, args: dict) -> str:
                                    on_done=args.get("on_done"), provider=prov or "codex")
         except CountdownError as e:
             raise ActionError(str(e)) from None
+    if action == "start-5h":
+        from .start5h import StartError, start
+
+        if args.get("log") is None:
+            raise ActionError("start-5h needs a log sink")
+        try:
+            return start(args.get("name", ""), args["log"], on_done=args.get("on_done"), provider=prov or "claude")
+        except StartError as e:
+            raise ActionError(str(e)) from None
     if action == "web":
         from .login import open_web
         from .browsers import USAGE_URLS

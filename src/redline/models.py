@@ -1,7 +1,19 @@
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+
+
+
+def pct(p: float | None) -> str:
+    """A usage percentage as displayed anywhere: rounded down, so 99.6% never reads as 100%."""
+    return "?" if p is None else f"{math.floor(p)}%"
+
+
+def spent(p: float | None) -> bool:
+    """Used up: only a window at 100% (99.9% still has room)."""
+    return p is not None and p >= 100
 
 
 @dataclass
