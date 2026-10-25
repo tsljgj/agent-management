@@ -264,6 +264,76 @@ def cmd_tray(args) -> int:
                     show=args.show or not (args.background or args.updated_from is not None))
 
 
+def _utf8_out() -> None:
+    """Box-drawing and arrows survive a pipe (whose code page may lack them)."""
+    try:
+        if sys.stdout.isatty():
+            sys.stdout.reconfigure(errors="replace")
+        else:
+            sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
+
+def _ws_rows(args):
+    from . import workspaces as ws
+
+    vs = ws.read_vscode()
+    accounts = load_accounts()
+    usage = ws.cached_usage()
+    if getattr(args, "fetch", False):
+        usage.update({(u.provider, u.account): u for u in collect(accounts)
+                      if u.ok or (u.provider, u.account) not in usage})
+    return ws.status(vs=vs, accounts=accounts, usage=usage), usage
+
+
+def cmd_ws_list(args) -> int:
+    from . import workspaces as ws
+
+    _utf8_out()
+    rows, usage = _ws_rows(args)
+    if args.json:
+        print(json.dumps(ws.to_json(rows, usage), indent=2, ensure_ascii=False))
+    else:
+        print(ws.render_list(rows), end="")
+    return 0
+
+
+def cmd_ws_status(args) -> int:
+    from . import workspaces as ws
+
+    _utf8_out()
+    rows, usage = _ws_rows(args)
+    here = ws.workspace_for(os.getcwd(), rows)
+    current = here["name"] if here else None
+    if args.ws:
+        pick = [w for w in rows if w["name"] == args.ws]
+        if not pick:
+            print(f"no workspace named {args.ws!r} ({', '.join(w['name'] for w in rows)})", file=sys.stderr)
+            return 1
+    else:
+        pick = [here] if here else rows
+    if args.json:
+        print(json.dumps(ws.to_json(pick, usage, current), indent=2, ensure_ascii=False))
+    else:
+        print(ws.render(pick, usage), end="")
+    return 0
+
+
+def cmd_ws_scan(args) -> int:
+    from . import workspaces as ws
+
+    _utf8_out()
+    merged, changes = ws.scan(dry_run=args.dry_run)
+    for line in changes:
+        print(line)
+    names = ", ".join(w["name"] for w in merged)
+    verb = "would save" if args.dry_run else "saved"
+    print(f"{len(merged)} workspaces ({names}); {len(changes) or 'no'} change{'' if len(changes) == 1 else 's'}"
+          + ("" if not changes else f", {verb} to {ws.registry_path()}"))
+    return 0
+
+
 # ---------------------------------------------------------------- parser
 
 
@@ -360,6 +430,21 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("env", help="print export lines, e.g. eval \"$(redline env work)\"")
     s.add_argument("name")
     s.set_defaults(func=cmd_env)
+
+    s = sub.add_parser("ws", help="workspaces: which repos and VS Code profiles use which login")
+    wsub = s.add_subparsers(dest="ws_command", required=True)
+    w = wsub.add_parser("list", aliases=["ls"], help="all workspaces: profile, repos, who is signed in")
+    w.add_argument("--json", action="store_true")
+    w.set_defaults(func=cmd_ws_list)
+    w = wsub.add_parser("status", aliases=["st"],
+                        help="accounts, 5h/7d and drift of a workspace (default: the repo you are in, else all)")
+    w.add_argument("ws", nargs="?")
+    w.add_argument("--json", action="store_true")
+    w.add_argument("--fetch", action="store_true", help="fetch usage now instead of using the last synced numbers")
+    w.set_defaults(func=cmd_ws_status)
+    w = wsub.add_parser("scan", help="rediscover workspaces from profiles.json and VS Code (reads only those)")
+    w.add_argument("--dry-run", action="store_true", help="only report what would change")
+    w.set_defaults(func=cmd_ws_scan)
 
     s = sub.add_parser("serve", help="local web dashboard")
     s.add_argument("--host", default="127.0.0.1")

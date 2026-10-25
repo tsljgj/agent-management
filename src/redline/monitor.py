@@ -86,6 +86,28 @@ def rate_level(per_hour: float, hours: float) -> str:
     return next((name for limit, name in RATE_LEVELS if pace < limit), "high")
 
 
+def console_details() -> tuple[dict | None, dict | None]:
+    """Per-account details for the console, each with the workspaces its login is in, and the
+    workspaces' names and drift notices (names only: the console never shows a path)."""
+    details = view = None
+    try:
+        from .actions import account_details
+
+        details = account_details()
+    except Exception:
+        pass
+    try:
+        from .workspaces import console_view
+
+        v = console_view()
+        view = {"list": v["workspaces"], "notices": v["notices"]}
+        for key, info in (details or {}).items():
+            info["workspaces"] = v["by_account"].get(key, [])
+    except Exception:
+        pass
+    return details, view
+
+
 class Monitor:
     def __init__(
         self,
@@ -176,17 +198,13 @@ class Monitor:
                 except Exception as e:  # config file broken etc. -- keep the loop alive
                     self.log("error", f"sync failed: {e}")
                     return
-                details = None
-                try:
-                    from .actions import account_details
-
-                    details = account_details()
-                except Exception:
-                    pass
+                details, workspaces = console_details()
                 # State changes happen under the lock, so a rename can't interleave with them.
                 with self._state_lock:
                     if details is not None:
                         self.meta["accounts"] = details
+                    if workspaces is not None:
+                        self.meta["workspaces"] = workspaces
                     # A rename during the fetch already moved the state; the usages were fetched
                     # under the old name and would bring it back (and re-alert) if published as is.
                     for old, new, provider in self._pending_renames:

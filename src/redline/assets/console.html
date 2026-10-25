@@ -36,8 +36,8 @@ header{display:flex;align-items:center;gap:20px;height:48px;padding:0 10px 0 18p
 .tab sup{font-size:10px;margin-left:3px;color:var(--dim)}
 .tab.hot sup{color:var(--red)}
 .tab.waiting sup{color:var(--warn)}
-#weeklyNotice{display:none;padding:7px 18px;border-bottom:1px solid var(--line);color:var(--warn);font-size:11px;line-height:1.6;flex-shrink:0}
-#weeklyNotice.on{display:block}
+#weeklyNotice,#wsNotice{display:none;padding:7px 18px;border-bottom:1px solid var(--line);color:var(--warn);font-size:11px;line-height:1.6;flex-shrink:0}
+#weeklyNotice.on,#wsNotice.on{display:block}
 .sp{flex:1}
 .tools{display:flex;align-items:center;gap:2px;flex-shrink:0}
 .hb{height:30px;min-width:30px;padding:0 6px;color:var(--dim);font-size:13px}
@@ -273,6 +273,7 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
   </div>
 </header>
 <div id="weeklyNotice" role="status" aria-live="polite"></div>
+<div id="wsNotice" role="status"></div>
 <main id="list"></main>
 <div id="sortm"></div>
 <div id="sheet"></div>
@@ -715,6 +716,7 @@ function details(u) {
   const rows = mismatch
     ? [kv("登录账号不符", "请重新登录预期账号后查看其套餐与额度。", "warn"), kv("预期账号", info.expected_email || "未知"), kv("实际账号", info.email || u.email || "未知", "warn")]
     : [kv("account", [u.email || info.email, u.plan].filter(Boolean).join(" · ") || "–")];
+  if (info.workspaces?.length) rows.push(kv("workspace", info.workspaces.join(" · ")));
   if (!mismatch) {
     const banked = bankedResetText(u);
     if (banked) rows.push(kv("Banked resets", banked));
@@ -840,6 +842,10 @@ function render() {
     unstarted ? "点 weekly 下方的 ▶ 开始计时。" : "",
     unknown ? "待确认账户请刷新用量或重新登录。" + (canTryWeekly ? "也可点 weekly 下方的 ▶ 尝试开始。" : "") : "",
   ].filter(Boolean).join(" · ");
+  // Workspace drift: on the tab of the provider it concerns (VS Code-wide drift goes with Claude)
+  const drift = TAB === "plans" ? [] : (((DATA.meta || {}).workspaces || {}).notices || []).filter(d => (d.provider || "claude") === TAB);
+  $("#wsNotice").classList.toggle("on", drift.length > 0);
+  $("#wsNotice").innerHTML = drift.map(d => `<span title="${esc(d.tip)}">${esc(d.short)}</span>`).join(" · ");
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.tab === TAB));
   $("#wake").classList.toggle("hide", TAB === "plans");
   if (TAB === "plans") return renderPlans(us);
@@ -1210,7 +1216,7 @@ document.querySelectorAll(".rz").forEach(h => h.addEventListener("pointerdown", 
 }));
 function fitHeight() {
   if (manualSize || !native()) return;
-  const header = $("header").offsetHeight + $("#weeklyNotice").offsetHeight, prompt = $(".prompt").offsetHeight || 0;
+  const header = $("header").offsetHeight + $("#weeklyNotice").offsetHeight + $("#wsNotice").offsetHeight, prompt = $(".prompt").offsetHeight || 0;
   const rows = [...$("#list").children].reduce((a, el) => a + el.offsetHeight, 0);
   const logH = document.body.classList.contains("logopen") ? $("#log").offsetHeight : 0;
   window.pywebview.api.fit(innerWidth, header + Math.max(rows, 120) + prompt + logH + 2);

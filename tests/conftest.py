@@ -6,3 +6,5 @@ def _private_redline_home(tmp_path_factory, monkeypatch):
     """No test reads or writes the real ~/.redline (stored Console sessions live there).
     Tests that need another home still set or delete REDLINE_HOME themselves."""
     monkeypatch.setenv("REDLINE_HOME", str(tmp_path_factory.mktemp("redline-home")))
+    # Workspace discovery reads VS Code's files under APPDATA: never the real ones in tests.
+    monkeypatch.setenv("APPDATA", str(tmp_path_factory.mktemp("appdata")))

@@ -58,7 +58,7 @@ lab         login ›  token expired
 
 - 每个账号一行：名字、5h 和 7d 两条进度，以及写在各自进度条下方的**剩余重置时间**（例如 `↻ 2h 07m`、`↻ 2d 20h`；`idle` 表示这个窗口还没开始计时，旁边的 **▶** 可以立即开始计时，见下文）。weekly 额度还有 20% 以上没用、且 36 小时内就要重置的账号，时间会用青色标出，提醒你赶紧用掉。
 - 名字下方有一个**油表盘**，显示账号当前的使用速率，按最近 30 分钟 5h 窗口的增长计算。表盘由一格格发光刻度组成，速率越快亮得越多，发光颜色跟着级别变（绿、黄、红），和进度条一样的光效。指针指向当前速率，旁边写着级别：`IDLE`（没在用）、`LOW`（每小时 < 10%）、`MID`（10–25%）、`▲ HIGH`（每小时 ≥ 25%，照这个速度 4 小时内就会用完）。没有 5h 窗口的账号按周窗口折算。窗口够宽时会同时显示具体的 `%/h`，悬停也能看到。刚启动的几分钟数据不够，暂时不显示。
-- 点一行（任意位置）展开或收起详细信息：邮箱和套餐、5h/7d 的具体重置日期、fable 等其他额度、绑定的 Chrome，以及操作按钮（打开网页、终端、改名、删除）。`⋯` 一次展开全部，Esc 全部收起。
+- 点一行（任意位置）展开或收起详细信息：邮箱和套餐、登录所在的工作区、5h/7d 的具体重置日期、fable 等其他额度、绑定的 Chrome，以及操作按钮（打开网页、终端、改名、删除）。`⋯` 一次展开全部，Esc 全部收起。
 - 油表盘右边一直显示订阅还剩几天，例如 **`SUB 5d`**：一周以外灰色；最后一周和油表盘一样变色，4–7 天绿色，2–3 天黄色，1 天以内红色。付费但不知道到期日的显示 `SUB ?`，可以在 PLANS 里填写。悬停可以看到具体日期。Claude 只报告订阅从哪天开始，到期日按每月同一天续费推算，所以写成 `~5d`。Free 账号在这一格显示 `FREE`。Codex 的 banked resets 也一样：最早一张在一周内到期时，`↺ 3` 后面跟上天数（如 `↺ 3 4d`），颜色规则相同。名字下方的这些标记都放在固定宽度的格子里，仪表盘级别、有没有订阅、token 是否过期都不会让它们错位；Codex 免费账号的 `30d` 额度条和 7d 放在同一列。顶部 **PLANS** 标签页把 Claude 和 Codex 分开列出所有订阅的到期日，每组最早到期的排在前面；点 ✎ 或输入 `renew <name> YYYY-MM-DD` 可以填写真实日期。
 - **API credit**：Claude Max 和 Team 套餐每月附带一笔 API 额度（Max 5x $100，Max 20x $200，当月用不完作废），存在套餐关联的 Claude Console 组织里，Agent SDK 和 Claude API 能用，Claude Code 不能用。展开账号点 **连接 Console**，在弹出的窗口里登录一次 Console（`redline console <name>` 打开的是同一个窗口）。之后名字下方显示本月还剩多少，例如 `$199`（向下取整到美元）：剩 30% 以下变黄，10% 以下变红；还剩 20% 以上、3 天内就要到期时变成青色，提醒你赶紧用掉。悬停可以看到到期日，展开后是 `API credit  $0.01 / $200.00 · $199.99 left · ↻ 11-21 27d`。余额最多每 10 分钟读一次。Console 的登录只保存在本机（`~/.redline/console/`，每个账号的登录窗口也各用一个独立目录），只用来读余额，不会显示，也不写进日志。窗口里登录的如果不是这个账号，redline 会拒绝保存。登录过期后按钮变成 **重新连接**。
 - Codex 的 **打开网页** 进入 `chatgpt.com` 聊天首页，**用量** 单独打开额度页，两个入口都会使用该账号绑定的 Chrome profile。不同记录若登录了同一 ChatGPT 账号，详情会标明 **共享额度**，不能把它们当作两份额度。
@@ -144,6 +144,22 @@ redline start work                 # 立即开始 work 的 Claude 5h 计时（�
 redline console work               # 连接 work 的 Claude Console，显示每月 API credit
 eval "$(redline env work)"         # 在当前 shell 切换到 work 账号
 ```
+
+## 工作区（`redline ws`）
+
+一个工作区由一个名字、若干仓库、每个 provider 一个登录目录和一个 VS Code Profile 组成。例如 quant 仓库在 `quant` Profile 里打开，Claude 用 `D:\claude-config-quant` 的登录。目前只读：redline 只看、只报告，不移动任何登录。
+
+```bash
+redline ws list                 # 所有工作区：Profile、仓库、各 provider 登录的账号
+redline ws status [ws] [--json] # 账号、5h/7d 和漂移；在仓库里运行时只显示当前工作区
+redline ws scan [--dry-run]     # 重新发现，报告差异
+```
+
+- **发现**：读 `~/.claude/profiles.json`（`claude_profile.py` 的登记表）和 VS Code 的 Profile（`storage.json` 的 Profile 列表与文件夹关联，各 Profile `settings.json` 里的 `claudeCode.environmentVariables` / `terminal.integrated.env.*`）。没设变量的 Profile 归 `default`；`.claude-experiment*` 目录不算工作区。这些文件 redline 只读不写。
+- **登记表**：`~/.redline/workspaces.json`，首次使用时自动扫描生成。手动改过的工作区加上 `"user": true`（或者只锁某几项，如 `"user": ["repos"]`），之后 `scan` 不会覆盖，只报告差异。
+- **谁登在哪**：Claude 读该目录 `.claude.json` 里的邮箱（默认目录读 `~/.claude.json`），Codex 看哪个账号的登录在那个目录里，然后按邮箱对应到 redline 的账号。不读 token。额度用最近一次同步的缓存，`--fetch` 才会现查。
+- **漂移**：工作区目录没有登录；仓库在别的 Profile 里打开（例如 OSWorld 在 Default 里打开）；Profile 里还开着别的文件夹（`+N folders`）；两个工作区登的是同一个账号（共享额度）；Profile 指向别的目录或者不存在。每条都附一行修复命令。
+- **控制台**：展开账号可以看到它的登录在哪些工作区；有漂移时，顶部出现一行提示，悬停看怎么修。
 
 ## 注意
 

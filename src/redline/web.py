@@ -181,7 +181,13 @@ class ConsoleServer:
                 if body.get("action") in ("add", "add-profile", "remove", "restore", "import", "scan", "bind", "use", "default"):
                     threading.Thread(target=server.monitor.poll, daemon=True).start()
                 elif body.get("action") == "renew":  # local only: refresh the details, no network
-                    server.monitor.meta["accounts"] = actions.account_details()
+                    from .monitor import console_details
+
+                    details, workspaces = console_details()
+                    if details is not None:
+                        server.monitor.meta["accounts"] = details
+                    if workspaces is not None:
+                        server.monitor.meta["workspaces"] = workspaces
                 return self._json(200, {"ok": True, "message": msg})
 
             def log_message(self, *args):
