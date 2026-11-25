@@ -26,7 +26,6 @@ from .web import TOKEN_HEADER, ConsoleServer
 
 WIN_W, WIN_H = 520, 620
 MIN_W, MIN_H = 300, 160
-TOP_MARGIN = 8  # px kept free above the console when it grows
 TOOLTIP_MAX = 120  # Windows caps tray tooltips at 128 chars
 
 # A frameless window has no minimize box, so Windows ignores a click on its taskbar button
@@ -160,32 +159,15 @@ class JsApi:
     def save_size(self, width, height):
         save_setting("window_size", [max(MIN_W, int(width)), max(MIN_H, int(height))])
 
-    def max_height(self):
-        """The tallest the console grows to fit its content; past it the list scrolls."""
-        return self._app.max_height()
-
     def fit(self, width, height):
-        """Fit the height to the content, anchored to the bottom (near the tray), so it grows upward.
-        The page calls this a few times per change to animate it."""
+        """Auto-fit the height to the content (kept anchored to the bottom, near the tray)."""
         w = self._app.window
-        if not w:
+        if not w or load_settings().get("window_size"):
             return
         from webview.window import FixPoint
 
-        h = int(min(max(MIN_H, height), self._app.max_height()))
-        w.resize(max(MIN_W, int(width)), h, FixPoint.SOUTH | FixPoint.WEST)
-        try:  # grown past the top of the screen: bring it back down (.y waits for a first show, so not before)
-            if w.events.shown.is_set() and w.y is not None and w.y < TOP_MARGIN:
-                w.move(w.x, TOP_MARGIN)
-        except Exception:
-            pass
-        return h
-
-    def move_to(self, x, y):
-        """Move the window (the page's own header drag, which waits for a few px of movement)."""
-        w = self._app.window
-        if w:
-            w.move(int(x), int(y))
+        limit = self._app.screen_height() * 0.85 if self._app.screen_height() else 900
+        w.resize(max(MIN_W, int(width)), int(min(max(MIN_H, height), limit)), FixPoint.SOUTH | FixPoint.WEST)
 
     def reset_size(self):
         save_setting("window_size", None)
@@ -509,13 +491,9 @@ class TrayApp:
 
     def _size(self) -> tuple[int, int]:
         saved = load_settings().get("window_size")
-        if isinstance(saved, list) and len(saved) == 2:   # the width you set; the height then fits the content
+        if isinstance(saved, list) and len(saved) == 2:
             return max(MIN_W, int(saved[0])), max(MIN_H, int(saved[1]))
         return WIN_W, WIN_H
-
-    def max_height(self) -> int:
-        screen = self.screen_height()
-        return int(screen * 0.85) if screen else 900
 
     def screen_height(self) -> int:
         try:
@@ -711,7 +689,7 @@ def run_tray(interval: int | None = None, refresh_tokens: bool | None = None, se
         interval=interval or settings["interval"],
         refresh_tokens=settings["auto_refresh"] if refresh_tokens is None else refresh_tokens,
     )
-    boot = {"tray": True}
+    boot = {"tray": True, "manual_size": bool(settings.get("window_size"))}
     if self_test_mode:
         return self_test(monitor, ConsoleServer(monitor, "127.0.0.1", 0, allow_actions=True,
                                                 extra_boot=boot).start_background())

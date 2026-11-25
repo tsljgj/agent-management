@@ -332,7 +332,6 @@ def test_free_accounts_show_reported_main_windows_and_honest_missing_window_stat
 def test_banked_reset_expirations_are_individual_and_update_without_a_poll(run_console_js):
     run_console_js(r"""
 (() => {
-  const frozen = Date.now(); Date.now = () => frozen;   // the page and the check read the same second
   const expiry = future(49), soon = future(1 / 120);
   const u = usage("resets", {extra: {banked_resets: {available: 4, credits: [
     {title: 'Monthly <img src=x onerror="bad()">', expires_at: expiry},
