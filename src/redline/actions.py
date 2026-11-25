@@ -640,6 +640,13 @@ def dispatch(action: str, args: dict) -> str:
         if args.get("log") is None:
             raise ActionError("console-connect needs a log sink")
         return start(get_account(args.get("name", ""), prov or "claude"), args["log"], on_done=args.get("on_done"))
+    if action == "tokens":
+        from . import tokens
+
+        try:
+            return tokens.command(str(args.get("arg", "")))
+        except (RuntimeError, subprocess.TimeoutExpired) as e:
+            raise ActionError(str(e)) from None
     if action == "renew":
         return set_renews(args.get("name", ""), args.get("date", ""), prov)
     if action == "code":

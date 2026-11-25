@@ -21,10 +21,12 @@ import json
 import os
 import shutil
 import subprocess
+import sys
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from .config import DEFAULT_HOMES, load_accounts, redline_home
+from .config import DEFAULT_HOMES, load_accounts, load_settings, redline_home, save_setting
 
 KINDS = ("input", "output", "cache_write", "cache_read")
 SCHEMA = 1
@@ -302,9 +304,12 @@ def publish(summary: dict, repo: str, path: str = "stats/tokens.json", gh: str |
     gh = gh or shutil.which("gh")
     if not gh:
         raise RuntimeError("publishing needs the GitHub CLI (gh), signed in: https://cli.github.com")
+    if repo.count("/") != 1 or not all(repo.split("/")):
+        raise RuntimeError(f"not a repo: {repo!r} (expected owner/name)")
     api = f"repos/{repo}/contents/{path}"
+    kw = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
     sha = None
-    r = subprocess.run([gh, "api", api, "--jq", ".sha"], capture_output=True, text=True)
+    r = subprocess.run([gh, "api", api, "--jq", ".sha"], capture_output=True, text=True, timeout=60, **kw)
     if r.returncode == 0:
         sha = r.stdout.strip() or None
     body = {
@@ -314,7 +319,46 @@ def publish(summary: dict, repo: str, path: str = "stats/tokens.json", gh: str |
     if sha:
         body["sha"] = sha
     r = subprocess.run([gh, "api", "-X", "PUT", api, "--input", "-"],
-                       input=json.dumps(body), capture_output=True, text=True)
+                       input=json.dumps(body), capture_output=True, text=True, timeout=120, **kw)
     if r.returncode != 0:
         raise RuntimeError((r.stderr or r.stdout).strip() or "gh api failed")
     return f"https://github.com/{repo}/blob/HEAD/{path}"
+
+
+PUBLISH_EVERY = 20 * 3600  # the tray checks every few hours; a day's card is refreshed about once
+
+
+def saved_repo() -> str:
+    return str(load_settings().get("tokens_repo") or "")
+
+
+def command(arg: str = "") -> str:
+    """The console's `tokens` command: `tokens` shows the totals, `tokens publish [owner/repo]`
+    publishes now (and remembers the repo so the tray republishes daily), `tokens off` stops that."""
+    words = arg.split()
+    if words[:1] == ["off"]:
+        save_setting("tokens_repo", "")
+        return "token stats: no longer published"
+    summary = export(update())
+    text = render(summary).rstrip()
+    if words[:1] == ["publish"]:
+        repo = words[1] if len(words) > 1 else saved_repo()
+        if not repo:
+            raise RuntimeError("usage: tokens publish <owner>/<repo>")
+        url = publish(summary, repo)
+        save_setting("tokens_repo", repo)
+        save_setting("tokens_published_at", time.time())
+        text += f"\npublished -> {url} (republished daily while redline runs; `tokens off` stops it)"
+    return text
+
+
+def publish_if_due(now: float | None = None) -> str | None:
+    """Called by the tray now and then: republish to the remembered repo about once a day."""
+    repo = saved_repo()
+    now = now or time.time()
+    if not repo or now - float(load_settings().get("tokens_published_at") or 0) < PUBLISH_EVERY:
+        return None
+    summary = export(update())
+    publish(summary, repo)
+    save_setting("tokens_published_at", now)
+    return f"token stats published to {repo}: {human(summary['totals']['total'])}"

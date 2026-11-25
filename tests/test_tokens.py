@@ -74,3 +74,28 @@ def test_human():
     assert tokens.human(999) == "999"
     assert tokens.human(1_234_567) == "1.23M"
     assert tokens.human(45_600_000_000) == "45.6B"
+
+
+def test_console_command_remembers_repo_and_publishes_daily(tmp_path, monkeypatch):
+    from redline import actions
+    from redline.config import load_settings
+
+    calls = []
+    monkeypatch.setattr(tokens, "homes", lambda: {"claude": [tmp_path / "none"]})
+    monkeypatch.setattr(tokens, "publish", lambda summary, repo, path="stats/tokens.json": calls.append(repo) or f"https://github.com/{repo}")
+    assert "TOKENS" in actions.dispatch("tokens", {})
+    out = actions.dispatch("tokens", {"arg": "publish me/me"})
+    assert "published" in out and calls == ["me/me"]
+    assert load_settings()["tokens_repo"] == "me/me"
+    assert tokens.publish_if_due() is None  # just published
+    assert tokens.publish_if_due(now=load_settings()["tokens_published_at"] + tokens.PUBLISH_EVERY + 1)
+    assert calls == ["me/me", "me/me"]
+    actions.dispatch("tokens", {"arg": "off"})
+    assert tokens.publish_if_due(now=10**12) is None
+
+
+def test_publish_rejects_a_bad_repo():
+    import pytest
+
+    with pytest.raises(RuntimeError):
+        tokens.publish({"totals": {"total": 1}}, "not-a-repo", gh="gh")
