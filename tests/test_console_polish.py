@@ -298,7 +298,7 @@ def test_the_gauge_blows_when_the_week_goes_far_faster_than_expected(run_console
 """)
 
 
-def test_when_the_week_runs_out_first_it_sets_the_level_and_a_used_up_limit_has_blown(run_console_js):  # noqa: F811
+def test_when_the_week_runs_out_first_it_sets_the_level_and_a_used_up_limit_sits_still(run_console_js):  # noqa: F811
     run_console_js(r"""
 (() => {
   localStorage = {getItem: () => null, setItem() {}};
@@ -311,12 +311,13 @@ def test_when_the_week_runs_out_first_it_sets_the_level_and_a_used_up_limit_has_
   assert.match(tag, /^<div class="rate hot"/);           // 2.5 %/h = 1.2x of 2.08 %/h: hot, short of a blow-up
   assert.match(tag, /the week runs out first, in 2h 00m/);
   assert.match(tag, /7d 2\.5%\/h/);
-  // a limit already at MAX: the gauge has blown
-  const dead = {...base, windows: [{name: "5h", used_percent: 100, resets_at: future(1)}, {name: "7d", used_percent: 60, resets_at: null}], rate: null};
+  // a limit already at MAX: nothing left to watch, so a still, unlit dial and OUT
+  const dead = {...base, windows: [{name: "5h", used_percent: 100, resets_at: future(1)}, {name: "7d", used_percent: 60, resets_at: null}],
+    rate: {level: "burn", per_hour: 200, pace: 10, window: "5h", week: {per_hour: 9, pace: 15}}};
   const d = rateTag(dead);
   assert.match(d, /^<div class="rate dead"/);
   assert.match(d, /<b>OUT<\/b>/);
-  assert.match(d, /class="smk"/);
-  assert.match(d, /blown: 5h at MAX, resets in/);
+  assert.ok(!/class="sg on"|class="spk"|smk/.test(d), d);   // nothing lit, no sparks or smoke
+  assert.match(d, /5h at MAX, resets in/);
 })();
 """)

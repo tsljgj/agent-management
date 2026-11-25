@@ -157,20 +157,17 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .rate.boom.l2 b{animation:rl-strobe .7s steps(2) infinite}
 .rate.boom.l3 b{animation:rl-strobe .26s steps(2) infinite}
 .codex .dial .rate.boom{width:auto}.codex .rate.boom b{display:inline}
-/* already blown: a limit is used up. A cracked, dark dial with a wisp of smoke */
-.rate.dead{--c:var(--red)}
-.rate.dead svg .sg{stroke:#3a1418}.rate.dead svg .sg.cr{stroke:var(--red);opacity:.55}
-.rate.dead svg .nd{stroke:var(--dim);filter:none}.rate.dead svg .hub{stroke:var(--dim)}
-.rate.dead svg .smk{fill:#9aa3ad;opacity:0;transform-box:fill-box;transform-origin:center;animation:rl-smoke 2.6s ease-out infinite}
-.rate.dead svg .smk:nth-of-type(2){animation-delay:1.3s}
-.rate.dead b{color:var(--red);text-shadow:0 0 6px var(--red)}
+/* a limit used up: nothing to watch until it resets, so a still, dark dial (motion is kept for
+   what still needs you) */
+.rate.dead{--c:var(--dim)}
+.rate.dead svg .nd,.rate.dead svg .hub{stroke:var(--faint);filter:none}
+.rate.dead b{color:var(--dim);text-shadow:none}
 .codex .dial .rate.dead{width:auto}.codex .rate.dead b{display:inline}
 @keyframes rl-shake{0%,100%{transform:translate(0,0) rotate(0)}20%{transform:translate(-.9px,.4px) rotate(-4deg)}
   40%{transform:translate(.8px,-.5px) rotate(3deg)}60%{transform:translate(-.5px,-.4px) rotate(-2deg)}80%{transform:translate(.6px,.5px) rotate(2deg)}}
 @keyframes rl-flick{50%{stroke:#ffd23d}}
 @keyframes rl-spark{0%{opacity:1}100%{opacity:0}}
 @keyframes rl-strobe{50%{background:#ffd23d;color:#000}}
-@keyframes rl-smoke{0%{opacity:.55;transform:translate(0,0) scale(.6)}100%{opacity:0;transform:translate(4px,-10px) scale(1.8)}}
 .rate b{font-weight:600;color:var(--c);text-shadow:0 0 6px var(--c)}
 .rate.idle b{text-shadow:none}
 .rate span{display:none;text-transform:none;letter-spacing:0}   /* the %/h only where there is room (two-line rows) */
@@ -683,9 +680,7 @@ function gauge(f, mode = "") {
   let out = "";
   for (let k = 0; k < GAUGE_SEGS; k++) {
     const a = pt(k * step + gap / 2), b = pt((k + 1) * step - gap / 2);
-    // blown: a few segments cracked loose and knocked out of the arc
-    const cr = mode === "dead" && k % 4 === 1, off = cr ? ` transform="translate(${k % 8 === 1 ? 1.2 : -1}, ${1.5 + k % 3})"` : "";
-    out += `<path class="sg${(f > 0 && k * step < f) ? " on" : ""}${cr ? " cr" : ""}" d="M${a} A${r} ${r} 0 0 1 ${b}"${off}/>`;
+    out += `<path class="sg${(f > 0 && k * step < f) ? " on" : ""}" d="M${a} A${r} ${r} 0 0 1 ${b}"/>`;
   }
   for (const t of GAUGE_TICKS) {
     const a = pt(gaugeFrac(t), r + 2.6), b = pt(gaugeFrac(t), r + 4.4);
@@ -697,9 +692,8 @@ function gauge(f, mode = "") {
       out += `<line class="spk" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"/>`;
     }
   }
-  if (mode === "dead") out += `<circle class="smk" cx="23" cy="13" r="2.2"/><circle class="smk" cx="17" cy="14" r="1.8"/>`;
-  // the needle: pinned past the end when it blows; hanging limp once it has blown
-  const n = mode === "boom" ? pt(1.06, 10.5) : mode === "dead" ? [(cx + 3).toFixed(2), (cy + 7).toFixed(2)] : pt(f, 10.5);
+  // the needle: pinned past the end when it blows
+  const n = mode === "boom" ? pt(1.06, 10.5) : pt(f, 10.5);
   return `<svg viewBox="0 0 40 22" aria-hidden="true">${out}`
     + `<line class="nd" x1="${cx}" y1="${cy}" x2="${n[0]}" y2="${n[1]}"/><circle class="hub" cx="${cx}" cy="${cy}" r="1.8"/></svg>`;
 }
@@ -745,8 +739,8 @@ function rateTag(u) {
   const r = u.rate, p = paceOf(u);
   if (p && p.mode === "dead") {
     const b = blockedOf(u), names = b.windows.map(w => w.name).join(" + ");
-    const tip = `blown: ${names} at MAX${b.at ? ", resets in " + span(left(b.at)) : ""}`;
-    return `<div class="rate dead" title="${esc(tip)}">${gauge(0, "dead")}<b>OUT</b></div>`;
+    const tip = `${names} at MAX${b.at ? ", resets in " + span(left(b.at)) : ""}`;
+    return `<div class="rate dead" title="${esc(tip)}">${gauge(0)}<b>OUT</b></div>`;
   }
   if (!p || u.stale) {  // keep the dial in place, unlit, until there are live readings to measure
     if (!u.windows || !u.windows.length) return "";
