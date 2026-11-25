@@ -38,6 +38,16 @@ header{display:flex;align-items:center;gap:20px;height:48px;padding:0 10px 0 18p
 .tab.waiting sup{color:var(--warn)}
 #weeklyNotice,#wsNotice{display:none;padding:7px 18px;border-bottom:1px solid var(--line);color:var(--warn);font-size:11px;line-height:1.6;flex-shrink:0}
 #weeklyNotice.on,#wsNotice.on{display:block}
+/* workspace notices: the first one on a line, the rest behind +N (click to list them all) */
+#wsNotice{color:var(--dim);cursor:pointer;user-select:none;transition:background .15s}
+#wsNotice:hover{background:rgba(255,176,32,.04)}
+#wsNotice.on{display:flex;gap:8px;align-items:flex-start}
+#wsNotice .ni{color:var(--warn);flex:none}
+#wsNotice .nl{flex:1;min-width:0;display:flex;flex-direction:column}
+#wsNotice .nl span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#wsNotice .nl span+span{display:none}
+#wsNotice.open .nl span+span{display:block}
+#wsNotice .nmore{flex:none;color:var(--warn);font-size:10px;letter-spacing:.04em}
 .sp{flex:1}
 .tools{display:flex;align-items:center;gap:2px;flex-shrink:0}
 .hb{height:30px;min-width:30px;padding:0 6px;color:var(--dim);font-size:13px}
@@ -60,8 +70,19 @@ header{display:flex;align-items:center;gap:20px;height:48px;padding:0 10px 0 18p
 main{flex:1;overflow-y:auto;scrollbar-gutter:stable}  /* the scrollbar appearing must not shift the rows */
 main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(--faint)}
 .acct{display:grid;grid-template-columns:minmax(84px,1fr) minmax(120px,180px) minmax(120px,180px);grid-template-rows:minmax(40px,auto);align-items:center;gap:14px 24px;
-  position:relative;min-height:60px;padding:10px 18px;border-bottom:1px solid var(--line);transition:opacity .2s,transform .2s}
-.acct:hover{background:rgba(0,229,255,.03)}
+  position:relative;min-height:60px;padding:10px 18px;border-bottom:1px solid var(--line);transition:opacity .2s,transform .2s,background .15s}
+.acct:hover{background:rgba(0,229,255,.035)}
+.acct.open{background:rgba(255,255,255,.018)}
+/* which accounts can be used right now: a green edge (cyan on the one with the most 5h left);
+   an account that is used up has no edge, a dimmed name, and says when it is back */
+.acct.ready{box-shadow:inset 2px 0 var(--ok)}
+.acct.ready.best{box-shadow:inset 3px 0 var(--acc)}
+.acct.blocked .nm{color:#9fb3b8}
+.acct.blocked .dial{opacity:.55}
+.back{grid-column:2/4;display:flex;align-items:baseline;justify-content:flex-end;gap:10px;white-space:nowrap;overflow:hidden}
+.back .k{font-size:10px;letter-spacing:.06em;color:var(--dim)}
+.back b{font-size:15px;font-weight:600;color:var(--fg);letter-spacing:.02em}
+.back em{font-style:normal;font-size:11px;color:var(--dim)}
 .acct.codex{grid-template-columns:minmax(170px,1fr) minmax(105px,180px) minmax(105px,180px);column-gap:16px}
 .acct.weekly-attention{box-shadow:inset 2px 0 var(--warn)}
 .acct.gone{opacity:0;transform:translateX(20px)}
@@ -158,15 +179,24 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .acct{cursor:pointer}
 /* open: same padding/alignment as closed, so the name and meters stay put; the details go below */
 .acct.open{height:auto}
-.det{display:none;grid-column:1/-1;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 22px;margin-top:10px;
+.det{display:none;grid-column:1/-1;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 22px;margin-top:10px;
   padding:10px 0 2px;border-top:1px dashed var(--faint);font-size:12px;cursor:text;user-select:text}
-.acct.open .det{display:grid}
-.ch{position:absolute;right:8px;bottom:4px;font-size:9px;color:var(--dim);opacity:0;transition:opacity .15s;pointer-events:none}
-.acct:hover .ch,.acct.open .ch{opacity:.7}
-.det .acts{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:4px}
-.det .acts button{color:var(--dim);white-space:nowrap}
-.det .acts button:hover{color:var(--acc)}
-.det .acts .del:hover,.det .acts .del.arm{color:var(--red)}
+.acct.open .det{display:grid;animation:det-in .18s ease-out}
+@keyframes det-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.ch{position:absolute;right:8px;bottom:4px;font-size:9px;color:var(--dim);opacity:.25;transition:opacity .15s,color .15s;pointer-events:none}
+.acct:hover .ch,.acct.open .ch{opacity:.8;color:var(--acc)}
+/* the details' first line: plan · login · workspace · Chrome, quiet */
+.det .dhead b{color:var(--dim);font-size:11px}
+/* a gap before a new group of lines */
+.det .gap{margin-top:6px}
+.det .acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.det .acts button{color:var(--dim);white-space:nowrap;font-size:11px;padding:4px 10px;border:1px solid var(--faint);border-radius:3px;
+  transition:color .12s,border-color .12s,background .12s,transform .08s}
+.det .acts button:hover{color:var(--acc);border-color:var(--acc);background:rgba(0,229,255,.06)}
+.det .acts button:active{transform:scale(.96)}
+.det .acts .del{margin-left:auto}
+.det .acts .del:hover,.det .acts .del.arm{color:var(--red);border-color:var(--red);background:rgba(255,46,99,.06)}
+button{transition:color .12s}
 #sort.on{color:var(--acc)}
 #sortm{position:fixed;top:44px;right:10px;z-index:25;display:none;min-width:230px;background:var(--bg);border:1px solid var(--faint);
   box-shadow:0 8px 24px rgba(0,0,0,.6);padding:4px 0}
@@ -426,12 +456,35 @@ function bankedResetDetails(u) {
   }
   return rows.join("");
 }
+// window names as people read them: "weekly weekly_all" -> "7d all models", "weekly Fable" -> "7d Fable"
+function niceName(n) {
+  n = String(n || "");
+  const m = n.match(/^weekly\s+(.+)$/i);
+  if (m) return "7d " + (/^weekly_all$/i.test(m[1]) ? "all models" : m[1].replace(/_/g, " "));
+  return n.replace(/_/g, " ");
+}
+const MAIN_WINDOW = /^(?:primary|secondary|\d+(?:\.\d+)?[hd])$/;
+// Used up: a main window (5h, 7d...) is at 100%. Back once every full one has reset.
+function blockedOf(u) {
+  if (!["claude", "codex"].includes(u.provider) || identityMismatch(u) || !u.windows) return null;
+  const full = u.windows.filter(w => MAIN_WINDOW.test(w.name) && spent(w.used_percent));
+  if (!full.length) return null;
+  const at = full.every(w => w.resets_at) ? full.map(w => w.resets_at).sort((a, b) => new Date(a) - new Date(b)).pop() : null;
+  return {windows: full, at};
+}
+function backTag(b) {
+  const names = b.windows.map(w => w.name).join(" + ");
+  const tip = `${names} 额度已用完 · ` + (b.at ? `${new Date(b.at).toLocaleString()} 恢复` : "恢复时间未知");
+  return `<div class="back" title="${esc(tip)}"><span class="k">${esc(names)} used up · back in</span>`
+    + `<b data-reset="${esc(b.at || "")}">${b.at ? resetText(left(b.at)) : "?"}</b>`
+    + (b.at ? `<em>${esc(when(b.at))}</em>` : "") + `</div>`;
+}
 function quotaMeters(u) {
   if (u.provider === "gemini") {
     if (!u.windows.length) return `<div class="need"><span>未返回额度</span></div>`;
     return [u.windows[0], u.windows[1]].map(w => meter(w, w ? w.name : "")).join("");
   }
-  const main = u.windows.filter(w => /^(?:primary|secondary|\d+(?:\.\d+)?[hd])$/.test(w.name));
+  const main = u.windows.filter(w => MAIN_WINDOW.test(w.name));
   if (!main.length) return `<div class="need"><span>未返回额度窗口</span></div>`;
   const slots = [main.find(w => w.name === "5h"), main.find(w => w.name === "7d")];
   const other = main.filter(w => !["5h", "7d"].includes(w.name));
@@ -559,7 +612,9 @@ function renewTag(u) {
     : `<div class="sub far" title="订阅到期日未知 · 在 PLANS 点 ✎ 填写">SUB ?</div>`;
   const src = r.set ? "你设置的日期" : r.est ? "按订阅开始日每月续费估算" : `${u.provider === "codex" ? "Codex" : "Claude"} 报告`;
   const d = Math.max(0, p.days);
-  return `<div class="sub ${dayLevel(d)}" title="${esc(`订阅到期 ${p.date}（${src}）`)}">SUB ${r.est ? "~" : ""}${d}d</div>`;
+  // An estimate is only the monthly renewal of a running subscription: worth knowing, not alarming.
+  // Colour is for a real end (reported, or the date you set) coming up.
+  return `<div class="sub ${r.est ? "far" : dayLevel(d)}" title="${esc(`订阅到期 ${p.date}（${src}）`)}">SUB ${r.est ? "~" : ""}${d}d</div>`;
 }
 const base = p => (p || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 const since = s => s < 86400 ? ago(s) : Math.floor(s / 86400) + "d";
@@ -647,25 +702,28 @@ function creditGap(c) {
 }
 function creditTag(u) {
   const c = creditOf(u);
-  if (!c) return "";
-  if (!c.live) return `<div class="cred usd none" title="${esc(creditGap(c))}">$–</div>`;
+  if (!c || !c.live) return "";   // none this month (or lapsed): nothing worth a slot
   const date = c.expires_at ? new Date(c.expires_at).toLocaleDateString(undefined, {year: "numeric", month: "short", day: "numeric"}) : "未知";
   const tip = `API credit · ${usd(c.remaining)} left · ${date} 到期` + (c.state === "reconnect" ? " · Console 登录已失效，需重新连接" : c.state === "stale" ? " · 最近一次读取失败，显示的是上次的值" : "");
   return `<div class="cred usd ${creditLevel(c)}${c.state === "ok" ? "" : " old"}" title="${esc(tip)}">`
     + `$${c.remaining == null ? "?" : Math.floor(c.remaining + 1e-9)}</div>`;
 }
-// a slot in every Claude row once any account on the page has a Console connected, so the rows stay in line
-const creditSlot = () => (DATA.usages || []).some(x => creditOf(x));
+// a slot in every Claude row once any account on the page shows a credit, so the rows stay in line
+const creditSlot = () => (DATA.usages || []).some(x => creditOf(x)?.live);
+// Nothing to show (no Console connected, or no credit this month): no line at all. Connecting is a
+// button among the card's actions (consoleButton); a refused session keeps its line, with reconnect.
+function consoleButton(u) {
+  return u.provider === "claude" && !identityMismatch(u) && paidClaude(u) && !creditOf(u)
+    ? `<button class="act" data-act="console" title="读取这个套餐每月的 API credit">$ 连接 Console</button>` : "";
+}
 function creditDetail(u) {
   const c = creditOf(u);
-  if (u.provider !== "claude" || identityMismatch(u) || (!c && !paidClaude(u))) return "";
-  const button = paidClaude(u) && (!c || c.state === "reconnect")
-    ? `<button class="act" data-act="console">${c ? "重新连接" : "连接 Console"}</button>` : "";
+  if (u.provider !== "claude" || identityMismatch(u) || !c || !c.live) return "";
+  const button = paidClaude(u) && c.state === "reconnect" ? `<button class="act" data-act="console">重新连接</button>` : "";
   let value = `<b>–</b>`;
-  if (c && !c.live) value = `<b class="dim" title="${esc(creditGap(c))}">${esc(creditGap(c))}</b>`;
-  if (c && c.live && c.remaining == null && c.granted == null) {
+  if (c.remaining == null && c.granted == null) {
     value = `<b class="warn">${c.state === "reconnect" ? "Console 登录已失效" : "暂时读不到余额"}</b>`;
-  } else if (c && c.live) {
+  } else {
     const lv = creditLevel(c), cls = {high: "red", mid: "warn", urgent: "acc"}[lv] || "";
     const old = c.state === "reconnect" ? " · 需重新连接" : c.state === "stale" ? " · 未更新" : "";
     // what is left first: that is what can still be spent before it lapses
@@ -715,7 +773,7 @@ function bankedTag(u) {
 function row(u, bestName) {
   const n = esc(u.account);
   const mismatch = identityMismatch(u);
-  const extra = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${pct(w.used_percent)}`)
+  const extra = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${niceName(w.name)} ${pct(w.used_percent)}`)
     .concat(extraEntries(u).filter(([k]) => k !== "credits").map(([k, v]) => `${k} ${v}`));
   const tip = mismatch ? identityMessage(u) : [u.email, u.plan, ...extra, u.stale ? `as of ${new Date(u.fetched_at).toLocaleString()} · ${u.error}` : ""].filter(Boolean).join(" · ");
   const body = u.provider === "gemini" && failed(u)
@@ -728,11 +786,13 @@ function row(u, bestName) {
     ? `<div class="need"><span title="${esc(u.error)}">不含 Claude Code</span><button class="act" data-act="web" title="在 claude.ai 订阅 Pro / Max">↗</button></div>`
     : failed(u)
     ? `<div class="need"><button data-act="retry">retry ⟳</button><span title="${esc(u.error)}">${esc(shortErr(u.error))}</span></div>`
-    : quotaMeters(u);
+    : blockedOf(u) ? backTag(blockedOf(u)) : quotaMeters(u);
   const open = isOpen(`${u.provider}:${u.account}`);
   const info = infoOf(u), live = (info.projects || []).filter(p => p.active);
   const weekly = weeklyOf(u);
-  const flags = (live.length ? " live" : "") + (["unstarted", "unknown"].includes(weekly?.state) ? " weekly-attention" : "");
+  const usable = u.ok && !u.stale && !mismatch && u.windows.length > 0 && !blockedOf(u);
+  const flags = (live.length ? " live" : "") + (["unstarted", "unknown"].includes(weekly?.state) ? " weekly-attention" : "")
+    + (usable ? " ready" : blockedOf(u) ? " blocked" : "");
   const tip2 = [live.length ? "● running in " + live.map(p => base(p.path)).join(", ") : "", tip]
     .filter(Boolean).join(" · ");
   const quotaTags = mismatch ? "" : dial(u) + (u.provider === "claude" ? credTag(u) : "");
@@ -785,10 +845,13 @@ function details(u) {
   const info = infoOf(u);
   const kv = kvRow;
   const mismatch = identityMismatch(u);
+  // first a quiet line: the plan, the login, its workspace(s) and Chrome profile
+  const head = [u.plan, u.email || info.email, info.workspaces?.length ? "workspace " + info.workspaces.join(" · ") : "",
+    info.profile ? "Chrome " + info.profile.name : ""].filter(Boolean).join(" · ");
   const rows = mismatch
     ? [kv("登录账号不符", "请重新登录预期账号后查看其套餐与额度。", "warn"), kv("预期账号", info.expected_email || "未知"), kv("实际账号", info.email || u.email || "未知", "warn")]
-    : [kv("account", [u.email || info.email, u.plan].filter(Boolean).join(" · ") || "–")];
-  if (info.workspaces?.length) rows.push(kv("workspace", info.workspaces.join(" · ")));
+    : [`<div class="wide dhead"><b title="${esc(head)}">${esc(head || "–")}</b></div>`];
+  if (mismatch && info.workspaces?.length) rows.push(kv("workspace", info.workspaces.join(" · ")));
   if (!mismatch) {
     const banked = bankedResetText(u);
     if (banked) rows.push(kv("Banked resets", banked));
@@ -801,18 +864,21 @@ function details(u) {
     if (five.message) rows.push(kv("开启计时", five.message, five.state === "error" ? "red" : ""));
     for (const name of ["5h", "7d"]) {   // side by side: half a line each
       const w = u.windows.find(x => x.name === name);
-      if (w) rows.push(kv(name + " ↻", w.resets_at ? when(w.resets_at) : "not started", spent(w.used_percent) ? "red" : "", false));
+      if (w) rows.push(kv(name + " ↻", w.resets_at ? when(w.resets_at) : "not started", "", false));
     }
-    const other = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${pct(w.used_percent)}`)
+    // the other limits, by the names people use; one that only repeats 7d is left out
+    const week = u.windows.find(x => x.name === "7d");
+    const other = u.windows.filter(w => w.name !== "5h" && w.name !== "7d")
+      .filter(w => !(week && /weekly_all$/i.test(w.name) && Math.abs((w.used_percent ?? -9) - (week.used_percent ?? -99)) < 1))
+      .map(w => `${niceName(w.name)} ${spent(w.used_percent) ? "used up" : pct(w.used_percent)}`)
       .concat(extraEntries(u).map(([k, v]) => `${k} ${v}`));
-    if (other.length) rows.push(kv("other", other.join(" · ")));
-    { const r = renewOf(u), p = renewParts(r);   // half a line, beside the Chrome profile
+    if (other.length) rows.push(kv("limits", other.join(" · ")));
+    { const r = renewOf(u), p = renewParts(r);
       const date = r && r.at ? (r.est ? "~" : "") + r.at.toLocaleDateString(undefined, {month: "short", day: "numeric"}) : p.date;
-      rows.push(`<div><span>${r && !r.est ? "paid until" : "renews"}</span><div class="prj">`
-        + `<b class="${p.cls ? "warn" : ""}" title="${esc(p.date + (p.days != null ? " · in " + p.left : ""))}${r && r.est ? " · estimate: the subscription start rolled forward by months (" + esc(u.provider) + " doesn't report the end date)" : r && r.set ? " · set by you" : ""}">`
+      rows.push(`<div class="gap"><span>${r && !r.est ? "paid until" : "renews"}</span><div class="prj">`
+        + `<b class="${p.cls && !(r && r.est) ? "warn" : ""}" title="${esc(p.date + (p.days != null ? " · in " + p.left : ""))}${r && r.est ? " · estimate: the subscription start rolled forward by months (" + esc(u.provider) + " doesn't report the end date)" : r && r.set ? " · set by you" : ""}">`
         + `${esc(date)}${p.days != null ? " · " + esc(Math.max(0, p.days)) + "d" : ""}</b>`
         + `<button data-act="renew" title="set the real renewal/end date">✎</button></div></div>`); }
-    if (info.profile) rows.push(kv("chrome", info.profile.name, "", false));
     rows.push(creditDetail(u));
   } else if (info.profile) rows.push(kv("chrome", info.profile.name));
   if (!u.ok) rows.push(kv("error", u.error || "", "red"));
@@ -822,6 +888,7 @@ function details(u) {
     + (info.default ? "" : `<button data-act="use" title="make this the login VS Code and plain ${u.provider} use (moves it to ~/.${u.provider})">◆ use in VS Code</button>`)
     + `<button data-act="web" title="open ${site} in its Chrome profile">↗ ${site}</button>`
     + (u.provider === "codex" ? `<button data-act="usage" title="在此账户的 Chrome 中打开 Codex 用量页面">↗ 用量</button>` : "")
+    + consoleButton(u)
     + `<button data-act="rename">✎ rename</button><button class="del" data-act="del" data-label="✕ remove">✕ remove</button></div>`);
   return `<div class="det">${rows.join("")}</div>`;
 }
@@ -918,7 +985,9 @@ function render() {
   // Workspace drift: on the tab of the provider it concerns (VS Code-wide drift goes with Claude)
   const drift = TAB === "plans" ? [] : (((DATA.meta || {}).workspaces || {}).notices || []).filter(d => (d.provider || "claude") === TAB);
   $("#wsNotice").classList.toggle("on", drift.length > 0);
-  $("#wsNotice").innerHTML = drift.map(d => `<span title="${esc(d.tip)}">${esc(d.short)}</span>`).join(" · ");
+  $("#wsNotice").innerHTML = drift.length ? `<span class="ni">⚠</span><div class="nl">`
+    + drift.map(d => `<span title="${esc(d.tip)}">${esc(d.short)}</span>`).join("") + `</div>`
+    + (drift.length > 1 ? `<button class="nmore" title="show all">${$("#wsNotice").classList.contains("open") ? "▴" : `+${drift.length - 1} ▾`}</button>` : "") : "";
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.tab === TAB));
   $("#wake").classList.toggle("hide", TAB === "plans" || TAB === "gemini");
   $("#plus").classList.toggle("hide", TAB === "gemini");   // Gemini logins come from the Gemini CLI, not from here
@@ -1184,6 +1253,12 @@ document.addEventListener("keydown", e => {
   if (document.activeElement.tagName !== "INPUT" && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) $("#cmd").focus();
 });
 document.querySelectorAll(".tab").forEach(t => t.onclick = () => setTab(t.dataset.tab));
+$("#wsNotice").onclick = () => {   // the notices: one line, or all of them
+  const el = $("#wsNotice"), open = !el.classList.contains("open");
+  el.classList.toggle("open", open); store.set("redline.notices", open ? "1" : "0");
+  render();
+};
+$("#wsNotice").classList.toggle("open", store.get("redline.notices", "0") === "1");
 $("#age").onclick = async () => { $("#age").textContent = "…"; await pull(true); };
 $("#ver").onclick = checkUpdate;
 $("#det").onclick = () => setDetails(!DETAILS);

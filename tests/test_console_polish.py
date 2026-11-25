@@ -41,9 +41,11 @@ def test_used_in_is_one_line_with_the_rest_behind_a_count(run_console_js):  # no
   // the terminal button is gone; rename and remove stay
   assert.doesNotMatch(html, /data-act="jack"|terminal/);
   assert.match(html, /data-act="rename"/); assert.match(html, /data-act="del"/);
-  // 5h and 7d share a line, renews shares one with the Chrome profile
+  // 5h and 7d share a line; plan, login and Chrome profile are one quiet line at the top
   assert.match(html, /<div><span>5h ↻<\/span><b class="" title="not started">not started<\/b><\/div><div><span>7d ↻<\/span>/);
-  assert.match(html, /<div><span>renews<\/span>.*?<\/div><\/div><div><span>chrome<\/span><b class="" title="Work">Work<\/b><\/div>/);
+  assert.match(html, /^<div class="det"><div class="wide dhead"><b title="max 20x · Chrome Work">max 20x · Chrome Work<\/b><\/div>/);
+  assert.match(html, /<div class="gap"><span>renews<\/span>/);
+  assert.doesNotMatch(html, /<span>(chrome|account)<\/span>/);
   // no projects: no row
   DATA.meta.accounts["claude:a"].projects = [];
   assert.doesNotMatch(details(u), /used in/);
@@ -93,5 +95,51 @@ def test_gemini_tab_rows_and_details(run_console_js):  # noqa: F811
   // plans stays claude + codex
   setTab("plans");
   assert.doesNotMatch(elements["#list"].innerHTML, /GEMINI/);
+})();
+""")
+
+
+def test_used_up_accounts_say_when_they_are_back_and_usable_ones_are_marked(run_console_js):  # noqa: F811
+    run_console_js(r"""
+(() => {
+  const cl = (name, windows, changes = {}) => ({...usage(name), provider: "claude", plan: "max 20x", windows, ...changes});
+  const full = cl("full", [{name: "5h", used_percent: 20, resets_at: future(2)},
+                           {name: "7d", used_percent: 100, resets_at: future(5 * 24 + 11)}]);
+  const both = cl("both", [{name: "5h", used_percent: 100, resets_at: future(2)},
+                           {name: "7d", used_percent: 100, resets_at: future(30)}]);
+  const fine = cl("fine", [{name: "5h", used_percent: 20, resets_at: future(2)},
+                           {name: "7d", used_percent: 40, resets_at: future(50)}]);
+  DATA = {now: 1, usages: [full, both, fine], meta: {accounts: {}}};
+  // used up: the row shows when it is back, in place of the meters, and ticks like the others
+  const r = row(full, null);
+  assert.match(r, /class="acct[^"]* blocked/);
+  assert.match(r, /<div class="back"[^>]*><span class="k">7d used up · back in<\/span><b data-reset="[^"]+">↻ 5d 1\dh<\/b><em>/);
+  assert.doesNotMatch(r, /class="q /);
+  // the latest reset of the full windows is when it is back
+  assert.match(row(both, null), /5h \+ 7d used up · back in<\/span><b data-reset="[^"]+">↻ 1d [56]h</);
+  // usable now: marked, and not blocked
+  const ok = row(fine, null);
+  assert.match(ok, /class="acct[^"]* ready/); assert.doesNotMatch(ok, /blocked|class="back"/);
+  // the 7d reset in the details is no longer red; the other limits by their readable names
+  const named = cl("n", [{name: "5h", used_percent: 10, resets_at: future(2)},
+    {name: "7d", used_percent: 50, resets_at: future(50)},
+    {name: "weekly weekly_all", used_percent: 50.4, resets_at: future(50)},
+    {name: "weekly Fable", used_percent: 100, resets_at: future(50)}]);
+  const det = details(named);
+  assert.match(det, /<span>limits<\/span><b class="" title="7d Fable used up">7d Fable used up<\/b>/);   // the all-models copy of 7d is left out
+  assert.doesNotMatch(det, /weekly_all|class="red"/);
+  assert.equal(niceName("weekly weekly_all"), "7d all models");
+  assert.equal(niceName("weekly Fable"), "7d Fable");
+  assert.equal(niceName("seven_day_opus"), "seven day opus");
+  // a weekly-all limit that differs from 7d stays, by its name
+  named.windows[2].used_percent = 80;
+  assert.match(details(named), /7d all models 80%/);
+  // a codex account with a spent primary window is blocked too; gemini never is
+  const cx = {...usage("cx"), provider: "codex", windows: [{name: "primary", used_percent: 100, resets_at: future(3)}]};
+  assert.ok(blockedOf(cx));
+  assert.equal(blockedOf({...cx, provider: "gemini"}), null);
+  // an estimated renewal is never in alarm colours
+  const est = renewTag({...cl("e", []), extra: {}, plan: "pro"});
+  assert.doesNotMatch(est || "", /class="sub (soon|urgent|high|mid)/);
 })();
 """)
