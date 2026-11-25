@@ -44,6 +44,11 @@ class Element {
 const elements = {}, tabs = ["claude", "codex", "gemini", "plans"].map(tab => {
   const el = new Element(); el.dataset.tab = tab; return el;
 });
+const edges = ["n", "s", "w", "e", "nw", "ne", "sw", "se"].map(e => {
+  const el = new Element(); el.dataset.e = e; el.setPointerCapture = () => {};
+  el.removeEventListener = (type, fn) => { el.listeners[type] = (el.listeners[type] || []).filter(f => f !== fn); };
+  return el;
+});
 const document = {
   body: new Element(), activeElement: {tagName: "BODY"},
   querySelector: selector => {
@@ -52,10 +57,10 @@ const document = {
     if (selector === "#emptyAdd" || selector === ".acct.open") return null;
     return elements[selector] ||= new Element();
   },
-  querySelectorAll: selector => selector === ".tab" ? tabs : [],
+  querySelectorAll: selector => selector === ".tab" ? tabs : selector === ".rz" ? edges : [],
   createElement: () => new Element(), addEventListener: () => {},
 };
-const context = vm.createContext({document, elements, tabs, assert, console,
+const context = vm.createContext({document, elements, tabs, edges, assert, console,
   window: {addEventListener() {}}, localStorage: {getItem: () => null, setItem() {}},
   fetch: async () => { throw new Error("unexpected network request"); },
   setTimeout: () => 1, clearTimeout() {}, setInterval() {}, requestAnimationFrame() {},
@@ -332,6 +337,7 @@ def test_free_accounts_show_reported_main_windows_and_honest_missing_window_stat
 def test_banked_reset_expirations_are_individual_and_update_without_a_poll(run_console_js):
     run_console_js(r"""
 (() => {
+  const frozen = Date.now(); Date.now = () => frozen;   // the page and the check read the same second
   const expiry = future(49), soon = future(1 / 120);
   const u = usage("resets", {extra: {banked_resets: {available: 4, credits: [
     {title: 'Monthly <img src=x onerror="bad()">', expires_at: expiry},

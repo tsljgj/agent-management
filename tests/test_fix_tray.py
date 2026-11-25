@@ -637,3 +637,54 @@ def test_minimized_from_the_taskbar_then_the_tray_brings_it_back():
     assert shown[-1] == "hide" and not app.visible
     app._on_restored()                       # a stray restore while hidden changes nothing
     assert not app.visible
+
+
+def test_fit_holds_the_top_edge_and_a_height_set_by_hand_wins(monkeypatch):
+    app = _bare_app()
+    app.screen_height = lambda: 1000
+    calls = []
+
+    class Win:
+        def resize(self, w, h, fix):
+            calls.append((w, h, fix))
+
+        def move(self, x, y):  # never: the top edge stays where it is
+            pytest.fail("fit moved the window")
+
+    fake = types.ModuleType("webview.window")
+    fake.FixPoint = type("FixPoint", (), {"NORTH": 1, "SOUTH": 2, "EAST": 4, "WEST": 8})
+    monkeypatch.setitem(sys.modules, "webview", types.ModuleType("webview"))
+    monkeypatch.setitem(sys.modules, "webview.window", fake)
+    app.window = Win()
+    api = tray.JsApi(app)
+
+    # a width set by hand: the height still follows the content, growing downward
+    api.save_size(600, 300)
+    assert load_settings()["fit_height"] is True
+    assert api.fit(600, 700) == 700
+    assert calls[-1] == (600, 700, 1 | 8)          # NORTH | WEST: the top-left corner stays put
+    assert api.fit(600, 5000) == 850               # never past 85% of the screen
+    # the height set by hand (a top or bottom edge): the content no longer changes it
+    api.save_size(600, 420, True)
+    assert load_settings()["fit_height"] is False and load_settings()["window_size"] == [600, 420]
+    calls.clear()
+    assert api.fit(600, 900) is None and calls == []
+    # `fit` hands the height back to the content and keeps the width
+    api.reset_size()
+    assert load_settings()["fit_height"] is True and load_settings()["window_size"] == [600, 420]
+    api.fit(600, 640)
+    assert calls == [(600, 640, 9)]
+
+
+def test_first_open_leaves_room_below_for_the_height_to_grow(monkeypatch):
+    app = _bare_app()
+    app._handoff_window = {}
+    app.screen_height = lambda: 1080
+    screen = types.SimpleNamespace(width=1920, height=1080)
+    app.webview = types.SimpleNamespace(screens=[screen])
+    x, y = app._position(520, 300)
+    assert x == 1920 - 520 - 12
+    assert y + app.max_height() <= 1080 - 60       # grown to the most, it still ends above the taskbar
+    # restarted by an update: it reopens where it was
+    app._handoff_window = {"x": 200, "y": 150}
+    assert app._position(520, 300) == (200, 150)

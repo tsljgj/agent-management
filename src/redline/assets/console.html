@@ -22,6 +22,9 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9;
   background:repeating-linear-gradient(0deg,rgba(255,255,255,.015) 0 1px,transparent 1px 3px)}
 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 [title]{cursor:default}
+button,button[title],[data-act]{cursor:pointer}
+button:disabled{cursor:default}
+button:focus-visible{outline:1px solid var(--acc);outline-offset:2px;border-radius:3px}
 ::selection{background:var(--acc);color:var(--bg)}
 
 /* header */
@@ -30,7 +33,9 @@ header{display:flex;align-items:center;gap:20px;height:48px;padding:0 10px 0 18p
 .logo i{font-style:normal}
 .logo b{color:var(--red);text-shadow:0 0 8px var(--red)}
 .tab{height:48px;position:relative;letter-spacing:.14em;color:var(--dim)}
-.tab:hover{color:var(--fg)}
+.tab{padding:0 4px;transition:color .12s,background .12s,transform .08s}
+.tab:hover{color:var(--fg);background:linear-gradient(transparent 20%,rgba(0,229,255,.06))}
+.tab:active{transform:translateY(1px)}
 .tab.on{color:#fff}
 .tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--acc);box-shadow:0 0 10px var(--acc)}
 .tab sup{font-size:10px;margin-left:3px;color:var(--dim)}
@@ -50,8 +55,15 @@ header{display:flex;align-items:center;gap:20px;height:48px;padding:0 10px 0 18p
 #wsNotice .nmore{flex:none;color:var(--warn);font-size:10px;letter-spacing:.04em}
 .sp{flex:1}
 .tools{display:flex;align-items:center;gap:2px;flex-shrink:0}
-.hb{height:30px;min-width:30px;padding:0 6px;color:var(--dim);font-size:13px}
-.hb:hover{color:var(--acc)}
+/* header tools: a framed hover, a press, a hit area of 32px */
+.hb{height:32px;min-width:32px;padding:0 7px;color:var(--dim);font-size:13px;border:1px solid transparent;border-radius:4px;
+  transition:color .12s,background .12s,border-color .12s,transform .08s}
+.hb:hover{color:var(--acc);background:rgba(0,229,255,.07);border-color:rgba(0,229,255,.3)}
+.hb:active{transform:scale(.92);background:rgba(0,229,255,.14)}
+/* the window moves only from the header's empty space (the logo and the gap), never from a button */
+.native header .pywebview-drag-region{cursor:grab}
+.native header .pywebview-drag-region:active{cursor:grabbing}
+header button{cursor:pointer}
 #age{font-size:11px}
 #age.old{color:var(--warn)}
 #wake{display:none;color:var(--warn)}
@@ -73,6 +85,7 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
   position:relative;min-height:60px;padding:10px 18px;border-bottom:1px solid var(--line);transition:opacity .2s,transform .2s,background .15s}
 .acct:hover{background:rgba(0,229,255,.035)}
 .acct.open{background:rgba(255,255,255,.018)}
+.acct:active:not(:has(button:active)){background:rgba(0,229,255,.06)}
 /* which accounts can be used right now: a green edge (cyan on the one with the most 5h left);
    an account that is used up has no edge, a dimmed name, and says when it is back */
 .acct.ready{box-shadow:inset 2px 0 var(--ok)}
@@ -135,8 +148,11 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .det .prj b{flex:1}
 .det .prj em{font-style:normal;color:var(--dim);font-size:11px;white-space:nowrap}
 .det .prj em.on{color:var(--ok)}
-.det .prj button{color:var(--dim);font-size:11px;white-space:nowrap}
-.det .prj button:hover{color:var(--acc)}
+/* small inline controls (✎ renew, reconnect, projects): framed, at least 24px tall, easy to hit */
+.det .prj button{color:var(--dim);font-size:11px;white-space:nowrap;min-height:24px;min-width:26px;padding:2px 8px;
+  border:1px solid var(--faint);border-radius:3px;transition:color .12s,border-color .12s,background .12s,transform .08s}
+.det .prj button:hover{color:var(--acc);border-color:var(--acc);background:rgba(0,229,255,.06)}
+.det .prj button:active{transform:scale(.95)}
 /* used in: the last few projects on one line, each opens VS Code there as this account */
 .det .used{gap:4px 14px;flex-wrap:wrap;overflow:hidden}
 .det .used button{display:inline-flex;gap:5px;align-items:baseline;color:var(--fg);font-size:12px;min-width:0;max-width:100%}
@@ -155,7 +171,8 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .m.max .t{color:var(--fg)}
 .m.max.gate .t{color:#fff;font-weight:600;font-size:11.5px}
 /* ▶ on an idle label: start that window now */
-.m .t .go{margin-left:6px;padding:0;font-size:9px;line-height:1;color:var(--warn);cursor:pointer}
+.m .t .go{margin:-5px -4px -5px 2px;padding:5px 6px;font-size:10px;line-height:1;color:var(--warn);cursor:pointer;border-radius:3px}
+.m .t .go:hover:not(:disabled){background:rgba(0,229,255,.1)}
 .m .t .go:hover{color:var(--acc);text-shadow:0 0 6px var(--acc)}
 .m .t .go:disabled{color:var(--dim);text-shadow:none;cursor:wait}
 .m .k{font-size:10px;color:var(--dim)}
@@ -187,7 +204,7 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 /* a gap before a new group of lines */
 .det .gap{margin-top:6px}
 .det .acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
-.det .acts button{color:var(--dim);white-space:nowrap;font-size:11px;padding:4px 10px;border:1px solid var(--faint);border-radius:3px;
+.det .acts button{color:var(--dim);white-space:nowrap;font-size:11px;padding:5px 12px;min-height:28px;border:1px solid var(--faint);border-radius:3px;
   transition:color .12s,border-color .12s,background .12s,transform .08s}
 .det .acts button:hover{color:var(--acc);border-color:var(--acc);background:rgba(0,229,255,.06)}
 .det .acts button:active{transform:scale(.96)}
@@ -214,7 +231,8 @@ button{transition:color .12s}
 .pl .dl{text-align:right;white-space:nowrap;color:var(--dim)}
 .pl .soon{color:var(--warn)}.pl .gone{color:var(--red)}
 .pl.unk .dt,.pl.unk .dl{color:var(--faint)}
-.pl button{color:var(--dim)}.pl button:hover{color:var(--acc)}
+.pl button{color:var(--dim);min-height:26px;min-width:26px;padding:2px 8px;border:1px solid transparent;border-radius:3px;transition:color .12s,border-color .12s,background .12s}
+.pl button:hover{color:var(--acc);border-color:rgba(0,229,255,.4);background:rgba(0,229,255,.06)}
 .plnote{padding:12px 18px;color:var(--dim);font-size:11px;line-height:1.7}
 @media (max-width:470px){ .pl{grid-template-columns:minmax(0,1fr) 104px 46px 26px;padding-left:14px} .pl em{display:none} }
 .det div{display:grid;grid-template-columns:84px 1fr;gap:8px;min-width:0}
@@ -292,13 +310,13 @@ button{transition:color .12s}
 </style>
 </head>
 <body>
-<header class="pywebview-drag-region">
-  <div class="logo">R<i>EDLINE</i><b>//</b></div>
+<header id="top">
+  <div class="logo pywebview-drag-region">R<i>EDLINE</i><b>//</b></div>
   <button class="tab" data-tab="claude">CLAUDE<sup id="nclaude"></sup></button>
   <button class="tab" data-tab="codex">CODEX<sup id="ncodex"></sup></button>
   <button class="tab hide" data-tab="gemini" title="Gemini CLI logins: quota left per model">GEMINI<sup id="ngemini"></sup></button>
   <button class="tab" data-tab="plans" title="subscriptions: which one renews/ends first">PLANS</button>
-  <div class="sp"></div>
+  <div class="sp pywebview-drag-region"></div>
   <div class="tools">
   <button class="hb act" id="wake" title="some accounts need a login — wake them">⚡</button>
   <button class="hb" id="age" title="sync now">⟳</button>
@@ -1151,7 +1169,7 @@ function toast(text, kind = "") {
 const HELP = [
   ["claude | codex | gemini", "switch tab (Alt+1/2/3…, in the order on screen)"], ["add", "open the + panel"], ["add <name>", "new account, then log in"],
   ["login <name>", "log in via its Chrome"], ["wake", "log in / refresh this tab"], ["web <name>", "open its web page"],
-  ["jack <name>", "terminal as <name>"], ["use <name>", "◆ make it the login VS Code uses"], ["code <name> <folder>", "VS Code window as <name>"], ["plans", "subscriptions, Claude and Codex apart, soonest renewal first"], ["renew <name> <date>", "set when a subscription renews/ends (- = auto)"], ["d | details", "expand all rows (or click one)"], ["sort [default|weekly|headroom|name|renews]", "row order"], ["fit", "auto-size the window again"], ["log", "open the log file (send it when reporting a bug)"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
+  ["jack <name>", "terminal as <name>"], ["use <name>", "◆ make it the login VS Code uses"], ["code <name> <folder>", "VS Code window as <name>"], ["plans", "subscriptions, Claude and Codex apart, soonest renewal first"], ["renew <name> <date>", "set when a subscription renews/ends (- = auto)"], ["d | details", "expand all rows (or click one)"], ["sort [default|weekly|headroom|name|renews]", "row order"], ["fit", "let the height follow the content again"], ["log", "open the log file (send it when reporting a bug)"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
   ["scan [all]", "find logins on this PC"], ["bind <name> <email>", "pin a Chrome profile"], ["ls | r | update | clear", ""],
 ];
 const COMMANDS = ["help","claude","codex","gemini","details","add","login","wake","web","jack","use","code","rename","rm","restore","removed","scan","bind","profiles","ls","sync","update","clear","hide"];
@@ -1192,7 +1210,7 @@ async function run(line) {
     }
     case "log": case "logs": await action({action: "open-log"}); break;
     case "fit":
-      manualSize = false; if (native()) { await window.pywebview.api.reset_size(); fitHeight(); }
+      if (native()) { await window.pywebview.api.reset_size(); fitAuto = true; fitHeight(); }
       log("window height follows the content again", "ok"); break;
     case "sort": setSort(a[0] || Object.keys(SORTS)[(Object.keys(SORTS).indexOf(SORT) + 1) % Object.keys(SORTS).length]); break;
     case "d": case "details": setDetails(!DETAILS); openLog(false); break;
@@ -1334,20 +1352,39 @@ const native = () => window.pywebview && window.pywebview.api;
 function hideWindow() { if (native()) window.pywebview.api.hide(); }
 window.addEventListener("pywebviewready", () => { document.body.classList.add("native"); setTimeout(fitHeight, 300); });
 
-/* ---------- window size: drag any edge; auto-fit height until resized by hand ---------- */
-let manualSize = !!BOOT.manual_size;
+/* Moving the window: pywebview's own drag, only from .pywebview-drag-region (the logo and the
+   header's empty gap), so pressing a tab or a header button never drags it. */
+
+/* ---------- window size ----------
+   Drag an edge or a corner. The width you set is kept. Dragging the top or bottom edge sets the
+   height by hand: from then on it stays as you left it (`fit` hands it back to the content).
+   Until then the height follows the content, with the top edge held still: it grows and shrinks
+   downward only, up to the bottom of the screen (then the list scrolls). */
+let fitAuto = BOOT.fit_height !== false, resizing = false;
 document.querySelectorAll(".rz").forEach(h => h.addEventListener("pointerdown", e => {
-  if (!native()) return;
-  e.preventDefault(); h.setPointerCapture(e.pointerId);
+  if (!native() || e.button !== 0) return;
+  e.preventDefault();
+  try { h.setPointerCapture(e.pointerId); } catch (err) {}
   const edge = h.dataset.e, x0 = e.screenX, y0 = e.screenY, w0 = innerWidth, h0 = innerHeight;
-  let pending = null, busy = false, last = [w0, h0];
+  const byHeight = edge.includes("n") || edge.includes("s");
+  let pending = null, busy = false, last = [w0, h0], done = false;
+  resizing = true;
   const push = async () => {
     if (busy || !pending) return; busy = true;
     const [w, hh] = pending; pending = null; last = [w, hh];
     try { await window.pywebview.api.resize(w, hh, edge); } catch (err) {}
-    busy = false; if (pending) push();
+    busy = false; if (pending && !done) push();
+  };
+  const end = () => {   // the mouse came up, or the drag was lost: stop, whatever happened
+    if (done) return; done = true; resizing = false;
+    for (const [n, f] of [["pointermove", move], ["pointerup", end], ["pointercancel", end], ["lostpointercapture", end]]) h.removeEventListener(n, f);
+    window.removeEventListener("blur", end);
+    const [w, hh] = pending || last;
+    if (byHeight) fitAuto = false;
+    window.pywebview.api.save_size(w, hh, byHeight);
   };
   const move = ev => {
+    if (!(ev.buttons & 1)) return end();   // the button is no longer down: never keep following the mouse
     const dx = ev.screenX - x0, dy = ev.screenY - y0;
     let w = w0, hh = h0;
     if (edge.includes("e")) w = w0 + dx;
@@ -1356,19 +1393,31 @@ document.querySelectorAll(".rz").forEach(h => h.addEventListener("pointerdown", 
     if (edge.includes("n")) hh = h0 - dy;
     pending = [Math.max(300, Math.round(w)), Math.max(160, Math.round(hh))]; push();
   };
-  const up = () => {
-    h.removeEventListener("pointermove", move); h.removeEventListener("pointerup", up);
-    manualSize = true;
-    window.pywebview.api.save_size(...(pending || last));
-  };
-  h.addEventListener("pointermove", move); h.addEventListener("pointerup", up);
+  for (const [n, f] of [["pointermove", move], ["pointerup", end], ["pointercancel", end], ["lostpointercapture", end]]) h.addEventListener(n, f);
+  window.addEventListener("blur", end);
 }));
-function fitHeight() {
-  if (manualSize || !native()) return;
+// The height the content wants: more accounts, an account opened or the log shown make it taller;
+// it shrinks back when they go. Never past the bottom of the screen below the window's top.
+function contentHeight() {
   const header = $("header").offsetHeight + $("#weeklyNotice").offsetHeight + $("#wsNotice").offsetHeight, prompt = $(".prompt").offsetHeight || 0;
   const rows = [...$("#list").children].reduce((a, el) => a + el.offsetHeight, 0);
   const logH = document.body.classList.contains("logopen") ? $("#log").offsetHeight : 0;
-  window.pywebview.api.fit(innerWidth, header + Math.max(rows, 120) + prompt + logH + 2);
+  const want = header + Math.max(rows, 120) + prompt + logH + 2;
+  const s = window.screen || {}, top = typeof window.screenY === "number" ? window.screenY : null;
+  const room = s.availHeight && top !== null ? (s.availTop || 0) + s.availHeight - top - 8 : 0;
+  return Math.max(160, room > 0 ? Math.min(want, room) : want);
+}
+// One resize per change, straight to the new height (no animation), never two at once.
+let fitBusy = false, fitAgain = false;
+async function fitHeight() {
+  if (!native() || !fitAuto || resizing) return;
+  if (fitBusy) { fitAgain = true; return; }
+  const target = contentHeight();
+  if (Math.abs(target - innerHeight) < 2) return;
+  fitBusy = true;
+  try { await window.pywebview.api.fit(innerWidth, target); } catch (err) {}
+  fitBusy = false;
+  if (fitAgain) { fitAgain = false; fitHeight(); }
 }
 $("#bhide").onclick = hideWindow;
 $("#bmin").onclick = () => native() && window.pywebview.api.minimize();
