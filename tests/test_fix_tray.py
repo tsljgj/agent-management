@@ -584,3 +584,56 @@ def test_autostart_refresh_only_touches_this_copys_entry(monkeypatch):
         written.clear()
         monkeypatch.setattr(autostart, "registered", lambda v=value: v)
         assert autostart.refresh() is rewrite and written == ([True] if rewrite else []), value
+
+
+# ------------------------------------------------ the taskbar button minimizes as well as restores
+
+
+def test_taskbar_style_adds_a_minimize_box_and_keeps_the_rest():
+    WS_POPUP, WS_VISIBLE = 0x80000000, 0x10000000
+    s = tray.taskbar_style(WS_POPUP | WS_VISIBLE)
+    assert s & tray.WS_MINIMIZEBOX and s & tray.WS_SYSMENU
+    assert s & WS_POPUP and s & WS_VISIBLE
+    assert tray.taskbar_style(s) == s
+
+
+def test_window_handle_reads_the_native_form():
+    class Ptr:
+        def ToInt64(self):
+            return 4242
+
+    class Win:
+        class native:
+            Handle = Ptr()
+
+    assert tray._window_handle(Win()) == 4242
+    assert tray._window_handle(object()) is None
+    if sys.platform != "win32":
+        assert tray.enable_taskbar_toggle(Win()) is False
+
+
+def test_minimized_from_the_taskbar_then_the_tray_brings_it_back():
+    app = _bare_app()
+    shown = []
+
+    class Win:
+        def show(self):
+            shown.append("show")
+
+        def restore(self):
+            shown.append("restore")
+
+        def hide(self):
+            shown.append("hide")
+
+    app.window, app.visible = Win(), True
+    app._on_minimized()                      # taskbar click while in front
+    assert (app.visible, app.minimized) == (False, True)
+    app.toggle()                             # tray click: bring it back, not hide it
+    assert shown == ["show", "restore"] and app.visible and not app.minimized
+    app._on_minimized(); app._on_restored()  # taskbar click again restores it
+    assert (app.visible, app.minimized) == (True, False)
+    app.toggle()                             # visible: the tray click hides it
+    assert shown[-1] == "hide" and not app.visible
+    app._on_restored()                       # a stray restore while hidden changes nothing
+    assert not app.visible
