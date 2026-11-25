@@ -390,3 +390,32 @@ def test_runner_reports_auth_only_for_auth_errors(tmp_path, message, kind):
     result = subprocess.run([shutil.which("node"), str(runner), str(stub), str(tmp_path), "3"],
                             capture_output=True, timeout=10)
     assert json.loads(result.stdout) == {"ok": False, "error": kind}
+
+
+def test_the_week_is_measured_too_and_the_limit_that_runs_out_first_is_named():
+    m = Monitor(collect=lambda a, refresh_tokens=False: [])
+    t = 1_000_000.0
+    u = None
+    for i in range(16):  # 64 min: 5h +15 %/h, 7d +7.5 %/h with only ~20% of the week left
+        u = Usage("a", "claude", True, windows=[Window("5h", 10.0 + i), Window("7d", 80.0 + i / 2)])
+        m._track_rate(u, now=t + i * 240)
+    r = u.rate
+    assert r["window"] == "5h" and r["per_hour"] == 15.0
+    assert r["week"]["per_hour"] == 7.5 and r["week"]["pace"] == 12.6   # 7.5 %/h x 168 h / 100
+    # 5h: 75% left at 15 %/h = 5 h; the week: 12.5% left at 7.5 %/h = 1 h 40 m -> the week runs out first
+    assert r["limit"] == "7d" and r["empty_in"] == r["week"]["full_in"] == 6000
+    # the week's samples survive a restart with the rest of the cache
+    m._last_ok[("claude", "a")] = u
+    m._save_last_ok()
+    docs = json.loads(m._last_ok_path().read_text(encoding="utf-8"))
+    assert len(docs[0]["rate_samples_7d"]) > 1
+
+
+def test_the_5h_window_is_the_limit_while_the_week_has_room():
+    m = Monitor(collect=lambda a, refresh_tokens=False: [])
+    t = 1_000_000.0
+    for i in range(6):
+        u = Usage("a", "claude", True, windows=[Window("5h", 50.0 + 5 * i), Window("7d", 10.0)])
+        m._track_rate(u, now=t + i * 240)
+    assert u.rate["limit"] == "5h" and u.rate["empty_in"] == u.rate["full_in"]
+    assert u.rate["week"] == {"per_hour": 0.0, "pace": 0.0}

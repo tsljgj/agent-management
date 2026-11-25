@@ -19,7 +19,7 @@ def test_gauge_gives_every_level_an_equal_share_and_pins_past_ten(run_console_js
   const tag = rateTag(u);
   assert.match(tag, /^<div class="rate burn"/);
   assert.match(tag, /burn: 5h window filling at 120%\/h over the last 30 min \(6x pace\) · at this rate it runs out in 30m/);
-  assert.equal((gauge(6).match(/class="sg on"/g) || []).length, 13);   // 0.84 of 15 segments
+  assert.equal((gauge(gaugeFrac(6)).match(/class="sg on"/g) || []).length, 13);   // 0.84 of 15 segments
 })();
 """)
 
@@ -255,5 +255,68 @@ def test_an_edge_drag_ends_when_the_mouse_is_already_up(run_console_js):  # noqa
   h.listeners.lostpointercapture[0]();
   assert.equal((h.listeners.pointermove || []).length, 0);
   assert.equal(calls.filter(c => c === "save").length, 2);
+})();
+""")
+
+
+def test_the_gauge_blows_when_the_week_goes_far_faster_than_expected(run_console_js):  # noqa: F811
+    run_console_js(r"""
+(() => {
+  const mem = {}; localStorage = {getItem: k => mem[k] ?? null, setItem: (k, v) => { mem[k] = v; }};
+  const acct = (rate, windows) => ({...usage("a"), provider: "claude",
+    windows: windows || [{name: "5h", used_percent: 30, resets_at: null}, {name: "7d", used_percent: 50, resets_at: null}], rate});
+  // expected 2 days (the default): the week should fill at 100/48 = 2.08 %/h; 1.5x that = 3.125 %/h
+  const calm = acct({level: "mid", per_hour: 10, pace: 0.5, window: "5h", full_in: 25200,
+    week: {per_hour: 2, pace: 3.36, full_in: 90000}, limit: "5h", empty_in: 25200});
+  assert.match(rateTag(calm), /^<div class="rate mid"/);
+  // 3.2 %/h on the week: 1.54x -> it blows, and says when the nearest limit runs out instead of a level
+  const fast = acct({level: "high", per_hour: 30, pace: 1.5, window: "5h", full_in: 8400,
+    week: {per_hour: 3.2, pace: 5.38, full_in: 56250}, limit: "5h", empty_in: 8400});
+  let tag = rateTag(fast);
+  assert.match(tag, /^<div class="rate boom l2"/);      // 2 h 20 m left: the middle intensity
+  assert.match(tag, /<b>2h 20m<\/b>/);
+  assert.match(tag, /class="spk"/);                      // sparks
+  assert.match(tag, /1\.5x faster than &quot;lasts 2d&quot;/);
+  assert.ok(!/<b>high<\/b>/.test(tag));
+  // the sooner it runs out, the harder it goes
+  tag = rateTag({...fast, rate: {...fast.rate, empty_in: 1800}});
+  assert.match(tag, /^<div class="rate boom l3"/);
+  tag = rateTag({...fast, rate: {...fast.rate, empty_in: 20 * 3600}});
+  assert.match(tag, /^<div class="rate boom l1"/);
+  // expecting 1 day: 3.2 %/h is 0.77x -> no boom; the 5h level shows again
+  setExpect(["1d"]);
+  assert.match(rateTag(fast), /^<div class="rate high"/);
+  // one account can have its own: 3 days for this one
+  setExpect(["claude:a", "3d"]);
+  assert.match(rateTag(fast), /^<div class="rate boom/);
+  assert.equal(expectDays({provider: "claude", account: "b"}), 1);
+  setExpect(["claude:a", "-"]);
+  assert.equal(expectDays(fast), 1);
+  setExpect(["-"]);
+  assert.equal(expectDays(fast), 2);
+})();
+""")
+
+
+def test_when_the_week_runs_out_first_it_sets_the_level_and_a_used_up_limit_has_blown(run_console_js):  # noqa: F811
+    run_console_js(r"""
+(() => {
+  localStorage = {getItem: () => null, setItem() {}};
+  const base = {...usage("a"), provider: "claude",
+    windows: [{name: "5h", used_percent: 10, resets_at: null}, {name: "7d", used_percent: 95, resets_at: null}]};
+  // the 5h window is quiet (low), but only 5% of the week is left: the week decides, against "lasts 2d"
+  const u = {...base, rate: {level: "low", per_hour: 5, pace: 0.25, window: "5h", full_in: 64800,
+    week: {per_hour: 2.5, pace: 4.2, full_in: 7200}, limit: "7d", empty_in: 7200}};
+  const tag = rateTag(u);
+  assert.match(tag, /^<div class="rate hot"/);           // 2.5 %/h = 1.2x of 2.08 %/h: hot, short of a blow-up
+  assert.match(tag, /the week runs out first, in 2h 00m/);
+  assert.match(tag, /7d 2\.5%\/h/);
+  // a limit already at MAX: the gauge has blown
+  const dead = {...base, windows: [{name: "5h", used_percent: 100, resets_at: future(1)}, {name: "7d", used_percent: 60, resets_at: null}], rate: null};
+  const d = rateTag(dead);
+  assert.match(d, /^<div class="rate dead"/);
+  assert.match(d, /<b>OUT<\/b>/);
+  assert.match(d, /class="smk"/);
+  assert.match(d, /blown: 5h at MAX, resets in/);
 })();
 """)
