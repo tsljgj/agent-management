@@ -115,7 +115,7 @@ redline tokens --publish tsljgj/tsljgj          # 用 gh 把摘要提交到 GitH
 
 控制台里输入 `tokens` 看总数；`tokens publish tsljgj/tsljgj` 立即发布一次，并记住这个仓库，之后托盘每天自动重新发布一次（`tokens off` 停止）。发布需要本机装了 [GitHub CLI](https://cli.github.com) 并且 `gh auth login` 过。
 
-- **数从哪来**：Claude Code 每条回复在 `<账号目录>/projects/**/*.jsonl` 里记着 `usage`，Codex 在 `<账号目录>/sessions/**/rollout-*.jsonl` 里有 `token_count`。redline 扫描每个账号的目录和默认的 `~/.claude`、`~/.codex`，不发任何网络请求。
+- **数从哪来**：Claude Code 每条回复在 `<账号目录>/projects/**/*.jsonl` 里记着 `usage`，Codex 在 `<账号目录>/sessions/**/rollout-*.jsonl` 里有 `token_count`，Gemini CLI 在 `<gemini 目录>/tmp/<项目>/chats/` 的会话文件里每条回复都有 `tokens`。redline 扫描每个 Claude / Codex 账号的目录（包括删掉的账号，用过的 token 照样算）、默认的 `~/.claude`、`~/.codex`，以及 Gemini 标签页看的那些目录，不发任何网络请求。网页版（claude.ai、chatgpt.com、gemini.google.com）的对话不在本机，算不进来。
 - **不重复算**：同一条回复流式写了好几行、`--resume` 把旧消息复制进新文件、备份目录里有同一份记录，都按 `(message.id, requestId)` 只算一次；Codex 按会话里的累计值算增量。
 - **总数只增不减**：Claude Code 默认 30 天后删掉旧记录（`cleanupPeriodDays`）。每次扫描都并进本机的账本 `~/.redline/tokens.json`，每一天、每个模型保留见过的最大值，所以旧记录删了也不会让总数变小。账本从第一次运行开始记，之前已经被删掉的记录找不回来。
 - **总数包括缓存**：`total` = input + output + cache write + cache read。Claude Code 的大头是 cache read，分项都单独列出。

@@ -5,6 +5,9 @@ Claude Code: every assistant line in <home>/projects/**/*.jsonl carries message.
   messages into its new file, so each (message.id, requestId) is counted once across all files.
 Codex: <home>/sessions/**/rollout-*.jsonl has token_count events with the session's running
   total; the growth between two events is attributed to the day of the later one.
+Gemini CLI: <gemini dir>/tmp/<project>/chats/**/session-*.json(l) records each reply with a
+  `tokens` summary. Older files are one JSON object, newer ones append records where a later
+  record of the same message id replaces the earlier one; each message id is counted once.
 
 Claude Code deletes transcripts older than cleanupPeriodDays (30 by default), so a scan alone
 forgets old days. Every scan is merged into a ledger ($REDLINE_HOME/tokens.json) that keeps, for
@@ -26,7 +29,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from .config import DEFAULT_HOMES, load_accounts, load_settings, redline_home, save_setting
+from .config import DEFAULT_HOMES, load_accounts, load_removed, load_settings, redline_home, save_setting
 
 KINDS = ("input", "output", "cache_write", "cache_read")
 SCHEMA = 1
@@ -149,11 +152,76 @@ def scan_codex(home: Path, days: dict, seen: set) -> None:
                     _add(days, day, "codex", model, delta)
 
 
+def _gemini_messages(doc, out: dict) -> None:
+    """Collect message records (id -> record, last one wins) from one parsed chat record."""
+    if not isinstance(doc, dict):
+        return
+    if isinstance(doc.get("id"), str) and "timestamp" in doc and "type" in doc:
+        out[doc["id"]] = doc
+    for holder in (doc, doc.get("$set") if isinstance(doc.get("$set"), dict) else None):
+        msgs = holder.get("messages") if holder else None
+        if isinstance(msgs, list):
+            for m in msgs:
+                if isinstance(m, dict) and isinstance(m.get("id"), str):
+                    out[m["id"]] = m
+
+
+def scan_gemini(home: Path, days: dict, seen: set) -> None:
+    root = home / "tmp"
+    if not root.is_dir():
+        return
+    for dirpath, _dirs, files in os.walk(root):
+        if "chats" not in Path(dirpath).relative_to(root).parts:
+            continue
+        for name in files:
+            if not name.endswith((".json", ".jsonl")):
+                continue
+            msgs: dict = {}
+            try:
+                with open(Path(dirpath) / name, encoding="utf-8", errors="replace") as f:
+                    if name.endswith(".json"):
+                        try:
+                            _gemini_messages(json.load(f), msgs)
+                        except ValueError:
+                            continue
+                    else:
+                        for line in f:
+                            if '"' not in line:
+                                continue
+                            try:
+                                _gemini_messages(json.loads(line), msgs)
+                            except ValueError:
+                                continue
+            except OSError:
+                continue
+            for mid, m in msgs.items():
+                tok = m.get("tokens")
+                if not isinstance(tok, dict) or mid in seen:
+                    continue
+                seen.add(mid)
+                day = _day(m.get("timestamp"))
+                if not day:
+                    continue
+                cached = int(tok.get("cached") or 0)
+                _add(days, day, "gemini", m.get("model") or "unknown", {
+                    "input": max(0, int(tok.get("input") or 0) - cached) + int(tok.get("tool") or 0),
+                    "output": int(tok.get("output") or 0) + int(tok.get("thoughts") or 0),
+                    "cache_read": cached,
+                })
+
+
 def homes() -> dict[str, list[Path]]:
-    """Every directory that may hold transcripts: each account's home and the CLIs' defaults."""
+    """Every directory that may hold transcripts: each account's home (removed ones too: their
+    tokens were spent all the same) and the CLIs' defaults; the Gemini dirs redline watches."""
     out: dict[str, list[Path]] = {p: [Path(h).expanduser()] for p, h in DEFAULT_HOMES.items()}
     try:
-        accounts = load_accounts()
+        from .providers import gemini
+
+        out["gemini"] = list(gemini.homes())
+    except Exception:
+        out["gemini"] = [Path("~/.gemini").expanduser()]
+    try:
+        accounts = load_accounts() + load_removed()
     except Exception:
         accounts = []
     for a in accounts:
@@ -180,6 +248,9 @@ def scan(dirs: dict[str, list[Path]] | None = None) -> dict:
         scan_claude(home, days, seen_claude)
     for home in dirs.get("codex", []):
         scan_codex(home, days, seen_codex)
+    seen_gemini: set = set()
+    for home in dirs.get("gemini", []):
+        scan_gemini(home, days, seen_gemini)
     return days
 
 
