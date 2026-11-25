@@ -141,6 +141,36 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .rate svg .tk{stroke:var(--dim);stroke-width:.8}
 .rate svg .nd{stroke:var(--c);stroke-width:1.4;stroke-linecap:round;filter:drop-shadow(0 0 2px var(--c))}
 .rate svg .hub{fill:var(--bg);stroke:var(--c);stroke-width:1.2}
+/* BOOM: the week's quota is going 1.5x faster than "this account should last N days" (`expect`).
+   The dial is pinned past its end and throws sparks, and the time until the nearest limit runs out
+   replaces the level. The sooner, the harder it goes: l1 > 12h, l2 > 2h, l3 within 2h. */
+.rate.boom{--c:#ff2d55;overflow:visible}
+.rate.boom svg{animation:rl-shake 1s linear infinite}
+.rate.boom.l2 svg{animation-duration:.42s}
+.rate.boom.l3 svg{animation-duration:.16s;filter:drop-shadow(0 0 4px var(--c))}
+.rate.boom svg .sg.on{stroke:var(--c);animation:rl-flick 1.4s steps(2) infinite}
+.rate.boom.l2 svg .sg.on{animation-duration:.6s}.rate.boom.l3 svg .sg.on{animation-duration:.22s}
+.rate.boom svg .spk{stroke:#ffd23d;stroke-width:1.1;stroke-linecap:round;opacity:0;animation:rl-spark 1s ease-out infinite}
+.rate.boom svg .spk:nth-of-type(2n){animation-delay:.33s}.rate.boom svg .spk:nth-of-type(3n){animation-delay:.66s}
+.rate.boom.l2 svg .spk{animation-duration:.55s}.rate.boom.l3 svg .spk{animation-duration:.3s}
+.rate.boom b{color:#fff;background:var(--c);padding:1px 4px;border-radius:2px;text-shadow:0 0 8px var(--c);letter-spacing:.02em;text-transform:none}
+.rate.boom.l2 b{animation:rl-strobe .7s steps(2) infinite}
+.rate.boom.l3 b{animation:rl-strobe .26s steps(2) infinite}
+.codex .dial .rate.boom{width:auto}.codex .rate.boom b{display:inline}
+/* already blown: a limit is used up. A cracked, dark dial with a wisp of smoke */
+.rate.dead{--c:var(--red)}
+.rate.dead svg .sg{stroke:#3a1418}.rate.dead svg .sg.cr{stroke:var(--red);opacity:.55}
+.rate.dead svg .nd{stroke:var(--dim);filter:none}.rate.dead svg .hub{stroke:var(--dim)}
+.rate.dead svg .smk{fill:#9aa3ad;opacity:0;transform-box:fill-box;transform-origin:center;animation:rl-smoke 2.6s ease-out infinite}
+.rate.dead svg .smk:nth-of-type(2){animation-delay:1.3s}
+.rate.dead b{color:var(--red);text-shadow:0 0 6px var(--red)}
+.codex .dial .rate.dead{width:auto}.codex .rate.dead b{display:inline}
+@keyframes rl-shake{0%,100%{transform:translate(0,0) rotate(0)}20%{transform:translate(-.9px,.4px) rotate(-4deg)}
+  40%{transform:translate(.8px,-.5px) rotate(3deg)}60%{transform:translate(-.5px,-.4px) rotate(-2deg)}80%{transform:translate(.6px,.5px) rotate(2deg)}}
+@keyframes rl-flick{50%{stroke:#ffd23d}}
+@keyframes rl-spark{0%{opacity:1}100%{opacity:0}}
+@keyframes rl-strobe{50%{background:#ffd23d;color:#000}}
+@keyframes rl-smoke{0%{opacity:.55;transform:translate(0,0) scale(.6)}100%{opacity:0;transform:translate(4px,-10px) scale(1.8)}}
 .rate b{font-weight:600;color:var(--c);text-shadow:0 0 6px var(--c)}
 .rate.idle b{text-shadow:none}
 .rate span{display:none;text-transform:none;letter-spacing:0}   /* the %/h only where there is room (two-line rows) */
@@ -306,7 +336,7 @@ button{transition:color .12s}
 .rz.se{right:0;bottom:0;width:12px;height:12px;cursor:nwse-resize}
 .rz.ne{right:0;top:0;width:10px;height:10px;cursor:nesw-resize}
 .rz.sw{left:0;bottom:0;width:12px;height:12px;cursor:nesw-resize}
-@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}.rate,.rate *{animation:none!important}}
 </style>
 </head>
 <body>
@@ -643,8 +673,8 @@ function gaugeFrac(pace) {
   }
   return 1;
 }
-function gauge(pace) {
-  const cx = 20, cy = 20, r = 15, f = gaugeFrac(pace);
+function gauge(f, mode = "") {
+  const cx = 20, cy = 20, r = 15;
   const pt = (t, rr = r) => {
     const a = Math.PI * (1 - t);
     return [(cx + rr * Math.cos(a)).toFixed(2), (cy - rr * Math.sin(a)).toFixed(2)];
@@ -653,28 +683,91 @@ function gauge(pace) {
   let out = "";
   for (let k = 0; k < GAUGE_SEGS; k++) {
     const a = pt(k * step + gap / 2), b = pt((k + 1) * step - gap / 2);
-    out += `<path class="sg${f > 0 && k * step < f ? " on" : ""}" d="M${a} A${r} ${r} 0 0 1 ${b}"/>`;
+    // blown: a few segments cracked loose and knocked out of the arc
+    const cr = mode === "dead" && k % 4 === 1, off = cr ? ` transform="translate(${k % 8 === 1 ? 1.2 : -1}, ${1.5 + k % 3})"` : "";
+    out += `<path class="sg${(f > 0 && k * step < f) ? " on" : ""}${cr ? " cr" : ""}" d="M${a} A${r} ${r} 0 0 1 ${b}"${off}/>`;
   }
   for (const t of GAUGE_TICKS) {
     const a = pt(gaugeFrac(t), r + 2.6), b = pt(gaugeFrac(t), r + 4.4);
     out += `<line class="tk" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"/>`;
   }
-  const n = pt(f, 10.5);
+  if (mode === "boom") {   // sparks flying off the pinned end
+    for (const [t, l] of [[0.97, 4], [0.9, 3], [1.04, 3.5], [0.84, 2.5]]) {
+      const a = pt(t, r + 3), b = pt(t, r + 3 + l);
+      out += `<line class="spk" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"/>`;
+    }
+  }
+  if (mode === "dead") out += `<circle class="smk" cx="23" cy="13" r="2.2"/><circle class="smk" cx="17" cy="14" r="1.8"/>`;
+  // the needle: pinned past the end when it blows; hanging limp once it has blown
+  const n = mode === "boom" ? pt(1.06, 10.5) : mode === "dead" ? [(cx + 3).toFixed(2), (cy + 7).toFixed(2)] : pt(f, 10.5);
   return `<svg viewBox="0 0 40 22" aria-hidden="true">${out}`
     + `<line class="nd" x1="${cx}" y1="${cy}" x2="${n[0]}" y2="${n[1]}"/><circle class="hub" cx="${cx}" cy="${cy}" r="1.8"/></svg>`;
 }
+/* How long an account should last on its own (its weekly quota), set with `expect`. Past BOOM_AT
+   times that pace, the gauge blows (爆表). Per account, or one setting for all (default 2 days). */
+const EXPECT_DEFAULT = 2, BOOM_AT = 1.5;
+// against the expectation, the week's pace: 1.0 = on track to last exactly the expected days
+const WEEK_BOUNDS = [0, 0.5, 0.8, 1, 1.25, BOOM_AT], WEEK_LEVELS = ["low", "mid", "high", "hot", "burn"];
+function parseDays(v) {
+  const m = /^(\d+(?:\.\d+)?)\s*([dh]?)$/i.exec(String(v ?? "").trim());
+  if (!m || !(+m[1] > 0)) return null;
+  return m[2].toLowerCase() === "h" ? +m[1] / 24 : +m[1];
+}
+const expectKey = (prov, name) => `redline.expect.${prov}:${name}`;
+const expectAll = () => parseDays(store.get("redline.expect", "")) || EXPECT_DEFAULT;
+const expectOwn = u => parseDays(store.get(expectKey(u.provider, u.account), ""));
+const expectDays = u => expectOwn(u) || expectAll();
+const daysText = d => d >= 1 ? `${+d.toFixed(2)}d` : `${Math.round(d * 24)}h`;
+// The reading for the gauge. The limit that runs out first decides: the 5h window by its own pace,
+// or the week (when less is left there) against how long you expect the account to last.
+function paceOf(u) {
+  if (blockedOf(u)) return {mode: "dead"};
+  const r = u.rate;
+  if (!r) return null;
+  const wk = r.week, days = expectDays(u);
+  const ratio = wk && wk.per_hour > 0 ? wk.per_hour * days * 24 / 100 : null;
+  const left = r.empty_in ?? (wk && wk.full_in) ?? r.full_in;
+  if (ratio != null && ratio >= BOOM_AT) {
+    const lvl = left == null ? 1 : left <= 2 * 3600 ? 3 : left <= 12 * 3600 ? 2 : 1;
+    return {mode: "boom", ratio, left, lvl, days, limit: r.limit};
+  }
+  if (r.limit === WEEK_WINDOW_NAME && ratio != null) {
+    let i = WEEK_LEVELS.length - 1;
+    for (let k = 0; k < WEEK_LEVELS.length; k++) if (ratio < WEEK_BOUNDS[k + 1]) { i = k; break; }
+    const f = (i + (ratio - WEEK_BOUNDS[i]) / (WEEK_BOUNDS[i + 1] - WEEK_BOUNDS[i])) / WEEK_LEVELS.length;
+    return {mode: "week", level: WEEK_LEVELS[i], f: Math.min(1, f), ratio, left, days};
+  }
+  return {mode: "short", level: r.level, f: gaugeFrac(r.pace)};
+}
+const WEEK_WINDOW_NAME = "7d";
 function rateTag(u) {
   if (u.provider === "gemini") return "";
-  const r = u.rate;
-  if (!r || u.stale) {  // keep the dial in place, unlit, until there are live readings to measure
+  const r = u.rate, p = paceOf(u);
+  if (p && p.mode === "dead") {
+    const b = blockedOf(u), names = b.windows.map(w => w.name).join(" + ");
+    const tip = `blown: ${names} at MAX${b.at ? ", resets in " + span(left(b.at)) : ""}`;
+    return `<div class="rate dead" title="${esc(tip)}">${gauge(0, "dead")}<b>OUT</b></div>`;
+  }
+  if (!p || u.stale) {  // keep the dial in place, unlit, until there are live readings to measure
     if (!u.windows || !u.windows.length) return "";
     const why = u.stale ? "no live readings for this account right now" : "measuring: the rate shows after a few minutes of readings";
     return `<div class="rate idle wait" title="${esc(why)}">${gauge(0)}<b>${u.stale ? "--" : "···"}</b></div>`;
   }
+  const wk = r.week, weekTip = wk && wk.per_hour > 0
+    ? ` · week: ${wk.per_hour}%/h, its quota lasts ${span(100 / wk.per_hour * 3600)} at this pace (you expect ${daysText(p.days ?? expectDays(u))})` : "";
+  if (p.mode === "boom") {
+    const tip = `爆表: the week is going ${p.ratio.toFixed(1)}x faster than "lasts ${daysText(p.days)}"`
+      + (p.left != null ? ` · ${p.limit || r.window} runs out in ${span(p.left)}` : "") + weekTip;
+    return `<div class="rate boom l${p.lvl}" title="${esc(tip)}">${gauge(1, "boom")}<b>${p.left != null ? esc(span(p.left)) : "BOOM"}</b></div>`;
+  }
+  if (p.mode === "week") {
+    const tip = `${p.level}: the week runs out first${p.left != null ? ", in " + span(p.left) : ""}` + weekTip;
+    return `<div class="rate ${esc(p.level)}" title="${esc(tip)}">${gauge(p.f)}<b>${esc(p.level)}</b><span> · 7d ${wk.per_hour}%/h</span></div>`;
+  }
   const full = r.full_in > 0 ? ` · at this rate it runs out in ${span(r.full_in)}` : "";
-  const tip = r.level === "idle" ? `no ${r.window} usage in the last 30 min`
-    : `${r.level}: ${r.window} window filling at ${r.per_hour}%/h over the last 30 min (${r.pace}x pace)${full}`;
-  return `<div class="rate ${esc(r.level)}" title="${esc(tip)}">${gauge(r.pace)}<b>${esc(r.level)}</b>${r.level === "idle" ? "" : `<span> · ${r.per_hour}%/h</span>`}</div>`;
+  const tip = r.level === "idle" ? `no ${r.window} usage in the last 30 min${weekTip}`
+    : `${r.level}: ${r.window} window filling at ${r.per_hour}%/h over the last 30 min (${r.pace}x pace)${full}${weekTip}`;
+  return `<div class="rate ${esc(r.level)}" title="${esc(tip)}">${gauge(p.f)}<b>${esc(r.level)}</b>${r.level === "idle" ? "" : `<span> · ${r.per_hour}%/h</span>`}</div>`;
 }
 const dayLevel = d => d <= 1 ? "high" : d <= 3 ? "mid" : d <= RENEW_SOON_DAYS ? "" : "far";   // the gauge's colours
 // The same fixed slots in every row (empty ones too), so nothing shifts when an account's state does.
@@ -890,6 +983,13 @@ function details(u) {
         + `<b class="${p.cls && !(r && r.est) ? "warn" : ""}" title="${esc(p.date + (p.days != null ? " · in " + p.left : ""))}${r && r.est ? " · estimate: the subscription start rolled forward by months (" + esc(u.provider) + " doesn't report the end date)" : r && r.set ? " · set by you" : ""}">`
         + `${esc(date)}${p.days != null ? " · " + esc(Math.max(0, p.days)) + "d" : ""}</b>`
         + `<button data-act="renew" title="set the real renewal/end date">✎</button></div></div>`); }
+    if (u.windows.some(w => w.name === WEEK_WINDOW_NAME)) {
+      const own = expectOwn(u), d = expectDays(u);
+      rows.push(`<div class="gap"><span>expect</span><div class="prj">`
+        + `<b title="${esc(`how long this account should last on its own (its weekly quota)${own ? "" : " · the setting for all accounts"}; going ${BOOM_AT}x faster than that blows the gauge`)}">`
+        + `lasts ${esc(daysText(d))}${own ? "" : " (all)"} · boom past ${BOOM_AT}x</b>`
+        + `<button data-act="expect" title="set how long this account should last">✎</button></div></div>`);
+    }
     rows.push(creditDetail(u));
   } else if (info.profile) rows.push(kv("chrome", info.profile.name));
   if (!u.ok) rows.push(kv("error", u.error || "", "red"));
@@ -1040,6 +1140,28 @@ function renderPlans(us) {
       + `✎ or <code>renew &lt;name&gt; YYYY-MM-DD</code> sets the real date (<code>renew &lt;name&gt; -</code> undoes it).</div>`;
   if (typeof fitHeight === "function") requestAnimationFrame(fitHeight);
 }
+function expectPrompt(provider, name) {
+  const cmd = $("#cmd");
+  cmd.value = `expect ${provider}:${name} `; cmd.focus();
+  toast("how long it should last (2d, 36h; - = the setting for all) and press Enter");
+}
+// expect [<name>] <days>: how long an account (or, with no name, every account) should last
+function setExpect(a) {
+  if (!a.length) { log(`expect: every account ${daysText(expectAll())}${store.get("redline.expect", "") ? "" : " (default)"} · boom past ${BOOM_AT}x that pace`, "sys"); return; }
+  const all = a.length === 1;
+  const v = all ? a[0] : a[1];
+  const ref = all ? null : (a[0].includes(":") ? a[0] : `${TAB}:${a[0]}`);
+  if (v === "-" || v === undefined) {
+    if (all) store.set("redline.expect", ""); else store.set(`redline.expect.${ref}`, "");
+    log(all ? `expect: back to ${EXPECT_DEFAULT}d for every account` : `expect: ${ref} follows the setting for all (${daysText(expectAll())})`, "ok");
+  } else {
+    const d = parseDays(v);
+    if (!d) { log("usage: expect [<name>] <days>   e.g. expect 2d · expect work 36h · expect work -", "error"); return; }
+    store.set(all ? "redline.expect" : `redline.expect.${ref}`, String(d));
+    log(all ? `expect: every account should last ${daysText(d)}` : `expect: ${ref} should last ${daysText(d)}`, "ok");
+  }
+  render();
+}
 function renewPrompt(provider, name) {
   const cmd = $("#cmd");
   cmd.value = `renew ${provider}:${name} `; cmd.focus();
@@ -1169,7 +1291,7 @@ function toast(text, kind = "") {
 const HELP = [
   ["claude | codex | gemini", "switch tab (Alt+1/2/3…, in the order on screen)"], ["add", "open the + panel"], ["add <name>", "new account, then log in"],
   ["login <name>", "log in via its Chrome"], ["wake", "log in / refresh this tab"], ["web <name>", "open its web page"],
-  ["jack <name>", "terminal as <name>"], ["use <name>", "◆ make it the login VS Code uses"], ["code <name> <folder>", "VS Code window as <name>"], ["plans", "subscriptions, Claude and Codex apart, soonest renewal first"], ["renew <name> <date>", "set when a subscription renews/ends (- = auto)"], ["d | details", "expand all rows (or click one)"], ["sort [default|weekly|headroom|name|renews]", "row order"], ["fit", "let the height follow the content again"], ["log", "open the log file (send it when reporting a bug)"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
+  ["jack <name>", "terminal as <name>"], ["use <name>", "◆ make it the login VS Code uses"], ["code <name> <folder>", "VS Code window as <name>"], ["plans", "subscriptions, Claude and Codex apart, soonest renewal first"], ["renew <name> <date>", "set when a subscription renews/ends (- = auto)"], ["d | details", "expand all rows (or click one)"], ["sort [default|weekly|headroom|name|renews]", "row order"], ["expect [<name>] <days>", "how long an account should last (default 2d); 1.5x faster blows the gauge"], ["fit", "let the height follow the content again"], ["log", "open the log file (send it when reporting a bug)"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
   ["scan [all]", "find logins on this PC"], ["bind <name> <email>", "pin a Chrome profile"], ["ls | r | update | clear", ""],
 ];
 const COMMANDS = ["help","claude","codex","gemini","details","add","login","wake","web","jack","use","code","rename","rm","restore","removed","scan","bind","profiles","ls","sync","update","clear","hide"];
@@ -1209,6 +1331,7 @@ async function run(line) {
       for (const n of names) await action({action: "remove", name: n}); break;
     }
     case "log": case "logs": await action({action: "open-log"}); break;
+    case "expect": setExpect(a); break;
     case "fit":
       if (native()) { await window.pywebview.api.reset_size(); fitAuto = true; fitHeight(); }
       log("window height follows the content again", "ok"); break;
@@ -1325,6 +1448,7 @@ $("#list").addEventListener("click", e => {
   }
   if (b.dataset.act === "rename") return startRename(card);
   if (b.dataset.act === "renew") return renewPrompt(TAB, name);
+  if (b.dataset.act === "expect") return expectPrompt(TAB, name);
   if (b.dataset.act === "retry") { toast("syncing…"); return pull(true); }
   if (b.dataset.act === "wake1") return action({action: "wake", names: [name]});  // renew first, log in only if that fails
   if (b.dataset.act === "code") return action({action: "code", name, path: b.dataset.path}, true);

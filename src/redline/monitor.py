@@ -33,6 +33,9 @@ RATE_LOOKBACK = 30 * 60
 RATE_MIN_SPAN = 4 * 60  # need at least this much history before saying anything
 RATE_LEVELS = ((0.5, "low"), (1.25, "mid"), (2.5, "high"), (5.0, "hot"))
 RATE_TOP = "burn"
+# The weekly window fills in coarser steps, so its rate is read over a longer stretch.
+WEEK_WINDOW = "7d"
+WEEK_LOOKBACK = 60 * 60
 # A cached percentage seeds the threshold baseline after a restart only if it is this recent.
 RESTART_BASELINE_AGE = 15 * 60
 
@@ -49,10 +52,10 @@ def rate_window(u: Usage):
         (w for w in u.windows if _window_hours(w.name)), None)
 
 
-def usage_rate(samples, now: float) -> dict | None:
+def usage_rate(samples, now: float, lookback: float = RATE_LOOKBACK) -> dict | None:
     """samples: [(t, percent), ...] oldest first, all from the current window (no reset in between)."""
-    recent = [s for s in samples if s[0] >= now - RATE_LOOKBACK]
-    older = [s for s in samples if s[0] < now - RATE_LOOKBACK]
+    recent = [s for s in samples if s[0] >= now - lookback]
+    older = [s for s in samples if s[0] < now - lookback]
     base = older[-1] if older else (recent[0] if recent else None)  # span the whole lookback when we can
     if base is None or not recent:
         return None
@@ -142,6 +145,7 @@ class Monitor:
         self._last_pct: dict[tuple[str, str, str], float] = {}  # (provider, account, window)
         self._samples: dict[tuple[str, str], list[tuple[float, float]]] = {}  # (provider, account) -> [(t, %)]
         self._rate_windows: dict[tuple[str, str], str] = {}  # window the samples were taken from
+        self._week_samples: dict[tuple[str, str], list[tuple[float, float]]] = {}  # the 7d window's [(t, %)]
         # Renames made while a poll is fetching; None when no poll is in flight.
         self._pending_renames: list[tuple[str, str, str | None]] | None = None
         # Last warning state and time. A missed active period must not suppress reminders forever.
@@ -279,6 +283,10 @@ class Monitor:
                 # the rate history too, so a restart (self-update) doesn't blank the gauge for minutes
                 cutoff = time.time() - RATE_LOOKBACK * 2
                 hist = [(float(t), float(p)) for t, p in d.get("rate_samples") or [] if float(t) > cutoff]
+                week = [(float(t), float(p)) for t, p in d.get("rate_samples_7d") or []
+                        if float(t) > time.time() - WEEK_LOOKBACK * 2]
+                if week and identity_known:
+                    self._week_samples[key] = week
                 if hist and identity_known:
                     self._samples[key] = hist
                     w = rate_window(out[key])
@@ -296,6 +304,7 @@ class Monitor:
             p.parent.mkdir(parents=True, exist_ok=True)
             tmp = p.with_suffix(".tmp")
             docs = [{**u.to_dict(), "rate_samples": self._samples.get(k, []),
+                     "rate_samples_7d": self._week_samples.get(k, []),
                      "weekly_countdown_reminded": k in self._weekly_reminders,
                      "weekly_countdown_reminder": {
                          "state": self._weekly_reminders[k][0], "at": self._weekly_reminders[k][1],
@@ -320,7 +329,7 @@ class Monitor:
                 self._last_pct[(*key, w.name)] = w.used_percent
 
     def _forget(self, key: tuple[str, str]) -> None:
-        for d in (self._samples, self._rate_windows, self._weekly_reminders):
+        for d in (self._samples, self._rate_windows, self._week_samples, self._weekly_reminders):
             d.pop(key, None)
         for k in [k for k in self._last_pct if k[:2] == key]:
             self._last_pct.pop(k)
@@ -338,13 +347,24 @@ class Monitor:
     def _prune(self, live: set[tuple[str, str]]) -> bool:
         """Forget accounts that are no longer registered, so a later account reusing the
         name (often an auto name like claude-2) can't inherit their numbers or alerts."""
-        known = {*self._last_ok, *self._samples, *self._rate_windows, *self._weekly_reminders,
+        known = {*self._last_ok, *self._samples, *self._rate_windows, *self._week_samples, *self._weekly_reminders,
                  *(k[:2] for k in self._last_pct)}
         gone = known - live
         for key in gone:
             self._forget(key)
         dropped = [key for key in gone if self._last_ok.pop(key, None) is not None]
         return bool(dropped)  # the cache file must forget them too
+
+    @staticmethod
+    def _sample(hist: list, used: float, now: float, lookback: float, interval: float) -> None:
+        if hist and used < hist[-1][1] - 0.5:  # the window reset: start over
+            hist.clear()
+        hist.append((now, used))
+        cutoff = now - lookback
+        del hist[:max(0, len([s for s in hist if s[0] < cutoff]) - 1)]  # keep one older sample
+        if hist[0][0] < cutoff - 2 * interval:
+            # ...unless it predates a gap (sleep, failing fetches): the rate would average the gap
+            del hist[0]
 
     def _track_rate(self, u: Usage, now: float | None = None) -> None:
         if not u.ok:
@@ -360,20 +380,31 @@ class Monitor:
         if self._rate_windows.get(key, w.name) != w.name:
             hist.clear()
         self._rate_windows[key] = w.name
-        if hist and w.used_percent < hist[-1][1] - 0.5:  # the window reset: start over
-            hist.clear()
-        hist.append((now, w.used_percent))
-        cutoff = now - RATE_LOOKBACK
-        del hist[:max(0, len([s for s in hist if s[0] < cutoff]) - 1)]  # keep one older sample
-        if hist[0][0] < cutoff - 2 * self.interval:
-            # ...unless it predates a gap (sleep, failing fetches): the rate would average the gap
-            del hist[0]
+        self._sample(hist, w.used_percent, now, RATE_LOOKBACK, self.interval)
+        # the weekly window too, when it is not the one above: it can run out before the 5h one
+        week = next((x for x in u.windows if x.name == WEEK_WINDOW), None) if w.name != WEEK_WINDOW else None
+        week_rate = None
+        if week is not None and week.used_percent is not None:
+            whist = self._week_samples.setdefault(key, [])
+            self._sample(whist, week.used_percent, now, WEEK_LOOKBACK, self.interval)
+            week_rate = usage_rate(whist, now, WEEK_LOOKBACK)
         r = usage_rate(hist, now)
         if r is not None:
             u.rate = {**r, "level": rate_level(r["per_hour"], hours), "window": w.name,
                       "pace": round(r["per_hour"] * hours / 100, 2)}
             if r["per_hour"] > 0 and w.used_percent < 100:  # at this rate the window is used up in...
                 u.rate["full_in"] = round((100 - w.used_percent) / r["per_hour"] * 3600)
+            # the limit that runs out first at these rates: the 5h window, or the week when less is left there
+            limits = [(u.rate["full_in"], w.name)] if "full_in" in u.rate else []
+            if week_rate is not None:
+                wk = {"per_hour": week_rate["per_hour"],
+                      "pace": round(week_rate["per_hour"] * _window_hours(WEEK_WINDOW) / 100, 2)}
+                if week_rate["per_hour"] > 0 and week.used_percent < 100:
+                    wk["full_in"] = round((100 - week.used_percent) / week_rate["per_hour"] * 3600)
+                    limits.append((wk["full_in"], WEEK_WINDOW))
+                u.rate["week"] = wk
+            if limits:
+                u.rate["empty_in"], u.rate["limit"] = min(limits)
 
     def _with_last_good(self, u: Usage) -> Usage:
         """Keep showing an account's last good numbers when a fetch fails (429, offline, expired...)."""
@@ -412,7 +443,7 @@ class Monitor:
 
     def _apply_rename(self, old: str, new: str, provider: str | None, usages: list[Usage]) -> None:
         match = lambda p, n: n == old and (provider is None or p == provider)  # noqa: E731
-        for d in (self._samples, self._rate_windows, self._weekly_reminders):
+        for d in (self._samples, self._rate_windows, self._week_samples, self._weekly_reminders):
             for k in [k for k in d if match(*k)]:
                 d[(k[0], new)] = d.pop(k)
         moved = [k for k in self._last_ok if match(*k)]
