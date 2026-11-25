@@ -314,12 +314,24 @@ def _headers(token: str) -> dict[str, str]:
     }
 
 
+# The usage endpoint reads one point higher than what Claude itself shows for the same window (the
+# user compared them across their accounts, 2026-11). Shown as Claude shows it: one less, never
+# below 0, and 100 stays 100 (a spent window is spent whatever the offset).
+PERCENT_OFFSET = 1.0
+
+
+def shown_percent(raw: float) -> float:
+    if raw >= 100:
+        return raw
+    return max(0.0, raw - PERCENT_OFFSET)
+
+
 def parse_usage(doc: dict) -> tuple[list[Window], dict]:
     windows: list[Window] = []
     for key, label in WINDOW_KEYS:
         w = doc.get(key)
         if isinstance(w, dict) and w.get("utilization") is not None:
-            windows.append(Window(label, float(w["utilization"]), parse_iso(w.get("resets_at"))))
+            windows.append(Window(label, shown_percent(float(w["utilization"])), parse_iso(w.get("resets_at"))))
     # Newer model-scoped weekly limits.
     for lim in doc.get("limits") or []:
         if not isinstance(lim, dict) or lim.get("percent") is None:
@@ -329,7 +341,7 @@ def parse_usage(doc: dict) -> tuple[list[Window], dict]:
         label = f"{lim.get('group') or ''} {name}".strip()
         if any(w.name == label for w in windows):
             continue
-        windows.append(Window(label, float(lim["percent"]), parse_iso(lim.get("resets_at"))))
+        windows.append(Window(label, shown_percent(float(lim["percent"])), parse_iso(lim.get("resets_at"))))
     extra: dict = {}
     eu = doc.get("extra_usage")
     if isinstance(eu, dict) and eu.get("is_enabled"):
@@ -382,7 +394,7 @@ def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
         elif e.status == 403 and "oauth_not_allowed_for_organization" in e.body:
             # A Free plan (a lapsed subscription too): the login is fine, the plan has no Claude Code.
             # Logging in again or waking can't change that, so don't say the token is at fault.
-            return _unfetched(account, creds, key, NO_CLAUDE_CODE)
+            return _unfetched(account, creds, key, NO_CLAUDE_CODE, usage_ok=False)
         elif e.status == 403:
             raise ProviderError("forbidden: token lacks the user:profile scope (re-run `claude /login`)") from None
         elif e.status == 429:
@@ -396,11 +408,13 @@ def fetch_usage(account: Account, refresh_tokens: bool = False) -> Usage:
 
     windows, extra = parse_usage(doc)
     email, org = _cached_identity(account)
-    prof = _profile(_profile_key(account, creds), creds.oauth["accessToken"], force=email is None)
+    cached = _oauth_account(account)
+    prof = _profile(_profile_key(account, creds), creds.oauth["accessToken"], force=email is None,
+                    hint=plan_hint(creds.oauth, cached), usage_ok=True)
     if email is None:
         a = prof.get("account") or {}
         email = a.get("email_address") or a.get("email")
-    plan = plan_of(creds.oauth, prof, _oauth_account(account))
+    plan = plan_of(creds.oauth, prof, cached)
     return Usage(
         account=account.name, provider="claude", ok=True,
         email=email, plan=plan, windows=windows, extra=extra,
@@ -414,14 +428,16 @@ def _usage_limited(wait: float | None) -> str:
     return "rate limited by the usage endpoint; poll less often"
 
 
-def _unfetched(account: Account, creds: Creds, key: str, error: str) -> Usage:
+def _unfetched(account: Account, creds: Creds, key: str, error: str, usage_ok: bool | None = None) -> Usage:
     """No numbers this time, but whose login it is and its plan still come from the profile endpoint."""
     email = _cached_identity(account)[0]
-    prof = _profile(key, creds.oauth["accessToken"], force=email is None)
+    cached = _oauth_account(account)
+    prof = _profile(key, creds.oauth["accessToken"], force=email is None, hint=plan_hint(creds.oauth, cached),
+                    usage_ok=usage_ok)
     if email is None:
         a = prof.get("account") or {}
         email = a.get("email_address") or a.get("email")
-    plan = plan_of(creds.oauth, prof, _oauth_account(account))
+    plan = plan_of(creds.oauth, prof, cached)
     if plan == "free":  # its usage answers 403 or 429 by turns; either way the plan has no Claude Code
         error = NO_CLAUDE_CODE
     return Usage(
@@ -477,8 +493,36 @@ def org_uuid(account: Account) -> str | None:
     return uuid if isinstance(uuid, str) and uuid else None
 
 
-PROFILE_TTL = 6 * 3600
-_profiles: dict[str, tuple[float, dict]] = {}  # login -> (fetched, profile); it hardly ever changes
+# The plan comes from the profile. It used to be kept 6 h, so a plan change (Pro -> Max, a lapse to
+# Free) showed only hours later. Now it is read again every 30 min, at once on a manual sync, and
+# at once whenever something says the plan may have changed (plan_hint, plan_signal).
+PROFILE_TTL = 30 * 60
+SIGNAL_MIN = 5 * 60  # a usage answer that contradicts the plan re-reads it, at most this often
+_profiles: dict[str, tuple[float, dict, tuple]] = {}  # login -> (fetched, profile, plan_hint when read)
+
+
+def expire_profiles() -> None:
+    """A manual sync: read every login's plan again on this poll."""
+    for key, (_, prof, hint) in list(_profiles.items()):
+        _profiles[key] = (0.0, prof, hint)
+
+
+def plan_hint(oauth: dict, cached: dict) -> tuple:
+    """What the local files say about the plan. Claude Code rewrites its cached oauthAccount (and a
+    new login its subscriptionType) when the plan changes: a different hint means read the profile."""
+    return (oauth.get("subscriptionType"), oauth.get("rateLimitTier"),
+            cached.get("organizationType"), cached.get("organizationRateLimitTier"))
+
+
+def plan_signal(prof: dict, usage_ok: bool | None) -> bool:
+    """The usage endpoint disagrees with the cached plan: a Free plan whose usage answers (it was
+    upgraded), or a paid one the endpoint now refuses (it lapsed)."""
+    if usage_ok is None or not prof:
+        return False
+    kind = (prof.get("organization") or {}).get("organization_type")
+    if not kind:
+        return False
+    return (kind == "claude_free") == usage_ok
 
 
 def _profile_key(account: Account, creds: Creds) -> str:
@@ -489,20 +533,28 @@ def _profile_key(account: Account, creds: Creds) -> str:
     return "token:" + token_id(creds.oauth.get("refreshToken") or creds.oauth.get("accessToken") or "")
 
 
-def _profile(key: str, token: str, force: bool = False) -> dict:
+def _profile(key: str, token: str, force: bool = False, hint: tuple = (), usage_ok: bool | None = None) -> dict:
     hit = _profiles.get(key)
-    if hit and not force and time.time() - hit[0] < PROFILE_TTL:
+    age = time.time() - hit[0] if hit else 0.0
+    if (hit and not force and age < PROFILE_TTL and hit[2] == hint
+            and not (age >= SIGNAL_MIN and plan_signal(hit[1], usage_ok))):
         return hit[1]
     try:
         prof = request_json("GET", PROFILE_URL, headers=_headers(token)) or {}
     except ProviderError:
         return hit[1] if hit else {}
-    if hit is None:
-        from ..applog import log
+    from ..applog import log
 
+    if hit is None:
         log.info("claude profile fields: organization=%s account=%s",
                  sorted((prof.get("organization") or {}).keys()), sorted((prof.get("account") or {}).keys()))
-    _profiles[key] = (time.time(), prof)
+    else:
+        was = (hit[1].get("organization") or {}), (prof.get("organization") or {})
+        if (was[0].get("organization_type"), was[0].get("rate_limit_tier")) != (
+                was[1].get("organization_type"), was[1].get("rate_limit_tier")):
+            log.info("claude plan changed: %s/%s -> %s/%s", was[0].get("organization_type"),
+                     was[0].get("rate_limit_tier"), was[1].get("organization_type"), was[1].get("rate_limit_tier"))
+    _profiles[key] = (time.time(), prof, hint)
     return prof
 
 

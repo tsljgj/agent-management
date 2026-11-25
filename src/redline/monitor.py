@@ -26,10 +26,13 @@ WEEKLY_REMINDER_INTERVAL = 24 * 60 * 60
 
 # Usage rate: how fast the short window (5h; the first window if there is none) is filling,
 # measured over the last RATE_LOOKBACK seconds. "pace" 1.0 = on track to use exactly the whole
-# window over its length (5h: 20%/h). Levels: idle (no change), low < 0.5, mid < 1.25, high.
+# window over its length (5h: 20%/h). Levels: idle (no change), low < 0.5, mid < 1.25, high < 2.5
+# (5h: gone in 2 h or more), hot < 5 (gone in 1-2 h), burn (gone within the hour). Heavy use often
+# runs far past 1.25, so one "high" for everything beyond it told 30%/h and 150%/h apart by nothing.
 RATE_LOOKBACK = 30 * 60
 RATE_MIN_SPAN = 4 * 60  # need at least this much history before saying anything
-RATE_LEVELS = ((0.5, "low"), (1.25, "mid"))
+RATE_LEVELS = ((0.5, "low"), (1.25, "mid"), (2.5, "high"), (5.0, "hot"))
+RATE_TOP = "burn"
 # A cached percentage seeds the threshold baseline after a restart only if it is this recent.
 RESTART_BASELINE_AGE = 15 * 60
 
@@ -83,7 +86,7 @@ def rate_level(per_hour: float, hours: float) -> str:
     if per_hour <= 0:
         return "idle"
     pace = per_hour * hours / 100
-    return next((name for limit, name in RATE_LEVELS if pace < limit), "high")
+    return next((name for limit, name in RATE_LEVELS if pace < limit), RATE_TOP)
 
 
 def console_details() -> tuple[dict | None, dict | None]:
@@ -175,6 +178,13 @@ class Monitor:
         with self._poll_lock:
             if force and time.time() - self.at < FORCE_FLOOR:
                 return
+            if force:  # a manual sync also reads each Claude login's plan again (it may have just changed)
+                try:
+                    from .providers.claude import expire_profiles
+
+                    expire_profiles()
+                except Exception:
+                    pass
             try:
                 from .slots import reconcile
 
@@ -362,6 +372,8 @@ class Monitor:
         if r is not None:
             u.rate = {**r, "level": rate_level(r["per_hour"], hours), "window": w.name,
                       "pace": round(r["per_hour"] * hours / 100, 2)}
+            if r["per_hour"] > 0 and w.used_percent < 100:  # at this rate the window is used up in...
+                u.rate["full_in"] = round((100 - w.used_percent) / r["per_hour"] * 3600)
 
     def _with_last_good(self, u: Usage) -> Usage:
         """Keep showing an account's last good numbers when a fetch fails (429, offline, expired...)."""

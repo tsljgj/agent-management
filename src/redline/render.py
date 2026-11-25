@@ -122,6 +122,9 @@ def render_table(usages: list[Usage], stream=None) -> str:
                 f"{_c(pct_text, code, color)}  {humanize_delta(w.resets_at)}"
             )
         for k, v in u.extra.items():
+            if k == "models" and isinstance(v, dict):  # Gemini: what is left of each model
+                lines.append(f"    {_c('models:', '2', color)} " + " · ".join(f"{m} {left}" for m, left in v.items()))
+                continue
             if k == "banked_resets" and isinstance(v, dict):
                 available = v.get("available")
                 text = str(available) if available is not None else "unknown"

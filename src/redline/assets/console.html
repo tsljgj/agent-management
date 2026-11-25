@@ -46,7 +46,7 @@ header{display:flex;align-items:center;gap:20px;height:48px;padding:0 10px 0 18p
 #age.old{color:var(--warn)}
 #wake{display:none;color:var(--warn)}
 #wake.on{display:block}
-#wake.hide{display:none!important}
+#wake.hide,.tab.hide,#plus.hide{display:none!important}
 #plus{font-size:20px;line-height:1;color:var(--acc)}
 #ver{display:none;font-size:11px}
 #ver.on{display:block}
@@ -102,7 +102,9 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .weekly.error{color:var(--red)}
 .rate{display:flex;align-items:flex-end;gap:6px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);white-space:nowrap;overflow:hidden}
 /* LED gauge, lit like the meters: dark segments = the track, lit ones glow in the level's colour */
-.rate{--c:var(--dim)}.rate.low{--c:var(--ok)}.rate.mid{--c:var(--warn)}.rate.high{--c:var(--red)}
+.rate{--c:var(--dim)}.rate.low{--c:var(--ok)}.rate.mid{--c:var(--warn)}.rate.high{--c:#ff7a2e}.rate.hot{--c:var(--red)}
+.rate.burn{--c:#ff3df0}.rate.burn b{animation:burn 1.2s ease-in-out infinite}
+@keyframes burn{50%{opacity:.45}}
 .rate svg{flex:none;width:38px;height:21px;overflow:visible}
 .rate svg .sg{fill:none;stroke:var(--faint);stroke-width:3.4}
 .rate svg .sg.on{stroke:var(--c);filter:drop-shadow(0 0 2px var(--c))}
@@ -118,6 +120,14 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .det .prj em.on{color:var(--ok)}
 .det .prj button{color:var(--dim);font-size:11px;white-space:nowrap}
 .det .prj button:hover{color:var(--acc)}
+/* used in: the last few projects on one line, each opens VS Code there as this account */
+.det .used{gap:4px 14px;flex-wrap:wrap;overflow:hidden}
+.det .used button{display:inline-flex;gap:5px;align-items:baseline;color:var(--fg);font-size:12px;min-width:0;max-width:100%}
+.det .used button b{flex:none;max-width:140px}
+.det .used button:hover b{color:var(--acc)}
+.det .used .more{font-size:11px;color:var(--dim);font-style:normal}
+.usd.none{--c:var(--dim);text-shadow:none}
+.gemini .rate b,.gemini .rate span{display:none}
 .det b.acc{color:var(--acc)}
 /* meter: label · bar · % on one line, "↻ time to reset" right under its own bar */
 /* one label width for 5h / 7d / 30d, so the bars start in line; only a long name (primary) widens it */
@@ -184,7 +194,7 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .det div.wide{grid-column:1/-1}
 .det span{color:var(--dim)}
 .det b{font-weight:400;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.det b.red{color:var(--red)}.det b.warn{color:var(--warn)}
+.det b.red{color:var(--red)}.det b.warn{color:var(--warn)}.det b.dim{color:var(--dim)}
 .det .banked-credit{grid-template-columns:minmax(0,1fr);gap:3px;padding:3px 0}
 .det .banked-credit span,.det .banked-credit b{white-space:normal;overflow-wrap:anywhere}
 .empty{padding:48px 18px;color:var(--dim);text-align:center;line-height:2}
@@ -259,7 +269,8 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
   <div class="logo">R<i>EDLINE</i><b>//</b></div>
   <button class="tab" data-tab="claude">CLAUDE<sup id="nclaude"></sup></button>
   <button class="tab" data-tab="codex">CODEX<sup id="ncodex"></sup></button>
-  <button class="tab" data-tab="plans" title="subscriptions: which one renews/ends first (alt+3)">PLANS</button>
+  <button class="tab hide" data-tab="gemini" title="Gemini CLI logins: quota left per model">GEMINI<sup id="ngemini"></sup></button>
+  <button class="tab" data-tab="plans" title="subscriptions: which one renews/ends first">PLANS</button>
   <div class="sp"></div>
   <div class="tools">
   <button class="hb act" id="wake" title="some accounts need a login — wake them">⚡</button>
@@ -416,6 +427,10 @@ function bankedResetDetails(u) {
   return rows.join("");
 }
 function quotaMeters(u) {
+  if (u.provider === "gemini") {
+    if (!u.windows.length) return `<div class="need"><span>未返回额度</span></div>`;
+    return [u.windows[0], u.windows[1]].map(w => meter(w, w ? w.name : "")).join("");
+  }
   const main = u.windows.filter(w => /^(?:primary|secondary|\d+(?:\.\d+)?[hd])$/.test(w.name));
   if (!main.length) return `<div class="need"><span>未返回额度窗口</span></div>`;
   const slots = [main.find(w => w.name === "5h"), main.find(w => w.name === "7d")];
@@ -549,12 +564,21 @@ function renewTag(u) {
 const base = p => (p || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 const since = s => s < 86400 ? ago(s) : Math.floor(s / 86400) + "d";
 // usage rate over the last ~30 min, from the server (monitor.usage_rate); nothing until it knows
-// the gauge: a half dial of LED segments from 0 to 2x "pace" (1.0 = on track to use the whole
-// window over its length); segments up to the current pace light up, ticks mark the level bounds
-// (low < 0.5, mid < 1.25, high), the needle points at the pace
-const GAUGE_MAX = 2, GAUGE_SEGS = 12, GAUGE_TICKS = [0.5, 1.25];
+// the gauge: a half dial of LED segments over "pace" (1.0 = on track to use the whole window over
+// its length). Each level gets an equal share of the dial, so a fast burn is told apart from a busy
+// hour: low < 0.5, mid < 1.25, high < 2.5, hot < 5, burn up to 10 (pinned beyond). Segments up to
+// the current pace light up, ticks mark the level bounds, the needle points at the pace.
+const GAUGE_BOUNDS = [0, 0.5, 1.25, 2.5, 5, 10], GAUGE_SEGS = 15, GAUGE_TICKS = GAUGE_BOUNDS.slice(1, -1);
+function gaugeFrac(pace) {
+  const p = Math.max(Number(pace) || 0, 0), n = GAUGE_BOUNDS.length - 1;
+  for (let i = 0; i < n; i++) {
+    const lo = GAUGE_BOUNDS[i], hi = GAUGE_BOUNDS[i + 1];
+    if (p < hi) return (i + (p - lo) / (hi - lo)) / n;
+  }
+  return 1;
+}
 function gauge(pace) {
-  const cx = 20, cy = 20, r = 15, f = Math.min(Math.max(pace || 0, 0), GAUGE_MAX) / GAUGE_MAX;
+  const cx = 20, cy = 20, r = 15, f = gaugeFrac(pace);
   const pt = (t, rr = r) => {
     const a = Math.PI * (1 - t);
     return [(cx + rr * Math.cos(a)).toFixed(2), (cy - rr * Math.sin(a)).toFixed(2)];
@@ -566,7 +590,7 @@ function gauge(pace) {
     out += `<path class="sg${f > 0 && k * step < f ? " on" : ""}" d="M${a} A${r} ${r} 0 0 1 ${b}"/>`;
   }
   for (const t of GAUGE_TICKS) {
-    const a = pt(t / GAUGE_MAX, r + 2.6), b = pt(t / GAUGE_MAX, r + 4.4);
+    const a = pt(gaugeFrac(t), r + 2.6), b = pt(gaugeFrac(t), r + 4.4);
     out += `<line class="tk" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"/>`;
   }
   const n = pt(f, 10.5);
@@ -574,19 +598,22 @@ function gauge(pace) {
     + `<line class="nd" x1="${cx}" y1="${cy}" x2="${n[0]}" y2="${n[1]}"/><circle class="hub" cx="${cx}" cy="${cy}" r="1.8"/></svg>`;
 }
 function rateTag(u) {
+  if (u.provider === "gemini") return "";
   const r = u.rate;
   if (!r || u.stale) {  // keep the dial in place, unlit, until there are live readings to measure
     if (!u.windows || !u.windows.length) return "";
     const why = u.stale ? "no live readings for this account right now" : "measuring: the rate shows after a few minutes of readings";
     return `<div class="rate idle wait" title="${esc(why)}">${gauge(0)}<b>${u.stale ? "--" : "···"}</b></div>`;
   }
+  const full = r.full_in > 0 ? ` · at this rate it runs out in ${span(r.full_in)}` : "";
   const tip = r.level === "idle" ? `no ${r.window} usage in the last 30 min`
-    : `${r.window} window filling at ${r.per_hour}%/h over the last 30 min`;
+    : `${r.level}: ${r.window} window filling at ${r.per_hour}%/h over the last 30 min (${r.pace}x pace)${full}`;
   return `<div class="rate ${esc(r.level)}" title="${esc(tip)}">${gauge(r.pace)}<b>${esc(r.level)}</b>${r.level === "idle" ? "" : `<span> · ${r.per_hour}%/h</span>`}</div>`;
 }
 const dayLevel = d => d <= 1 ? "high" : d <= 3 ? "mid" : d <= RENEW_SOON_DAYS ? "" : "far";   // the gauge's colours
 // The same fixed slots in every row (empty ones too), so nothing shifts when an account's state does.
 function dial(u) {
+  if (u.provider === "gemini") return u.plan ? `<div class="dial"><div class="plan">${esc(String(u.plan).toUpperCase())}</div></div>` : "";
   const gauge = rateTag(u) || `<div class="rate"></div>`;
   const sub = renewTag(u) || (isFree(u) ? `<div class="plan">FREE</div>` : "");
   const slots = (u.provider === "codex" ? [bankedTag(u), sub] : [sub]).map(s => `<div class="slot">${s}</div>`).join("")
@@ -612,32 +639,52 @@ function creditLevel(c) {
 const usd = v => v == null ? "$?" : "$" + Math.max(0, v).toFixed(2);
 const creditDate = iso => { const d = new Date(iso); return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 const creditLeft = iso => { const l = left(iso); return `↻ ${creditDate(iso)} ${l >= 86400 ? span(l).split(" ")[0] : span(l)}`; };
+// Between one month's credit lapsing and the next one being paid in (or while a lapsed value is still
+// cached) there is none: "$–", saying when the last one lapsed, rather than an empty slot.
+function creditGap(c) {
+  const at = c.state === "none" ? c.lapsed_at : c.expires_at;
+  return "本月 API credit 尚未到账" + (at ? `（上一笔 ${creditDate(at)} 已到期）` : "");
+}
 function creditTag(u) {
   const c = creditOf(u);
-  if (!c || !c.live) return "";
+  if (!c) return "";
+  if (!c.live) return `<div class="cred usd none" title="${esc(creditGap(c))}">$–</div>`;
   const date = c.expires_at ? new Date(c.expires_at).toLocaleDateString(undefined, {year: "numeric", month: "short", day: "numeric"}) : "未知";
-  const tip = `API credit · ${date} 到期` + (c.state === "reconnect" ? " · 需重新连接" : c.state === "stale" ? " · 未更新" : "");
+  const tip = `API credit · ${usd(c.remaining)} left · ${date} 到期` + (c.state === "reconnect" ? " · Console 登录已失效，需重新连接" : c.state === "stale" ? " · 最近一次读取失败，显示的是上次的值" : "");
   return `<div class="cred usd ${creditLevel(c)}${c.state === "ok" ? "" : " old"}" title="${esc(tip)}">`
     + `$${c.remaining == null ? "?" : Math.floor(c.remaining + 1e-9)}</div>`;
 }
-// a slot in every Claude row once any account on the page has a credit, so the rows stay in line
-const creditSlot = () => (DATA.usages || []).some(x => creditOf(x)?.live);
+// a slot in every Claude row once any account on the page has a Console connected, so the rows stay in line
+const creditSlot = () => (DATA.usages || []).some(x => creditOf(x));
 function creditDetail(u) {
   const c = creditOf(u);
   if (u.provider !== "claude" || identityMismatch(u) || (!c && !paidClaude(u))) return "";
   const button = paidClaude(u) && (!c || c.state === "reconnect")
     ? `<button class="act" data-act="console">${c ? "重新连接" : "连接 Console"}</button>` : "";
   let value = `<b>–</b>`;
-  if (c && c.live) {
+  if (c && !c.live) value = `<b class="dim" title="${esc(creditGap(c))}">${esc(creditGap(c))}</b>`;
+  if (c && c.live && c.remaining == null && c.granted == null) {
+    value = `<b class="warn">${c.state === "reconnect" ? "Console 登录已失效" : "暂时读不到余额"}</b>`;
+  } else if (c && c.live) {
     const lv = creditLevel(c), cls = {high: "red", mid: "warn", urgent: "acc"}[lv] || "";
-    const used = c.granted != null && c.remaining != null ? c.granted - c.remaining : null;
-    const text = `${usd(used)} / ${usd(c.granted)} · ${usd(c.remaining)} left`;
-    const tip = c.state === "reconnect" ? "需重新连接" : c.state === "stale" ? "未更新" : "";
+    const old = c.state === "reconnect" ? " · 需重新连接" : c.state === "stale" ? " · 未更新" : "";
+    // what is left first: that is what can still be spent before it lapses
+    const text = `${usd(c.remaining)} left / ${usd(c.granted)}${old}`;
+    const tip = c.state === "reconnect" ? "Console 登录已失效，显示的是上次的值"
+      : c.state === "stale" ? "最近一次读取失败，显示的是上次的值" + (c.fetched_at ? `（${when(c.fetched_at)}）` : "")
+      : c.granted != null && c.remaining != null ? `已用 ${usd(c.granted - c.remaining)}` : "";
     value = c.expires_at
       ? `<b class="${cls}" title="${esc(tip)}" data-credit="${esc(c.expires_at)}" data-text="${esc(text)}">${esc(text + " · " + creditLeft(c.expires_at))}</b>`
       : `<b class="${cls}" title="${esc(tip)}">${esc(text)}</b>`;
   }
   return `<div class="wide"><span>API credit</span><div class="prj">${value}${button}</div></div>`;
+}
+// Gemini logins live in the Gemini CLI: signing in again happens there, not here
+function geminiErr(e) {
+  e = String(e || "");
+  if (/not logged in/.test(e)) return "未登录 · 在终端运行 gemini 登录";
+  if (/expired|unauthorized|refresh/.test(e)) return "登录已过期 · 在终端运行一次 gemini";
+  return shortErr(e);
 }
 function reauthTag(u) {
   if (identityMismatch(u) || !lapsed(u)) return "";
@@ -671,7 +718,9 @@ function row(u, bestName) {
   const extra = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${pct(w.used_percent)}`)
     .concat(extraEntries(u).filter(([k]) => k !== "credits").map(([k, v]) => `${k} ${v}`));
   const tip = mismatch ? identityMessage(u) : [u.email, u.plan, ...extra, u.stale ? `as of ${new Date(u.fetched_at).toLocaleString()} · ${u.error}` : ""].filter(Boolean).join(" · ");
-  const body = mismatch
+  const body = u.provider === "gemini" && failed(u)
+    ? `<div class="need"><button data-act="retry">retry ⟳</button><span title="${esc(u.error)}">${esc(geminiErr(u.error))}</span></div>`
+    : mismatch
     ? `<div class="need identity"><strong>登录账号不符</strong><span>实际：${esc(infoOf(u).email || u.email || "未知")}</span><span>预期：${esc(infoOf(u).expected_email || "未知")}</span><button class="act" data-act="login">重新登录预期账号 ›</button></div>`
     : needsLogin(u)
     ? `<div class="need"><button class="act" data-act="login">login ›</button><span title="${esc(u.error)}">${esc(shortErr(u.error))}</span></div>`
@@ -686,9 +735,9 @@ function row(u, bestName) {
   const flags = (live.length ? " live" : "") + (["unstarted", "unknown"].includes(weekly?.state) ? " weekly-attention" : "");
   const tip2 = [live.length ? "● running in " + live.map(p => base(p.path)).join(", ") : "", tip]
     .filter(Boolean).join(" · ");
-  const quotaTags = mismatch ? "" : dial(u) + (u.provider === "codex" ? "" : credTag(u));
-  return `<div class="acct${u.provider === "codex" ? " codex" : ""}${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}${open ? " open" : ""}${flags}" data-name="${n}"><span class="ch">${open ? "▴" : "▾"}</span>
-    <div class="who"><div class="nm" title="${esc(tip2)} · double-click to rename">${n}</div>${quotaTags}${reauthTag(u)}${weeklyTag(u)}</div>${body}
+  const quotaTags = mismatch ? "" : dial(u) + (u.provider === "claude" ? credTag(u) : "");
+  return `<div class="acct${u.provider === "claude" ? "" : " " + u.provider}${u.account === bestName ? " best" : ""}${u.stale ? " stale" : ""}${open ? " open" : ""}${flags}" data-name="${n}"><span class="ch">${open ? "▴" : "▾"}</span>
+    <div class="who"><div class="nm" title="${esc(tip2)}${u.provider === "gemini" ? "" : " · double-click to rename"}">${n}</div>${quotaTags}${u.provider === "gemini" ? "" : reauthTag(u)}${weeklyTag(u)}</div>${body}
     ${details(u)}</div>`;
 }
 /* ---------- details: ⋯ opens every row; clicking a row toggles just that row ---------- */
@@ -709,9 +758,32 @@ function when(iso) {
   const days = Math.round((new Date(d.toDateString()) - new Date(new Date().toDateString())) / 864e5);
   return (days === 0 ? "today" : days === 1 ? "tomorrow" : d.toLocaleDateString(undefined, {weekday: "short", month: "short", day: "numeric"})) + " " + t;
 }
+const kvRow = (k, v, cls = "", wide = true) => `<div${wide ? ' class="wide"' : ""}><span>${esc(k)}</span><b class="${cls}" title="${esc(v)}">${esc(v)}</b></div>`;
+function geminiDetails(u) {
+  const ex = u.extra || {}, rows = [kvRow("account", [u.email, u.plan].filter(Boolean).join(" · ") || "–")];
+  if (ex.project) rows.push(kvRow("project", ex.project));
+  const resets = u.windows.filter(w => w.resets_at).map(w => `${w.name} ${when(w.resets_at)}`);
+  if (resets.length) rows.push(kvRow("resets", resets.join(" · ")));
+  const models = Object.entries(ex.models && typeof ex.models === "object" ? ex.models : {});
+  if (models.length) rows.push(kvRow("models", models.map(([m, v]) => `${m} ${v}`).join(" · ")));
+  if (!u.ok) rows.push(kvRow("error", u.error || "", "red"));
+  return `<div class="det">${rows.join("")}</div>`;
+}
+// "used in": the last few projects on one line (● = running now); the rest behind +N
+const USED_IN = 3;
+function usedIn(projects) {
+  if (!projects || !projects.length) return "";
+  const shown = projects.slice(0, USED_IN), rest = projects.slice(USED_IN);
+  return `<div class="wide"><span>used in</span><div class="prj used">`
+    + shown.map(p => `<button data-act="code" data-path="${esc(p.path)}" title="${esc(p.path)} · ${p.active ? "running now" : since(DATA.now - p.at) + " ago"} · open VS Code here as this account">`
+      + `<b>${esc(base(p.path))}</b><em class="${p.active ? "on" : ""}">${p.active ? "●" : since(DATA.now - p.at)}</em></button>`).join("")
+    + (rest.length ? `<em class="more" title="${esc(rest.map(p => p.path).join("\n"))}">+${rest.length}</em>` : "")
+    + `</div></div>`;
+}
 function details(u) {
+  if (u.provider === "gemini") return geminiDetails(u);
   const info = infoOf(u);
-  const kv = (k, v, cls = "") => `<div class="wide"><span>${esc(k)}</span><b class="${cls}" title="${esc(v)}">${esc(v)}</b></div>`;
+  const kv = kvRow;
   const mismatch = identityMismatch(u);
   const rows = mismatch
     ? [kv("登录账号不符", "请重新登录预期账号后查看其套餐与额度。", "warn"), kv("预期账号", info.expected_email || "未知"), kv("实际账号", info.email || u.email || "未知", "warn")]
@@ -727,31 +799,29 @@ function details(u) {
     if (job.message) rows.push(kv("开启计时", job.message, job.state === "error" ? "red" : ""));
     const five = u.provider === "claude" ? start5hOf(u) : {};
     if (five.message) rows.push(kv("开启计时", five.message, five.state === "error" ? "red" : ""));
-    for (const name of ["5h", "7d"]) {
+    for (const name of ["5h", "7d"]) {   // side by side: half a line each
       const w = u.windows.find(x => x.name === name);
-      if (w) rows.push(kv(name, w.resets_at ? "resets " + when(w.resets_at) : "–", spent(w.used_percent) ? "red" : ""));
+      if (w) rows.push(kv(name + " ↻", w.resets_at ? when(w.resets_at) : "not started", spent(w.used_percent) ? "red" : "", false));
     }
     const other = u.windows.filter(w => w.name !== "5h" && w.name !== "7d").map(w => `${w.name} ${pct(w.used_percent)}`)
       .concat(extraEntries(u).map(([k, v]) => `${k} ${v}`));
     if (other.length) rows.push(kv("other", other.join(" · ")));
-    { const r = renewOf(u), p = renewParts(r);
-      rows.push(`<div class="wide"><span>${r && !r.est ? "paid until" : "renews"}</span><div class="prj">`
-        + `<b class="${p.cls ? "warn" : ""}" title="${r && r.est ? "estimate: the subscription start rolled forward by months (" + esc(u.provider) + " doesn't report the end date)" : r && r.set ? "set by you" : ""}">`
-        + `${esc(p.date)}${p.days != null ? " · in " + esc(p.left) : ""}</b>`
-        + `<button data-act="renew" title="set the real renewal/end date">✎ set</button></div></div>`); }
+    { const r = renewOf(u), p = renewParts(r);   // half a line, beside the Chrome profile
+      const date = r && r.at ? (r.est ? "~" : "") + r.at.toLocaleDateString(undefined, {month: "short", day: "numeric"}) : p.date;
+      rows.push(`<div><span>${r && !r.est ? "paid until" : "renews"}</span><div class="prj">`
+        + `<b class="${p.cls ? "warn" : ""}" title="${esc(p.date + (p.days != null ? " · in " + p.left : ""))}${r && r.est ? " · estimate: the subscription start rolled forward by months (" + esc(u.provider) + " doesn't report the end date)" : r && r.set ? " · set by you" : ""}">`
+        + `${esc(date)}${p.days != null ? " · " + esc(Math.max(0, p.days)) + "d" : ""}</b>`
+        + `<button data-act="renew" title="set the real renewal/end date">✎</button></div></div>`); }
+    if (info.profile) rows.push(kv("chrome", info.profile.name, "", false));
     rows.push(creditDetail(u));
-  }
-  if (info.profile) rows.push(kv("chrome", info.profile.name));
+  } else if (info.profile) rows.push(kv("chrome", info.profile.name));
   if (!u.ok) rows.push(kv("error", u.error || "", "red"));
-  (info.projects || []).forEach((p, i) => rows.push(`<div class="wide"><span>${i ? "" : "used in"}</span><div class="prj">`
-    + `<b title="${esc(p.path)}">${esc(base(p.path))}</b><em class="${p.active ? "on" : ""}">${p.active ? "● now" : since(DATA.now - p.at) + " ago"}</em>`
-    + `<button data-act="code" data-path="${esc(p.path)}" title="new VS Code window on ${esc(p.path)} as this account">↗ code</button></div></div>`));
+  rows.push(usedIn(info.projects));
   const site = u.provider === "codex" ? "chatgpt.com" : "claude.ai";
   rows.push(`<div class="wide acts act">`
     + (info.default ? "" : `<button data-act="use" title="make this the login VS Code and plain ${u.provider} use (moves it to ~/.${u.provider})">◆ use in VS Code</button>`)
     + `<button data-act="web" title="open ${site} in its Chrome profile">↗ ${site}</button>`
     + (u.provider === "codex" ? `<button data-act="usage" title="在此账户的 Chrome 中打开 Codex 用量页面">↗ 用量</button>` : "")
-    + `<button data-act="jack" title="terminal running ${u.provider} as this account">›_ terminal</button>`
     + `<button data-act="rename">✎ rename</button><button class="del" data-act="del" data-label="✕ remove">✕ remove</button></div>`);
   return `<div class="det">${rows.join("")}</div>`;
 }
@@ -825,11 +895,14 @@ function render() {
     unstarted ? `${unstarted} 个 Codex 账户的 weekly 尚未开始` : "",
     unknown ? `${unknown} 个 Codex 账户的 weekly 状态待确认` : "",
   ].filter(Boolean).join("；");
-  for (const p of ["claude", "codex"]) {
+  for (const p of ["claude", "codex", "gemini"]) {
     const mine = us.filter(u => u.provider === p);
-    $("#n" + p).textContent = mine.length || "";
-    const hot = mine.some(u => reauth(u) || u.windows.some(w => w.name === "5h" && w.used_percent >= 90));
     const tab = document.querySelector(`.tab[data-tab="${p}"]`);
+    if (!tab) continue;
+    $("#n" + p).textContent = mine.length || "";
+    if (p === "gemini") tab.classList.toggle("hide", !mine.length && TAB !== "gemini");   // only once there is a Gemini login
+    const hot = p === "gemini" ? mine.some(u => failed(u) || u.windows.some(w => w.used_percent >= 90))
+      : mine.some(u => reauth(u) || u.windows.some(w => w.name === "5h" && w.used_percent >= 90));
     tab.classList.toggle("hot", hot);
     if (p === "codex") {
       tab.classList.toggle("waiting", unstarted + unknown > 0);
@@ -847,14 +920,17 @@ function render() {
   $("#wsNotice").classList.toggle("on", drift.length > 0);
   $("#wsNotice").innerHTML = drift.map(d => `<span title="${esc(d.tip)}">${esc(d.short)}</span>`).join(" · ");
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.tab === TAB));
-  $("#wake").classList.toggle("hide", TAB === "plans");
+  $("#wake").classList.toggle("hide", TAB === "plans" || TAB === "gemini");
+  $("#plus").classList.toggle("hide", TAB === "gemini");   // Gemini logins come from the Gemini CLI, not from here
   if (TAB === "plans") return renderPlans(us);
   const mine = us.filter(u => u.provider === TAB);
   const waiting = mine.filter(reauth).length;
   $("#wake").classList.toggle("on", waiting > 0);
   $("#wake").textContent = waiting ? `⚡${waiting}` : "⚡";
   if (!mine.length) {
-    $("#list").innerHTML = DATA.fetched_at || us.length
+    $("#list").innerHTML = TAB === "gemini"
+      ? `<div class="empty">${DATA.fetched_at || us.length ? "no Gemini login found<br>run <code>gemini</code> in a terminal and sign in with Google" : "…"}</div>`
+      : DATA.fetched_at || us.length
       ? `<div class="empty">no ${TAB} accounts<br><button class="act" id="emptyAdd">+ add one</button></div>`
       : `<div class="empty">…</div>`;
     const b = $("#emptyAdd"); if (b) b.onclick = openSheet;
@@ -911,9 +987,10 @@ async function checkUpdate() {
   try { await action({action: "update"}); } finally { updating = false; v.disabled = false; }
   setTimeout(() => pull(false), 800);
 }
+const TABS = ["claude", "codex", "gemini", "plans"];
 function setTab(t) {
-  TAB = t === "codex" || t === "plans" ? t : "claude"; store.set("redline.tab", TAB);
-  if (TAB !== "plans") store.set("redline.acctab", TAB);
+  TAB = TABS.includes(t) ? t : "claude"; store.set("redline.tab", TAB);
+  if (TAB === "claude" || TAB === "codex") store.set("redline.acctab", TAB);
   closeSheet(); render();
 }
 const accountTab = () => store.get("redline.acctab", "claude") === "codex" ? "codex" : "claude";
@@ -1010,12 +1087,12 @@ function toast(text, kind = "") {
 
 /* ---------- commands (for keyboard people; everything is also a button) ---------- */
 const HELP = [
-  ["claude | codex", "switch tab (Alt+1/2)"], ["add", "open the + panel"], ["add <name>", "new account, then log in"],
+  ["claude | codex | gemini", "switch tab (Alt+1/2/3…, in the order on screen)"], ["add", "open the + panel"], ["add <name>", "new account, then log in"],
   ["login <name>", "log in via its Chrome"], ["wake", "log in / refresh this tab"], ["web <name>", "open its web page"],
   ["jack <name>", "terminal as <name>"], ["use <name>", "◆ make it the login VS Code uses"], ["code <name> <folder>", "VS Code window as <name>"], ["plans", "subscriptions, Claude and Codex apart, soonest renewal first"], ["renew <name> <date>", "set when a subscription renews/ends (- = auto)"], ["d | details", "expand all rows (or click one)"], ["sort [default|weekly|headroom|name|renews]", "row order"], ["fit", "auto-size the window again"], ["log", "open the log file (send it when reporting a bug)"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
   ["scan [all]", "find logins on this PC"], ["bind <name> <email>", "pin a Chrome profile"], ["ls | r | update | clear", ""],
 ];
-const COMMANDS = ["help","claude","codex","details","add","login","wake","web","jack","use","code","rename","rm","restore","removed","scan","bind","profiles","ls","sync","update","clear","hide"];
+const COMMANDS = ["help","claude","codex","gemini","details","add","login","wake","web","jack","use","code","rename","rm","restore","removed","scan","bind","profiles","ls","sync","update","clear","hide"];
 const tabNames = () => DATA.usages.filter(u => u.provider === TAB).map(u => u.account);
 const hist = []; let hi = 0;
 async function run(line) {
@@ -1025,7 +1102,7 @@ async function run(line) {
   const need = u => { if (!a[0]) { log("usage: " + u, "error"); return false; } return true; };
   switch (c.toLowerCase()) {
     case "help": case "?": HELP.forEach(([k, v]) => log(k.padEnd(22) + v, "out")); break;
-    case "claude": case "codex": setTab(c.toLowerCase()); openLog(false); break;
+    case "claude": case "codex": case "gemini": setTab(c.toLowerCase()); openLog(false); break;
     case "add":
       if (!a[0]) { openLog(false); openSheet(); break; }
       { const [prov, name] = a.length > 1 ? [a[0], a[1]] : [accountTab(), a[0]];
@@ -1099,7 +1176,11 @@ document.addEventListener("keydown", e => {
     else hideWindow();
     return;
   }
-  if (e.altKey && ["1", "2", "3"].includes(e.key)) { setTab(["claude", "codex", "plans"][+e.key - 1]); return; }
+  if (e.altKey && /^[1-9]$/.test(e.key)) {   // the Nth tab on screen (GEMINI only when there is one)
+    const shown = TABS.filter(t => { const el = document.querySelector(`.tab[data-tab="${t}"]`); return el && !el.classList.contains("hide"); });
+    if (shown[+e.key - 1]) setTab(shown[+e.key - 1]);
+    return;
+  }
   if (document.activeElement.tagName !== "INPUT" && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) $("#cmd").focus();
 });
 document.querySelectorAll(".tab").forEach(t => t.onclick = () => setTab(t.dataset.tab));

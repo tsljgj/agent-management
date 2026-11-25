@@ -97,9 +97,12 @@ def test_usage_rate_levels():
     assert feed(10, 10)["level"] == "idle"
     r = feed(30, 20)                      # +10% in 30 min = 20%/h on a 5h window
     assert r["level"] == "mid" and r["per_hour"] == 20.0 and r["window"] == "5h" and r["pace"] == 1.0
-    assert feed(60, 45)["level"] == "high"  # +25% in the last 30 min = 50%/h
+    r = feed(60, 45)                      # +25% in the last 30 min = 50%/h: the 5h window in 2 h
+    assert r["level"] == "hot" and r["full_in"] == round(55 / 50 * 3600)
     assert feed(62, 3) is None            # the window reset: start over
     assert rate_level(4, 5) == "low" and rate_level(0.2, 168) == "low" and rate_level(0.6, 168) == "mid" and rate_level(1.0, 168) == "high"
+    # beyond high: hot (5h gone in 1-2 h), burn (within the hour)
+    assert [rate_level(p, 5) for p in (24, 49, 50, 99, 100, 300)] == ["mid", "high", "hot", "hot", "burn", "burn"]
 
 
 def test_usage_rate_is_sent_and_dropped_when_stale():
@@ -112,7 +115,7 @@ def test_usage_rate_is_sent_and_dropped_when_stale():
     m._track_rate = lambda u: orig(u, now=next(clock))
     m.poll()
     m.poll()
-    assert m.payload()["usages"][0]["rate"]["level"] == "high"  # +20% in 10 min
+    assert m.payload()["usages"][0]["rate"]["level"] == "burn"  # +20% in 10 min = 120%/h
     m.poll()
     u = m.payload()["usages"][0]
     assert u["stale"] and u["rate"] is None
@@ -131,7 +134,7 @@ def test_usage_rate_history_survives_restarts():
     # new process (self-update) a few minutes later: the gauge works on its first poll
     m2 = Monitor(collect=lambda a, refresh_tokens=False: [Usage("work", "claude", True, windows=[Window("5h", 30.0)])])
     m2.poll()
-    assert m2.payload()["usages"][0]["rate"]["level"] == "high"  # +20% in 10 min
+    assert m2.payload()["usages"][0]["rate"]["level"] == "burn"  # +20% in 10 min = 120%/h
 
 
 @pytest.fixture

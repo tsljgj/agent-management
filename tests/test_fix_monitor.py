@@ -232,7 +232,7 @@ def test_rate_after_a_long_gap_uses_only_fresh_samples():
         u = Usage("a", "claude", True, windows=[Window("5h", float(pct))])
         m._track_rate(u, now=t + i * 240)
         levels.append(u.rate and u.rate["level"])
-    assert levels == [None] + ["high"] * 5
+    assert levels == [None] + ["hot"] * 5  # 75 %/h on a 5h window: hot
 
 
 # ------------------------------------------------------------ 13: thresholds across a restart
