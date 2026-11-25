@@ -41,7 +41,7 @@ class Element {
   appendChild(el) { this.children.push(el); }
   focus() {}
 }
-const elements = {}, tabs = ["claude", "codex", "plans"].map(tab => {
+const elements = {}, tabs = ["claude", "codex", "gemini", "plans"].map(tab => {
   const el = new Element(); el.dataset.tab = tab; return el;
 });
 const document = {
