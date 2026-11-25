@@ -24,6 +24,7 @@ ORGS_URL = API_BASE + "/api/organizations"
 CREDIT_PROGRAM = "subscription_api_credit"
 SESSION_COOKIE = "sessionKey"
 CREDIT_TTL = 10 * 60  # the balance changes slowly; the main poll runs every 2 min
+CREDIT_RETRY = 2 * 60  # a read that failed (network, 5xx, 429, a bot check) is tried again sooner
 
 # credit["state"]: "ok" fresh · "stale" last value, the latest read failed · "reconnect" the Console
 # session was refused (401/403) · "none" read fine, but this month's plan credit isn't there
@@ -71,7 +72,14 @@ def parse_credit(doc, now: datetime | None = None) -> dict:
             continue
         live.append((t, exp))
     if not live:
-        return {"state": "none", "granted": None, "remaining": None, "currency": None, "expires_at": None}
+        # Between one month's credit lapsing and the next one being paid in there is none; say when
+        # the last one lapsed, so the console can tell "not paid yet" from "never had one".
+        gone = [e for e in (parse_iso(t.get("expires_at")) if isinstance(t.get("expires_at"), str) else None
+                            for t in plan_tranches(doc)) if e is not None]
+        out = {"state": "none", "granted": None, "remaining": None, "currency": None, "expires_at": None}
+        if gone:
+            out["lapsed_at"] = max(gone).isoformat()
+        return out
 
     def total(structured, flat):
         vals = [_amount(t, structured, flat) for t, _ in live]
@@ -170,7 +178,26 @@ def save_session(identity_key: str, session_key: str, console_org_uuid: str, cla
 
 
 def _headers(session_key: str) -> dict[str, str]:
-    return {"Cookie": f"{SESSION_COOKIE}={session_key}"}
+    from . import __version__
+
+    # Without a User-Agent urllib sends "Python-urllib/3.x", which the edge in front of the Console
+    # API answers with a bot-check page now and then (a 403 that is not about the session).
+    return {"Cookie": f"{SESSION_COOKIE}={session_key}", "User-Agent": f"redline/{__version__}",
+            "Accept": "application/json"}
+
+
+def refused(e: HTTPStatusError) -> bool:
+    """The Console says the session is no good (sign in again), as opposed to anything else.
+
+    401 always is. A 403 is only when the API itself answers it (a JSON error); an HTML 403 is the
+    edge's bot check or a block in between, which says nothing about the session: try again later.
+    """
+    if e.status == 401:
+        return True
+    if e.status != 403:
+        return False
+    body = (e.body or "").lstrip()
+    return not body or body.startswith("{")
 
 
 def get_orgs(session_key: str) -> list:
@@ -205,15 +232,17 @@ def fetch_credit(identity_key: str | None, now: float | None = None) -> dict | N
     sid = token_id(sess["session_key"])
     with _lock:
         hit = _cache.get(identity_key)
-        if hit and hit[1] == sid and now - hit[0] < CREDIT_TTL:
-            return hit[2]
+        if hit and hit[1] == sid:
+            ttl = CREDIT_RETRY if hit[2].get("state") == "stale" else CREDIT_TTL
+            if now - hit[0] < ttl:
+                return hit[2]
     prev = hit[2] if hit and hit[1] == sid else None
     try:
         credit = _stamp(parse_credit(get_balance(sess["session_key"], sess["console_org_uuid"])))
     except HTTPStatusError as e:
-        state = "reconnect" if e.status in (401, 403) else "stale"
+        state = "reconnect" if refused(e) else "stale"
         credit = carry(_stamp(_blank(), state), prev)
-        _log(f"console credit: HTTP {e.status}")
+        _log(f"console credit: HTTP {e.status}" + ("" if state == "reconnect" else " (not a session refusal)"))
     except ProviderError as e:
         credit = carry(_stamp(_blank(), "stale"), prev)
         _log(f"console credit: {type(e).__name__}")

@@ -26,6 +26,14 @@ ORGS = [
      "billing_type": "prepaid", "rate_limit_tier": "auto_trust_tier_c"},
 ]
 NOW = datetime(2026, 10, 24, 12, 0, tzinfo=timezone.utc)
+
+
+def live_balance():
+    """BALANCE, its month still running whenever the tests run (reads use the real clock)."""
+    doc = json.loads(json.dumps(BALANCE))
+    end = (datetime.now(timezone.utc) + timedelta(days=20)).isoformat().replace("+00:00", "Z")
+    doc["promo_tranches"][0]["expires_at"] = doc["next_expires_at"] = end
+    return doc
 IDENTITY = "a" * 64
 
 
@@ -132,7 +140,7 @@ def test_a_session_file_for_another_login_is_ignored():
 
 def test_fetch_reads_at_most_every_ten_minutes_and_401_means_reconnect(monkeypatch):
     credit.save_session(IDENTITY, "sk", CONSOLE_ORG, CLAUDE_ORG)
-    answers = [BALANCE, HTTPStatusError(401, "{}", "u"), ProviderError("network error for u: down")]
+    answers = [live_balance(), HTTPStatusError(401, "{}", "u"), ProviderError("network error for u: down")]
     calls = []
 
     def get_balance(key, org):
@@ -161,13 +169,41 @@ def test_403_also_means_reconnect_and_a_new_session_reads_at_once(monkeypatch):
     def refused(key, org):
         if key == "sk-old":
             raise HTTPStatusError(403, "{}", "u")
-        return BALANCE
+        return live_balance()
 
     monkeypatch.setattr(credit, "get_balance", refused)
     c = credit.fetch_credit(IDENTITY, now=0)
     assert c["state"] == "reconnect" and c["remaining"] is None   # never seen: unknown, not 0
     credit.save_session(IDENTITY, "sk-new", CONSOLE_ORG, CLAUDE_ORG)
     assert credit.fetch_credit(IDENTITY, now=1)["state"] == "ok"
+
+
+def test_a_bot_check_403_is_not_a_refused_session_and_a_failed_read_retries_sooner(monkeypatch):
+    credit.save_session(IDENTITY, "sk", CONSOLE_ORG, CLAUDE_ORG)
+    answers = [live_balance(), HTTPStatusError(403, "<!DOCTYPE html><title>Just a moment...</title>", "u"),
+               HTTPStatusError(429, "{}", "u"), live_balance()]
+
+    def get_balance(key, org):
+        a = answers.pop(0)
+        if isinstance(a, Exception):
+            raise a
+        return a
+
+    monkeypatch.setattr(credit, "get_balance", get_balance)
+    assert credit.fetch_credit(IDENTITY, now=0)["state"] == "ok"
+    c = credit.fetch_credit(IDENTITY, now=credit.CREDIT_TTL + 1)
+    assert c["state"] == "stale" and c["remaining"] == 199.99          # an HTML 403: keep it, no reconnect
+    assert credit.fetch_credit(IDENTITY, now=credit.CREDIT_TTL + 60) is c  # not every poll...
+    c = credit.fetch_credit(IDENTITY, now=credit.CREDIT_TTL + 2 + credit.CREDIT_RETRY)
+    assert c["state"] == "stale"                                          # ...but well before 10 min
+    c = credit.fetch_credit(IDENTITY, now=credit.CREDIT_TTL + 3 + 2 * credit.CREDIT_RETRY)
+    assert c["state"] == "ok" and not answers
+
+
+def test_between_months_none_says_when_the_last_one_lapsed():
+    c = credit.parse_credit(BALANCE, now=datetime(2026, 11, 22, tzinfo=timezone.utc))
+    assert c["state"] == "none" and c["lapsed_at"] == "2026-11-21T00:00:00+00:00"
+    assert "lapsed_at" not in credit.parse_credit({"promo_tranches": []}, now=NOW)
 
 
 def test_no_session_no_credit_and_attach_only_touches_claude(monkeypatch):
@@ -239,7 +275,8 @@ def test_render_line():
         == "API credit  $? / $? · $? left · reconnect"
     assert credit_line({"state": "none"}, now=NOW) == "API credit  –"
     assert credit_line(None) is None
-    out = render_table([Usage("work", "claude", True, credit=c)], stream=StringIO())
+    live = credit.parse_credit(live_balance())
+    out = render_table([Usage("work", "claude", True, credit=live)], stream=StringIO())
     assert "    API credit  $0.01 / $200.00 · $199.99 left" in out
     assert "API credit" not in render_table([Usage("work", "claude", True)], stream=StringIO())
     assert "subscription_api_credit" not in out and CONSOLE_ORG not in out
@@ -247,7 +284,7 @@ def test_render_line():
     class GbkPipe(StringIO):  # a redirected Chinese-Windows console can't encode the arrow
         encoding = "gbk"
 
-    gbk = render_table([Usage("work", "claude", True, credit=c)], stream=GbkPipe())
+    gbk = render_table([Usage("work", "claude", True, credit=live)], stream=GbkPipe())
     assert " · -> " in gbk and "↻" not in gbk.split("API credit")[1]
     gbk.split("API credit")[1].encode("gbk")
 
@@ -391,13 +428,20 @@ def test_console_tag_details_and_connect_button(run_console_js):  # noqa: F811
   assert.equal(creditLevel(creditOf(claude("x", {credit: cr(10, 2.5)}))), "high");
   assert.match(creditTag(claude("x", {credit: cr(null, 9)})), />\$\?</);   // unknown, not $0
   assert.match(creditTag(claude("x", {credit: cr(150, 9, "stale")})), /class="cred usd  old"/);
-  assert.equal(creditTag(claude("x", {credit: cr(150, -1)})), "");        // lapsed: no rollover
-  assert.equal(creditTag(claude("x", {credit: {state: "none"}})), "");
+  // lapsed (no rollover) or not paid in yet this month: "$–", saying when the last one lapsed
+  assert.match(creditTag(claude("x", {credit: cr(150, -1)})), /class="cred usd none" title="本月 API credit 尚未到账（上一笔 \d\d-\d\d 已到期）">\$–</);
+  assert.match(creditTag(claude("x", {credit: {state: "none"}})), /title="本月 API credit 尚未到账">\$–</);
+  assert.match(creditTag(claude("x", {credit: {state: "none", lapsed_at: at(-3)}})), /上一笔 \d\d-\d\d 已到期/);
+  assert.equal(creditTag(b), "");                                         // no Console connected: nothing
   // details: one line in the detail style
   const line = creditDetail(a);
   const date = (() => { const d = new Date(a.credit.expires_at); return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; })();
-  assert.match(line, new RegExp(`<span>API credit</span><div class="prj"><b class="" title="" data-credit="[^"]+" data-text="[^"]+">\\$0\\.01 / \\$200\\.00 · \\$199\\.99 left · ↻ ${date} 27d</b></div>`));
+  assert.match(line, new RegExp(`<span>API credit</span><div class="prj"><b class="" title="已用 \\$0\\.01" data-credit="[^"]+" data-text="[^"]+">\\$199\\.99 left / \\$200\\.00 · ↻ ${date} 27d</b></div>`));
   assert.doesNotMatch(line, /button/);
+  // a failed read keeps the last amounts and says so; a refused one with nothing known says why
+  assert.match(creditDetail(claude("s", {credit: cr(150, 9, "stale")})), /\$150\.00 left \/ \$200\.00 · 未更新/);
+  assert.match(creditDetail(claude("r", {credit: {...cr(null, 9, "reconnect"), granted: null}})), /<b class="warn">Console 登录已失效<\/b><button class="act" data-act="console">重新连接/);
+  assert.match(creditDetail(claude("n", {credit: {state: "none", lapsed_at: at(-3)}})), /<b class="dim"[^>]*>本月 API credit 尚未到账（上一笔 \d\d-\d\d 已到期）<\/b>/);
   // one entry point: connect on a paid Max / Team account without a session, reconnect when refused
   assert.match(creditDetail(claude("c")), /<b>–<\/b><button class="act" data-act="console">连接 Console<\/button>/);
   assert.match(creditDetail(claude("t", {plan: "team"})), />连接 Console</);

@@ -62,9 +62,19 @@ CODEX_USAGE = {
 
 def test_claude_parse_usage():
     windows, extra = claude.parse_usage(CLAUDE_USAGE)
-    assert [(w.name, w.used_percent) for w in windows] == [("5h", 42.0), ("7d", 12.5)]
+    # one point under the endpoint's number, as Claude itself shows it
+    assert [(w.name, w.used_percent) for w in windows] == [("5h", 41.0), ("7d", 11.5)]
     assert windows[0].resets_at == datetime(2030, 1, 1, 10, 0, 0, 123000, tzinfo=timezone.utc)
     assert extra == {"extra usage": "12.34 / 50.00 USD"}
+
+
+def test_claude_percent_reads_one_less_but_never_below_zero_and_100_stays_spent():
+    assert claude.shown_percent(42.0) == 41.0
+    assert claude.shown_percent(0.4) == 0.0 and claude.shown_percent(0) == 0.0
+    assert claude.shown_percent(100.0) == 100.0 and claude.shown_percent(99.5) == 98.5
+    windows, _ = claude.parse_usage({"five_hour": {"utilization": 100, "resets_at": None},
+                                     "limits": [{"percent": 1, "group": "7d", "scope": {"model": {"id": "x"}}}]})
+    assert [(w.name, w.used_percent) for w in windows] == [("5h", 100.0), ("7d x", 0.0)]
 
 
 def test_codex_parse_usage():
@@ -247,11 +257,11 @@ def test_cli_add_list_usage_json(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
     assert cli.main(["usage", "--json"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out[0]["account"] == "work" and out[0]["windows"][0]["used_percent"] == 42.0
+    assert out[0]["account"] == "work" and out[0]["windows"][0]["used_percent"] == 41.0
 
     assert cli.main(["usage"]) == 0
     text = capsys.readouterr().out
-    assert "work" in text and "42%" in text and "resets in" in text
+    assert "work" in text and "41%" in text and "resets in" in text
 
     assert cli.main(["env", "work"]) == 0
     assert "export CLAUDE_CONFIG_DIR=" in capsys.readouterr().out
@@ -287,3 +297,45 @@ def test_set_renews(tmp_path, monkeypatch):
         actions.dispatch("renew", {"name": "w", "date": "soon"})
     actions.dispatch("renew", {"name": "claude:w", "date": "-"})
     assert load_accounts()[0].renews == ""
+
+
+def test_a_changed_subscription_shows_without_waiting_hours(tmp_path, monkeypatch):
+    """The profile (the plan) was cached for 6 h: an upgrade or a cancellation took that long to show."""
+    acct = _claude_account(tmp_path)
+    org = {"organization_type": "claude_pro", "rate_limit_tier": "default_claude_pro"}
+    reads = []
+
+    def fake(method, url, headers=None, **kw):
+        if url == claude.PROFILE_URL:
+            reads.append(dict(org))
+            return {"organization": dict(org)}
+        return CLAUDE_USAGE
+
+    monkeypatch.setattr(claude, "request_json", fake)
+    claude._profiles.clear()
+    clock = [1_000_000.0]
+    monkeypatch.setattr(claude.time, "time", lambda: clock[0])
+    assert fetch_usage(acct).plan == "pro" and len(reads) == 1
+    org.update(organization_type="claude_max", rate_limit_tier="default_claude_max_20x")
+    clock[0] += 60
+    assert fetch_usage(acct).plan == "pro" and len(reads) == 1      # cached between polls
+    claude.expire_profiles()                                          # a manual sync (⟳) re-reads it
+    assert fetch_usage(acct).plan == "max 20x" and len(reads) == 2
+    org.update(organization_type="claude_pro", rate_limit_tier="default_claude_pro")
+    clock[0] += claude.PROFILE_TTL + 1                                # and so does the next poll after 30 min
+    assert fetch_usage(acct).plan == "pro" and len(reads) == 3
+    # the local files changing (a new login on another plan) re-reads it at once
+    creds = json.loads((tmp_path / "c1" / ".credentials.json").read_text())
+    creds["claudeAiOauth"]["rateLimitTier"] = "default_claude_max_5x"
+    (tmp_path / "c1" / ".credentials.json").write_text(json.dumps(creds))
+    clock[0] += 60
+    fetch_usage(acct)
+    assert len(reads) == 4
+
+
+def test_usage_that_contradicts_a_free_plan_re_reads_it():
+    free = {"organization": {"organization_type": "claude_free"}}
+    paid = {"organization": {"organization_type": "claude_max"}}
+    assert claude.plan_signal(free, True) and claude.plan_signal(paid, False)
+    assert not claude.plan_signal(free, False) and not claude.plan_signal(paid, True)
+    assert not claude.plan_signal({}, True) and not claude.plan_signal(paid, None)

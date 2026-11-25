@@ -337,7 +337,7 @@ def test_profile_timeout_keeps_a_good_usage(home, monkeypatch):
 
     monkeypatch.setattr(urllib.request, "urlopen", urlopen)
     u = fetch_usage(acct)
-    assert u.ok and u.windows[0].used_percent == 10
+    assert u.ok and u.windows[0].used_percent == 9  # Claude shows one less than the endpoint
 
 
 # ------------------------------------------------------------ 5. profile cache follows the login
@@ -677,7 +677,7 @@ def test_claude_usage_429_waits_for_retry_after_and_still_reports_the_plan(home,
     monkeypatch.setattr(claude, "_usage_blocked", {k: time.time() - 1 for k in claude._usage_blocked})
     _plan_profile(monkeypatch, max20)
     u = fetch_usage(acct)
-    assert u.ok and u.plan == "max 20x" and u.windows[0].used_percent == 10 and not claude._usage_blocked
+    assert u.ok and u.plan == "max 20x" and u.windows[0].used_percent == 9 and not claude._usage_blocked
 
 
 def test_claude_free_plan_without_claude_code_is_not_a_login_problem(home, monkeypatch):

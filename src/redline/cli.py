@@ -18,13 +18,28 @@ from .procenv import child_env
 from .providers import fetch_usage, has_credentials
 from .render import render_table
 
-def collect(accounts: list[Account], refresh_tokens: bool = False) -> list[Usage]:
-    if not accounts:
-        return []
+def collect(accounts: list[Account], refresh_tokens: bool = False, gemini: bool = True) -> list[Usage]:
+    """Every account's usage, then (gemini=True) the quota of each Gemini CLI login on this machine."""
     from .credit import attach
 
-    with ThreadPoolExecutor(max_workers=min(8, len(accounts))) as pool:
-        return list(pool.map(lambda a: attach(fetch_usage(a, refresh_tokens=refresh_tokens)), accounts))
+    jobs = [lambda a=a: attach(fetch_usage(a, refresh_tokens=refresh_tokens)) for a in accounts]
+    if gemini:
+        from .providers import gemini as gem
+
+        jobs.append(lambda: gem.collect())
+    if not jobs:
+        return []
+    with ThreadPoolExecutor(max_workers=min(8, len(jobs))) as pool:
+        results = list(pool.map(lambda job: job(), jobs))
+    if gemini:
+        return [*results[:-1], *results[-1]]
+    return results
+
+
+def _gemini_logins() -> bool:
+    from .providers import gemini
+
+    return bool(gemini.logged_in_homes())
 
 
 def _select(names: list[str] | None) -> list[Account]:
@@ -149,10 +164,10 @@ def cmd_restore(args) -> int:
 
 def cmd_usage(args) -> int:
     accounts = _select(args.names)
-    if not accounts:
+    if not accounts and (args.names or not _gemini_logins()):
         print("no accounts; add one with `redline add claude <name>` or `redline import`")
         return 1
-    usages = collect(accounts, refresh_tokens=args.refresh_tokens)
+    usages = collect(accounts, refresh_tokens=args.refresh_tokens, gemini=not args.names)
     if args.json:
         print(json.dumps([u.to_dict() for u in usages], indent=2))
     else:
@@ -164,7 +179,7 @@ def cmd_watch(args) -> int:
     accounts = _select(args.names)
     try:
         while True:
-            usages = collect(accounts, refresh_tokens=args.refresh_tokens)
+            usages = collect(accounts, refresh_tokens=args.refresh_tokens, gemini=not args.names)
             out = render_table(usages)
             if sys.stdout.isatty():
                 sys.stdout.write("\033[H\033[2J")
@@ -282,7 +297,7 @@ def _ws_rows(args):
     accounts = load_accounts()
     usage = ws.cached_usage()
     if getattr(args, "fetch", False):
-        usage.update({(u.provider, u.account): u for u in collect(accounts)
+        usage.update({(u.provider, u.account): u for u in collect(accounts, gemini=False)
                       if u.ok or (u.provider, u.account) not in usage})
     return ws.status(vs=vs, accounts=accounts, usage=usage), usage
 
