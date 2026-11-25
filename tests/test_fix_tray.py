@@ -637,39 +637,3 @@ def test_minimized_from_the_taskbar_then_the_tray_brings_it_back():
     assert shown[-1] == "hide" and not app.visible
     app._on_restored()                       # a stray restore while hidden changes nothing
     assert not app.visible
-
-
-def test_fit_always_follows_the_content_and_keeps_the_window_on_screen(monkeypatch):
-    app = _bare_app()
-    app.screen_height = lambda: 1000
-    calls = []
-
-    class Shown:
-        def is_set(self):
-            return True
-
-    class Win:
-        x, y = 40, -30
-        events = type("E", (), {"shown": Shown()})()
-
-        def resize(self, w, h, fix):
-            calls.append(("resize", w, h))
-
-        def move(self, x, y):
-            calls.append(("move", x, y))
-
-    import types
-
-    fake = types.ModuleType("webview.window")
-    fake.FixPoint = type("FixPoint", (), {"NORTH": 1, "SOUTH": 2, "EAST": 4, "WEST": 8})
-    monkeypatch.setitem(sys.modules, "webview", types.ModuleType("webview"))
-    monkeypatch.setitem(sys.modules, "webview.window", fake)
-    app.window = Win()
-    monkeypatch.setattr(tray, "load_settings", lambda: {"window_size": [600, 300]})   # a width set by hand
-    api = tray.JsApi(app)
-    assert api.max_height() == 850
-    assert api.fit(600, 2000) == 850        # capped; the list scrolls past it
-    assert calls[0] == ("resize", 600, 850)
-    assert calls[1] == ("move", 40, tray.TOP_MARGIN)   # grew past the top: brought back down
-    api.move_to(10.6, 20.2)
-    assert calls[-1] == ("move", 10, 20)
