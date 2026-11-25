@@ -99,3 +99,35 @@ def test_publish_rejects_a_bad_repo():
 
     with pytest.raises(RuntimeError):
         tokens.publish({"totals": {"total": 1}}, "not-a-repo", gh="gh")
+
+
+def test_gemini_chats_json_and_jsonl(tmp_path):
+    home = tmp_path / "g"
+    tok = {"input": 1000, "output": 50, "cached": 600, "thoughts": 20, "tool": 5, "total": 1075}
+    msg = {"id": "a", "timestamp": "2026-11-20T12:00:00Z", "type": "gemini", "model": "gemini-3-pro", "tokens": tok}
+    # legacy: one JSON object with every message
+    chats = home / "tmp" / "proj1" / "chats"
+    chats.mkdir(parents=True)
+    (chats / "session-1.json").write_text(json.dumps({"sessionId": "s", "messages": [
+        {"id": "u", "timestamp": "2026-11-20T11:59:00Z", "type": "user", "content": "hi"}, msg]}))
+    # new: appended records; a later record of the same id replaces the earlier one,
+    # the same message also reached a resumed file, and a subagent chat sits one level down
+    _write(chats / "session-2.jsonl", [
+        json.dumps({"sessionId": "t", "projectHash": "h"}),
+        json.dumps({**msg, "id": "b", "tokens": None}),
+        json.dumps({**msg, "id": "b"}),
+        json.dumps({"$set": {"messages": [msg]}}),
+    ])
+    _write(chats / "parent" / "session-3.jsonl", [json.dumps({**msg, "id": "c"})])
+    days = tokens.scan({"gemini": [home]})
+    c = days["2026-11-20"]["gemini"]["gemini-3-pro"] if "2026-11-20" in days else next(iter(days.values()))["gemini"]["gemini-3-pro"]
+    assert c == {"input": 3 * 405, "output": 3 * 70, "cache_write": 0, "cache_read": 3 * 600}
+
+
+def test_removed_accounts_still_count(tmp_path, monkeypatch):
+    from redline import config
+
+    gone = config.Account(name="old", provider="claude", home=str(tmp_path / "old"))
+    monkeypatch.setattr(tokens, "load_accounts", lambda: [])
+    monkeypatch.setattr(tokens, "load_removed", lambda: [gone])
+    assert any(str(p).endswith("old") for p in tokens.homes()["claude"])
