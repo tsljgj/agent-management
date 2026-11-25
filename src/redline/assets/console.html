@@ -79,10 +79,6 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .acct.ready.best{box-shadow:inset 3px 0 var(--acc)}
 .acct.blocked .nm{color:#9fb3b8}
 .acct.blocked .dial{opacity:.55}
-.back{grid-column:2/4;display:flex;align-items:baseline;justify-content:flex-end;gap:10px;white-space:nowrap;overflow:hidden}
-.back .k{font-size:10px;letter-spacing:.06em;color:var(--dim)}
-.back b{font-size:15px;font-weight:600;color:var(--fg);letter-spacing:.02em}
-.back em{font-style:normal;font-size:11px;color:var(--dim)}
 .acct.codex{grid-template-columns:minmax(170px,1fr) minmax(105px,180px) minmax(105px,180px);column-gap:16px}
 .acct.weekly-attention{box-shadow:inset 2px 0 var(--warn)}
 .acct.gone{opacity:0;transform:translateX(20px)}
@@ -157,6 +153,7 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .m .t{grid-column:2/4;color:var(--dim);font-size:10.5px;white-space:nowrap;line-height:1}
 .m .t.urgent{color:var(--acc)}
 .m.max .t{color:var(--fg)}
+.m.max.gate .t{color:#fff;font-weight:600;font-size:11.5px}
 /* ▶ on an idle label: start that window now */
 .m .t .go{margin-left:6px;padding:0;font-size:9px;line-height:1;color:var(--warn);cursor:pointer}
 .m .t .go:hover{color:var(--acc);text-shadow:0 0 6px var(--acc)}
@@ -409,7 +406,7 @@ const noClaudeCode = u => !u.ok && /not included in this plan/.test(u.error || "
 /* ---------- render ---------- */
 // "↻ 2h 08m" = resets in 2h 08m. Missing Codex reset data needs an explicit server classification.
 const resetText = l => l == null ? "idle" : l > 0 ? "↻ " + span(l) : "↻ now";
-function meter(w, label, weekly = null, go = "") {
+function meter(w, label, weekly = null, go = "", gate = false) {
   if (!w) return `<div class="m none"></div>`;   // e.g. a Codex plan without a 5h window: leave the slot empty
   const p = w.used_percent, l = left(w.resets_at);
   const tip = `${w.name} ${pct(p)}${w.resets_at ? " · resets in " + span(l) + " (" + new Date(w.resets_at).toLocaleString() + ")" : " · " + (weekly ? weekly.message : "window not started")}`;
@@ -418,7 +415,8 @@ function meter(w, label, weekly = null, go = "") {
   const idle = weekly && weekly.state === "unstarted" ? "待启动" : weekly && weekly.state === "unknown" ? "待确认" : resetText(l);
   const t = `<span class="t${urgent ? " urgent" : ""}" data-reset="${esc(w.resets_at || "")}">${l == null ? idle : resetText(l)}${go}</span>`;
   const cls = label.length > 3 ? " alt" : "";
-  if (spent(p)) return `<div class="m max${cls}" title="${esc(tip)}"><span class="k">${esc(label)}</span><div class="bar"></div><span class="v">MAX</span>${t}</div>`;
+  // used up: a full red bar; the window the account waits on ("gate") has its countdown brighter
+  if (spent(p)) return `<div class="m max${cls}${gate ? " gate" : ""}" title="${esc(tip)}"><span class="k">${esc(label)}</span><div class="bar"></div><span class="v">MAX</span>${t}</div>`;
   const width = p == null ? 0 : Math.min(100, Math.max(0, p));
   return `<div class="m${cls}" style="--c:${lvl(p)}" title="${esc(tip)}"><span class="k">${esc(label)}</span>
     <div class="bar"><i style="width:${width}%"></i></div><span class="v">${pct(p)}</span>${t}</div>`;
@@ -472,13 +470,6 @@ function blockedOf(u) {
   const at = full.every(w => w.resets_at) ? full.map(w => w.resets_at).sort((a, b) => new Date(a) - new Date(b)).pop() : null;
   return {windows: full, at};
 }
-function backTag(b) {
-  const names = b.windows.map(w => w.name).join(" + ");
-  const tip = `${names} 额度已用完 · ` + (b.at ? `${new Date(b.at).toLocaleString()} 恢复` : "恢复时间未知");
-  return `<div class="back" title="${esc(tip)}"><span class="k">${esc(names)} used up · back in</span>`
-    + `<b data-reset="${esc(b.at || "")}">${b.at ? resetText(left(b.at)) : "?"}</b>`
-    + (b.at ? `<em>${esc(when(b.at))}</em>` : "") + `</div>`;
-}
 function quotaMeters(u) {
   if (u.provider === "gemini") {
     if (!u.windows.length) return `<div class="need"><span>未返回额度</span></div>`;
@@ -493,7 +484,9 @@ function quotaMeters(u) {
     const at = !slots[want] ? want : !slots[1 - want] ? 1 - want : -1;
     if (at >= 0) slots[at] = w;
   }
-  return slots.map((w, i) => meter(w, w?.name || (i ? "7d" : "5h"), w?.name === "7d" ? weeklyOf(u) : null, startControl(u, w))).join("");
+  const b = blockedOf(u);
+  const gate = w => !!b && b.windows.includes(w) && (!b.at || w.resets_at === b.at);
+  return slots.map((w, i) => meter(w, w?.name || (i ? "7d" : "5h"), w?.name === "7d" ? weeklyOf(u) : null, startControl(u, w), gate(w))).join("");
 }
 // One entry point per window: a small ▶ on the meter's idle label (Claude 5h, Codex weekly).
 function startControl(u, w) {
@@ -786,7 +779,7 @@ function row(u, bestName) {
     ? `<div class="need"><span title="${esc(u.error)}">不含 Claude Code</span><button class="act" data-act="web" title="在 claude.ai 订阅 Pro / Max">↗</button></div>`
     : failed(u)
     ? `<div class="need"><button data-act="retry">retry ⟳</button><span title="${esc(u.error)}">${esc(shortErr(u.error))}</span></div>`
-    : blockedOf(u) ? backTag(blockedOf(u)) : quotaMeters(u);
+    : quotaMeters(u);
   const open = isOpen(`${u.provider}:${u.account}`);
   const info = infoOf(u), live = (info.projects || []).filter(p => p.active);
   const weekly = weeklyOf(u);

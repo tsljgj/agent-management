@@ -110,13 +110,18 @@ def test_used_up_accounts_say_when_they_are_back_and_usable_ones_are_marked(run_
   const fine = cl("fine", [{name: "5h", used_percent: 20, resets_at: future(2)},
                            {name: "7d", used_percent: 40, resets_at: future(50)}]);
   DATA = {now: 1, usages: [full, both, fine], meta: {accounts: {}}};
-  // used up: the row shows when it is back, in place of the meters, and ticks like the others
+  // used up: the row keeps both bars, a full red one with MAX, and its name is dimmed;
+  // the window it waits on has its countdown brighter, and it ticks like the others
   const r = row(full, null);
   assert.match(r, /class="acct[^"]* blocked/);
-  assert.match(r, /<div class="back"[^>]*><span class="k">7d used up · back in<\/span><b data-reset="[^"]+">↻ 5d 1\dh<\/b><em>/);
-  assert.doesNotMatch(r, /class="q /);
-  // the latest reset of the full windows is when it is back
-  assert.match(row(both, null), /5h \+ 7d used up · back in<\/span><b data-reset="[^"]+">↻ 1d [56]h</);
+  assert.match(r, /class="m max gate"[^>]*><span class="k">7d<\/span><div class="bar"><\/div><span class="v">MAX<\/span><span class="t" data-reset="[^"]+">↻ 5d 1\dh</);
+  assert.match(r, /<div class="m"[^>]*><span class="k">5h<\/span>/);
+  assert.doesNotMatch(r, /used up · back in|class="back"/);
+  // both full: two red bars, the later reset is the one it waits on
+  const rb = row(both, null);
+  assert.equal((rb.match(/class="m max/g) || []).length, 2);
+  assert.match(rb, /class="m max"[^>]*><span class="k">5h</);
+  assert.match(rb, /class="m max gate"[^>]*><span class="k">7d</);
   // usable now: marked, and not blocked
   const ok = row(fine, null);
   assert.match(ok, /class="acct[^"]* ready/); assert.doesNotMatch(ok, /blocked|class="back"/);
