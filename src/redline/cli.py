@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from . import __version__, actions
 from .config import PROVIDERS, Account, find_account, load_accounts, save_accounts
@@ -173,6 +174,24 @@ def cmd_usage(args) -> int:
     else:
         print(render_table(usages), end="")
     return 0 if all(u.ok for u in usages) else 2
+
+
+def cmd_tokens(args) -> int:
+    from . import tokens
+
+    ledger = tokens.update()
+    summary = tokens.export(ledger)
+    if args.json:
+        Path(args.json).expanduser().write_text(json.dumps(summary, indent=1), encoding="utf-8")
+    if args.publish:
+        try:
+            url = tokens.publish(summary, args.publish, args.path)
+        except RuntimeError as e:
+            print(f"publish failed: {e}")
+            return 1
+        print(f"published -> {url}")
+    print(tokens.render(summary), end="")
+    return 0
 
 
 def cmd_watch(args) -> int:
@@ -413,6 +432,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--json", action="store_true")
     s.add_argument("--refresh-tokens", action="store_true", help=refresh_help)
     s.set_defaults(func=cmd_usage)
+
+    s = sub.add_parser("tokens", help="tokens used by all accounts, from the CLIs' transcripts (kept in a ledger)")
+    s.add_argument("--json", metavar="FILE", help="also write the public summary (no names, emails or paths) to FILE")
+    s.add_argument("--publish", metavar="OWNER/REPO", help="commit the summary to a GitHub repo with the gh CLI")
+    s.add_argument("--path", default="stats/tokens.json", help="file path inside the repo (default stats/tokens.json)")
+    s.set_defaults(func=cmd_tokens)
 
     s = sub.add_parser("watch", help="re-render usage every N seconds")
     s.add_argument("names", nargs="*")

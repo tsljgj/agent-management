@@ -387,6 +387,19 @@ class TrayApp:
             self.check_updates(manual=False)
             time.sleep(self.UPDATE_EVERY)
 
+    def _tokens_loop(self):
+        from . import tokens
+
+        time.sleep(90)
+        while not self.quitting:
+            try:
+                msg = tokens.publish_if_due()
+                if msg:
+                    self.monitor.log("info", msg)
+            except Exception as e:  # gh missing or signed out: say so, try again next round
+                self.monitor.log("warn", f"token stats not published: {e}")
+            time.sleep(3 * 3600)
+
     def _set_update_meta(self, latest: int | None, state: str = "") -> None:
         self.monitor.meta["update"] = {"build": BUILD, "latest": latest, "state": state, "checked": time.time()}
 
@@ -544,6 +557,7 @@ class TrayApp:
                 self._notify(f"redline updated to build {BUILD}")
         if update.is_packaged():
             threading.Thread(target=self._update_loop, name="redline-update", daemon=True).start()
+        threading.Thread(target=self._tokens_loop, name="redline-tokens", daemon=True).start()
         self._show_when_ready = show
         self.monitor.meta["pid"] = os.getpid()
         self.monitor.meta["window_visible"] = False

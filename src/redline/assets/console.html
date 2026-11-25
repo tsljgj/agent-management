@@ -1285,7 +1285,7 @@ function toast(text, kind = "") {
 const HELP = [
   ["claude | codex | gemini", "switch tab (Alt+1/2/3…, in the order on screen)"], ["add", "open the + panel"], ["add <name>", "new account, then log in"],
   ["login <name>", "log in via its Chrome"], ["wake", "log in / refresh this tab"], ["web <name>", "open its web page"],
-  ["jack <name>", "terminal as <name>"], ["use <name>", "◆ make it the login VS Code uses"], ["code <name> <folder>", "VS Code window as <name>"], ["plans", "subscriptions, Claude and Codex apart, soonest renewal first"], ["renew <name> <date>", "set when a subscription renews/ends (- = auto)"], ["d | details", "expand all rows (or click one)"], ["sort [default|weekly|headroom|name|renews]", "row order"], ["expect [<name>] <days>", "how long an account should last (default 2d); 1.5x faster blows the gauge"], ["fit", "let the height follow the content again"], ["log", "open the log file (send it when reporting a bug)"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
+  ["jack <name>", "terminal as <name>"], ["use <name>", "◆ make it the login VS Code uses"], ["code <name> <folder>", "VS Code window as <name>"], ["plans", "subscriptions, Claude and Codex apart, soonest renewal first"], ["renew <name> <date>", "set when a subscription renews/ends (- = auto)"], ["d | details", "expand all rows (or click one)"], ["sort [default|weekly|headroom|name|renews]", "row order"], ["expect [<name>] <days>", "how long an account should last (default 2d); 1.5x faster blows the gauge"], ["fit", "let the height follow the content again"], ["tokens [publish <owner/repo> | off]", "tokens used by all accounts; publish the summary to a GitHub repo daily"], ["log", "open the log file (send it when reporting a bug)"], ["rename <old> <new>", "rename (or double-click)"], ["rm <name..> -y", "remove (files kept)"], ["restore <name>", "undo a removal"],
   ["scan [all]", "find logins on this PC"], ["bind <name> <email>", "pin a Chrome profile"], ["ls | r | update | clear", ""],
 ];
 const COMMANDS = ["help","claude","codex","gemini","details","add","login","wake","web","jack","use","code","rename","rm","restore","removed","scan","bind","profiles","ls","sync","update","clear","hide"];
@@ -1326,6 +1326,7 @@ async function run(line) {
     }
     case "log": case "logs": await action({action: "open-log"}); break;
     case "expect": setExpect(a); break;
+    case "tokens": openLog(true); log("counting tokens…", "sys"); await action({action: "tokens", arg: a.join(" ")}); break;
     case "fit":
       if (native()) { await window.pywebview.api.reset_size(); fitAuto = true; fitHeight(); }
       log("window height follows the content again", "ok"); break;
