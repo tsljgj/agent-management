@@ -105,6 +105,20 @@ lab         login ›  token expired
 
 用量越过 80% 或 95% 时会弹出 Windows 通知。
 
+## Token 总量
+
+```bash
+redline tokens                                  # 所有账号一共用了多少 token
+redline tokens --json tokens.json               # 另存一份公开摘要
+redline tokens --publish tsljgj/tsljgj          # 用 gh 把摘要提交到 GitHub 仓库的 stats/tokens.json
+```
+
+- **数从哪来**：Claude Code 每条回复在 `<账号目录>/projects/**/*.jsonl` 里记着 `usage`，Codex 在 `<账号目录>/sessions/**/rollout-*.jsonl` 里有 `token_count`。redline 扫描每个账号的目录和默认的 `~/.claude`、`~/.codex`，不发任何网络请求。
+- **不重复算**：同一条回复流式写了好几行、`--resume` 把旧消息复制进新文件、备份目录里有同一份记录，都按 `(message.id, requestId)` 只算一次；Codex 按会话里的累计值算增量。
+- **总数只增不减**：Claude Code 默认 30 天后删掉旧记录（`cleanupPeriodDays`）。每次扫描都并进本机的账本 `~/.redline/tokens.json`，每一天、每个模型保留见过的最大值，所以旧记录删了也不会让总数变小。账本从第一次运行开始记，之前已经被删掉的记录找不回来。
+- **总数包括缓存**：`total` = input + output + cache write + cache read。Claude Code 的大头是 cache read，分项都单独列出。
+- **公开摘要里没有**账号名、邮箱、项目路径和对话内容，只有总数、按 provider / 模型的分项、每天的数量和连续使用天数。`--publish` 用本机已登录的 `gh`，redline 自己不保存 GitHub token。
+
 ## 一键登录是怎么做的
 
 1. **Token 过期，但有 refresh token**：直接刷新并写回凭据文件，不需要浏览器。刷新前会先拿到和 Claude Code 自己一样的锁（`<配置目录>.lock`），拿到锁后重新读一次文件。如果 CLI 刚好已经刷新过，就不再重复刷新，避免 refresh token 轮换导致 CLI 被登出。
