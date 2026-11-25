@@ -148,3 +148,61 @@ def test_used_up_accounts_say_when_they_are_back_and_usable_ones_are_marked(run_
   assert.doesNotMatch(est || "", /class="sub (soon|urgent|high|mid)/);
 })();
 """)
+
+
+def test_header_moves_the_window_only_from_empty_space_after_real_movement(run_console_js):  # noqa: F811
+    run_console_js(r"""
+(async () => {
+  const head = elements["header"], moves = [];
+  head.removeEventListener = () => {}; head.setPointerCapture = () => {};
+  window.pywebview = {api: {move_to: async (x, y) => { moves.push([x, y]); }}};
+  const down = head.listeners.pointerdown[0];
+  // pressing a button (a tab, ⟳, +, ×) never starts a drag
+  down({button: 0, target: {closest: s => /button/.test(s) ? {} : null}, currentTarget: head});
+  assert.equal(head.listeners.pointermove, undefined);
+  // empty space: a click that wobbles a few px is still a click
+  down({button: 0, target: {closest: () => null}, currentTarget: head, pointerId: 1,
+        clientX: 100, clientY: 20, screenX: 600, screenY: 400});
+  const move = head.listeners.pointermove[0];
+  move({screenX: 603, screenY: 402});
+  await Promise.resolve();
+  assert.deepEqual(moves, []);
+  assert.equal(document.body.classList.contains("dragging"), false);
+  // past 5px it moves, keeping the grab point under the mouse
+  move({screenX: 640, screenY: 430});
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+  assert.deepEqual(moves, [[540, 410]]);
+  assert.equal(document.body.classList.contains("dragging"), true);
+  head.listeners.pointerup[0]();
+  assert.equal(document.body.classList.contains("dragging"), false);
+})();
+""")
+
+
+def test_window_height_follows_the_content_smoothly_and_up_to_a_limit(run_console_js):  # noqa: F811
+    run_console_js(r"""
+(async () => {
+  const fits = [];
+  window.pywebview = {api: {fit: async (w, h) => { fits.push(h); }}};
+  let t = 0; performance = {now: () => (t += 50)};
+  requestAnimationFrame = fn => Promise.resolve().then(fn);
+  const wait = async () => { for (let i = 0; i < 100; i++) await Promise.resolve(); };
+  elements["#list"].children = [{offsetHeight: 300}, {offsetHeight: 300}];
+  fitHeight(0);   // as requestAnimationFrame calls it: with a timestamp, not a force
+  await wait();
+  // several steps from the current height (700), easing down to what the content wants
+  assert.ok(fits.length > 2, fits.join());
+  assert.equal(fits.at(-1), 602);
+  assert.ok(fits.every((h, i) => i === 0 || h <= fits[i - 1]));
+  // nothing changed: no refit, so a height set by hand stays
+  fits.length = 0; fitHeight(); await wait();
+  assert.deepEqual(fits, []);
+  // an opened account: it grows, but never past the limit; the list scrolls beyond it
+  MAX_H = 650; elements["#list"].children.push({offsetHeight: 400});
+  fitHeight(); await wait();
+  assert.equal(fits.at(-1), 650);
+  // the fit command forces it
+  fits.length = 0; fitHeight(true); await wait();
+  assert.ok(fits.length > 0);
+})();
+""")
