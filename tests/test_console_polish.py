@@ -148,3 +148,112 @@ def test_used_up_accounts_say_when_they_are_back_and_usable_ones_are_marked(run_
   assert.doesNotMatch(est || "", /class="sub (soon|urgent|high|mid)/);
 })();
 """)
+
+
+def test_only_the_logo_and_the_empty_gap_move_the_window():
+    from pathlib import Path
+
+    html = (Path(__file__).parents[1] / "src" / "redline" / "assets" / "console.html").read_text(encoding="utf-8")
+    head = html.split("<header", 1)[1].split("</header>", 1)[0]
+    assert head.startswith(' id="top">')            # the header itself is not a drag region
+    assert '<div class="logo pywebview-drag-region">' in head
+    assert '<div class="sp pywebview-drag-region">' in head
+    assert head.count("pywebview-drag-region") == 2  # so no tab or header button can drag the window
+    assert "move_to" not in html                     # no hand-rolled window drag
+
+
+def test_height_follows_the_content_downward_and_stops_at_the_screen_bottom(run_console_js):  # noqa: F811
+    run_console_js(r"""
+(async () => {
+  const fits = [];
+  let release;
+  window.pywebview = {api: {fit: (w, h) => { fits.push([w, h]); return new Promise(r => { release = r; }); }}};
+  window.screen = {availTop: 0, availHeight: 1040}; window.screenY = 100;
+  const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+  elements["#list"].children = [{offsetHeight: 300}, {offsetHeight: 300}];
+  fitHeight();
+  // one call, straight to the height the content wants, at the width as it is
+  assert.deepEqual(fits, [[520, 602]]);
+  // while it runs, more changes wait for it and then send only the latest
+  elements["#list"].children.push({offsetHeight: 200});
+  fitHeight(); fitHeight();
+  assert.equal(fits.length, 1);
+  innerHeight = 602; release(); await settle();
+  assert.deepEqual(fits.at(-1), [520, 802]);
+  innerHeight = 802; release(); await settle();
+  assert.equal(fits.length, 2);
+  // nothing changed: no call at all
+  fitHeight(); await settle();
+  assert.equal(fits.length, 2);
+  // an opened account would run past the bottom of the screen: it stops there and the list scrolls
+  elements["#list"].children.push({offsetHeight: 600});
+  fitHeight(); await settle();
+  assert.deepEqual(fits.at(-1), [520, 1040 - 100 - 8]);
+})();
+""")
+
+
+def test_a_height_set_by_hand_stays_and_a_width_set_by_hand_keeps_the_fit(run_console_js):  # noqa: F811
+    run_console_js(r"""
+(async () => {
+  const calls = [];
+  window.pywebview = {api: {
+    fit: async (w, h) => { calls.push(["fit", w, h]); },
+    resize: async (w, h, e) => { calls.push(["resize", w, h, e]); },
+    save_size: (w, h, byHeight) => { calls.push(["save", w, h, byHeight]); },
+  }};
+  window.addEventListener = () => {}; window.removeEventListener = () => {};
+  const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+  const edge = e => edges.find(x => x.dataset.e === e);
+  const drag = async (e, dx, dy) => {
+    const h = edge(e);
+    h.listeners.pointerdown[0]({button: 0, pointerId: 1, screenX: 500, screenY: 500, preventDefault() {}});
+    // no fit while an edge is being dragged
+    const before = calls.length;
+    elements["#list"].children = [{offsetHeight: 900}];
+    fitHeight(); await settle();
+    assert.equal(calls.length, before);
+    h.listeners.pointermove[0]({buttons: 1, screenX: 500 + dx, screenY: 500 + dy});
+    await settle();
+    h.listeners.pointerup[0]();
+    // let go: nothing follows the mouse any more
+    assert.equal((h.listeners.pointermove || []).length, 0);
+  };
+  // the right edge: the width is yours, the height still follows the content
+  await drag("e", 80, 0);
+  assert.deepEqual(calls.at(-1), ["save", 600, 700, false]);
+  innerWidth = 600;
+  fitHeight(); await settle();
+  assert.deepEqual(calls.at(-1), ["fit", 600, 902]);
+  // the bottom edge: the height is yours, and the content no longer changes it
+  innerHeight = 902;
+  await drag("s", 0, -200);
+  assert.deepEqual(calls.at(-1), ["save", 600, 702, true]);
+  calls.length = 0; innerHeight = 702;
+  elements["#list"].children.push({offsetHeight: 300});
+  fitHeight(); await settle();
+  assert.deepEqual(calls, []);
+})();
+""")
+
+
+def test_an_edge_drag_ends_when_the_mouse_is_already_up(run_console_js):  # noqa: F811
+    run_console_js(r"""
+(async () => {
+  const calls = [];
+  window.pywebview = {api: {resize: async (...a) => { calls.push(a); }, save_size: () => calls.push("save")}};
+  window.addEventListener = () => {}; window.removeEventListener = () => {};
+  const h = edges.find(x => x.dataset.e === "se");
+  h.listeners.pointerdown[0]({button: 0, pointerId: 1, screenX: 500, screenY: 500, preventDefault() {}});
+  // the up was lost (the window moved under the mouse): the next move sees no button and stops
+  h.listeners.pointermove[0]({buttons: 0, screenX: 700, screenY: 700});
+  await Promise.resolve();
+  assert.deepEqual(calls, ["save"]);
+  assert.equal((h.listeners.pointermove || []).length, 0);
+  // losing the capture ends it the same way
+  h.listeners.pointerdown[0]({button: 0, pointerId: 2, screenX: 500, screenY: 500, preventDefault() {}});
+  h.listeners.lostpointercapture[0]();
+  assert.equal((h.listeners.pointermove || []).length, 0);
+  assert.equal(calls.filter(c => c === "save").length, 2);
+})();
+""")

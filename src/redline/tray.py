@@ -156,21 +156,28 @@ class JsApi:
             fix = (fix & ~FixPoint.NORTH) | FixPoint.SOUTH
         w.resize(max(MIN_W, int(width)), max(MIN_H, int(height)), fix)
 
-    def save_size(self, width, height):
+    def save_size(self, width, height, by_height=False):
+        """Your size, from dragging an edge: the width is always kept; dragging the top or bottom
+        edge also keeps the height (the content no longer sets it, until `fit`)."""
         save_setting("window_size", [max(MIN_W, int(width)), max(MIN_H, int(height))])
+        if by_height:
+            save_setting("fit_height", False)
 
     def fit(self, width, height):
-        """Auto-fit the height to the content (kept anchored to the bottom, near the tray)."""
+        """Fit the height to the content with the top edge held still: it grows and shrinks downward.
+        The page caps the height at the bottom of the screen and calls this once per change."""
         w = self._app.window
-        if not w or load_settings().get("window_size"):
+        if not w or load_settings().get("fit_height") is False:
             return
         from webview.window import FixPoint
 
-        limit = self._app.screen_height() * 0.85 if self._app.screen_height() else 900
-        w.resize(max(MIN_W, int(width)), int(min(max(MIN_H, height), limit)), FixPoint.SOUTH | FixPoint.WEST)
+        h = int(min(max(MIN_H, height), self._app.max_height()))
+        w.resize(max(MIN_W, int(width)), h, FixPoint.NORTH | FixPoint.WEST)
+        return h
 
     def reset_size(self):
-        save_setting("window_size", None)
+        """`fit`: the height follows the content again (the width you set stays)."""
+        save_setting("fit_height", True)
 
 
 class TrayApp:
@@ -495,6 +502,10 @@ class TrayApp:
             return max(MIN_W, int(saved[0])), max(MIN_H, int(saved[1]))
         return WIN_W, WIN_H
 
+    def max_height(self) -> int:
+        screen = self.screen_height()
+        return int(screen * 0.85) if screen else 900
+
     def screen_height(self) -> int:
         try:
             return int(self.webview.screens[0].height)
@@ -508,7 +519,9 @@ class TrayApp:
             if isinstance(hw.get("x"), int) and isinstance(hw.get("y"), int):
                 # restarted by an update: reopen where it was (kept on screen)
                 return min(max(0, hw["x"]), max(0, s.width - w)), min(max(0, hw["y"]), max(0, s.height - h))
-            return max(0, s.width - w - 12), max(0, s.height - h - 60)
+            # first open: by the tray, at the right, with its top high enough that the height can
+            # follow the content downward (the top edge stays put) without leaving the screen
+            return max(0, s.width - w - 12), max(0, min(s.height - h - 60, s.height - 60 - self.max_height()))
         except Exception:
             return None, None
 
@@ -689,7 +702,7 @@ def run_tray(interval: int | None = None, refresh_tokens: bool | None = None, se
         interval=interval or settings["interval"],
         refresh_tokens=settings["auto_refresh"] if refresh_tokens is None else refresh_tokens,
     )
-    boot = {"tray": True, "manual_size": bool(settings.get("window_size"))}
+    boot = {"tray": True, "fit_height": settings.get("fit_height") is not False}
     if self_test_mode:
         return self_test(monitor, ConsoleServer(monitor, "127.0.0.1", 0, allow_actions=True,
                                                 extra_boot=boot).start_background())
