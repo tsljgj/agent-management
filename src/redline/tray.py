@@ -28,6 +28,47 @@ WIN_W, WIN_H = 520, 620
 MIN_W, MIN_H = 300, 160
 TOOLTIP_MAX = 120  # Windows caps tray tooltips at 128 chars
 
+# A frameless window has no minimize box, so Windows ignores a click on its taskbar button
+# while it is in front: it comes up but never goes back down. These two styles give the
+# taskbar button its usual toggle (click: minimize; click again: restore) and draw nothing.
+WS_MINIMIZEBOX, WS_SYSMENU = 0x00020000, 0x00080000
+
+
+def taskbar_style(style: int) -> int:
+    return style | WS_MINIMIZEBOX | WS_SYSMENU
+
+
+def _window_handle(window) -> int | None:
+    """The HWND behind a pywebview window (WinForms on Windows), or None."""
+    try:
+        h = window.native.Handle
+        return int(h.ToInt64()) if hasattr(h, "ToInt64") else int(h)
+    except Exception:
+        return None
+
+
+def enable_taskbar_toggle(window) -> bool:
+    """Let the taskbar button minimize the frameless console as well as bring it up."""
+    if sys.platform != "win32":
+        return False
+    hwnd = _window_handle(window)
+    if not hwnd:
+        return False
+    import ctypes
+
+    u32 = ctypes.windll.user32
+    GWL_STYLE = -16
+    get = getattr(u32, "GetWindowLongPtrW", u32.GetWindowLongW)
+    put = getattr(u32, "SetWindowLongPtrW", u32.SetWindowLongW)
+    get.restype = put.restype = ctypes.c_ssize_t
+    get.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    put.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_ssize_t]
+    style = get(hwnd, GWL_STYLE)
+    put(hwnd, GWL_STYLE, taskbar_style(style))
+    # SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED: apply, change nothing else
+    u32.SetWindowPos(ctypes.c_void_p(hwnd), None, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020)
+    return True
+
 
 def _single_instance() -> object | None:
     """Return a handle that must stay alive, or None if another instance is running."""
@@ -311,6 +352,15 @@ class TrayApp:
         if rel is not None and not self.quitting:  # the user is done looking: install now, unseen
             threading.Thread(target=self._install, args=(rel, False), daemon=True).start()
 
+    def _on_minimized(self):
+        if self.visible:
+            self.visible, self.minimized = False, True
+
+    def _on_restored(self):
+        if self.minimized:
+            self.visible, self.minimized = True, False
+            self.monitor.meta["window_visible"] = True
+
     def _on_closing(self):
         if self.quitting:
             return True
@@ -510,6 +560,12 @@ class TrayApp:
             background_color="#030507",
         )
         self.window.events.closing += self._on_closing
+        # minimized or restored from the taskbar: keep our idea of the window's state true,
+        # so the tray icon then brings it back (and does not try to hide it)
+        for name, fn in (("minimized", self._on_minimized), ("restored", self._on_restored)):
+            ev = getattr(self.window.events, name, None)
+            if ev is not None:
+                ev += fn
         threading.Thread(target=self.icon.run, name="redline", daemon=True).start()
         storage = redline_home() / "webview"
         if self.quitting:  # e.g. an update was installed while we were still starting up
@@ -523,6 +579,11 @@ class TrayApp:
     def _gui_started(self):
         """Runs in its own thread once the GUI loop is up (window exists, can be shown)."""
         log.info("gui started")
+        try:
+            if enable_taskbar_toggle(self.window):
+                log.info("taskbar button toggles the window")
+        except Exception:
+            log.exception("taskbar toggle not set")
         if getattr(self, "_show_when_ready", False):
             self._show_when_ready = False
             self.show()
