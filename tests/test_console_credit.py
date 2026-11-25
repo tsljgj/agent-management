@@ -428,10 +428,14 @@ def test_console_tag_details_and_connect_button(run_console_js):  # noqa: F811
   assert.equal(creditLevel(creditOf(claude("x", {credit: cr(10, 2.5)}))), "high");
   assert.match(creditTag(claude("x", {credit: cr(null, 9)})), />\$\?</);   // unknown, not $0
   assert.match(creditTag(claude("x", {credit: cr(150, 9, "stale")})), /class="cred usd  old"/);
-  // lapsed (no rollover) or not paid in yet this month: "$–", saying when the last one lapsed
-  assert.match(creditTag(claude("x", {credit: cr(150, -1)})), /class="cred usd none" title="本月 API credit 尚未到账（上一笔 \d\d-\d\d 已到期）">\$–</);
-  assert.match(creditTag(claude("x", {credit: {state: "none"}})), /title="本月 API credit 尚未到账">\$–</);
-  assert.match(creditTag(claude("x", {credit: {state: "none", lapsed_at: at(-3)}})), /上一笔 \d\d-\d\d 已到期/);
+  // lapsed (no rollover) or not paid in yet this month: nothing worth a slot
+  assert.equal(creditTag(claude("x", {credit: cr(150, -1)})), "");
+  assert.equal(creditTag(claude("x", {credit: {state: "none"}})), "");
+  assert.equal(creditTag(claude("x", {credit: {state: "none", lapsed_at: at(-3)}})), "");
+  // the slot is kept only while some row shows a credit
+  DATA.usages = [claude("y", {credit: {state: "none"}}), b];
+  assert.deepEqual(slots(row(b, null)), ["rate", "slot"]);
+  DATA.usages = [a, b];
   assert.equal(creditTag(b), "");                                         // no Console connected: nothing
   // details: one line in the detail style
   const line = creditDetail(a);
@@ -441,10 +445,13 @@ def test_console_tag_details_and_connect_button(run_console_js):  # noqa: F811
   // a failed read keeps the last amounts and says so; a refused one with nothing known says why
   assert.match(creditDetail(claude("s", {credit: cr(150, 9, "stale")})), /\$150\.00 left \/ \$200\.00 · 未更新/);
   assert.match(creditDetail(claude("r", {credit: {...cr(null, 9, "reconnect"), granted: null}})), /<b class="warn">Console 登录已失效<\/b><button class="act" data-act="console">重新连接/);
-  assert.match(creditDetail(claude("n", {credit: {state: "none", lapsed_at: at(-3)}})), /<b class="dim"[^>]*>本月 API credit 尚未到账（上一笔 \d\d-\d\d 已到期）<\/b>/);
-  // one entry point: connect on a paid Max / Team account without a session, reconnect when refused
-  assert.match(creditDetail(claude("c")), /<b>–<\/b><button class="act" data-act="console">连接 Console<\/button>/);
-  assert.match(creditDetail(claude("t", {plan: "team"})), />连接 Console</);
+  assert.equal(creditDetail(claude("n", {credit: {state: "none", lapsed_at: at(-3)}})), "");   // nothing this month: no line
+  // one entry point: connect is a button among the actions on a paid Max / Team account without a session,
+  // reconnect stays on the credit line when refused
+  assert.equal(creditDetail(claude("c")), "");
+  assert.match(consoleButton(claude("c")), /data-act="console"[^>]*>\$ 连接 Console</);
+  assert.match(consoleButton(claude("t", {plan: "team"})), />\$ 连接 Console</);
+  assert.equal(consoleButton(b), ""); assert.equal(consoleButton(a), "");
   assert.match(creditDetail(claude("r", {credit: cr(150, 9, "reconnect")})), />重新连接<\/button>/);
   assert.equal(creditDetail(b), "");
   assert.equal(creditDetail(claude("f", {plan: "free"})), "");

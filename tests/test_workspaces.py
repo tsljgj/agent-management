@@ -372,7 +372,15 @@ def test_console_shows_workspace_and_drift(run_console_js):  # noqa: F811
       assert.match(elements["#wsNotice"].innerHTML, /title="同一个账号">default、quant 共享额度</);
       assert.match(elements["#wsNotice"].innerHTML, /OSWorld 在 Default Profile 中打开/);
       assert.doesNotMatch(elements["#wsNotice"].innerHTML, /Codex 未登录/);
-      assert.match(details(DATA.usages[0]), /<span>workspace<\/span><b class="" title="default · quant">default · quant<\/b>/);
+      // two notices: the first on one line, the rest behind "+1", opened by a click on the bar
+      assert.match(elements["#wsNotice"].innerHTML, /<button class="nmore"[^>]*>\+1 ▾<\/button>/);
+      elements["#wsNotice"].onclick();
+      assert.equal(elements["#wsNotice"].classList.contains("open"), true);
+      assert.match(elements["#wsNotice"].innerHTML, /<button class="nmore"[^>]*>▴<\/button>/);
+      elements["#wsNotice"].onclick();
+      assert.equal(elements["#wsNotice"].classList.contains("open"), false);
+      // the workspaces go in the quiet first line of the details
+      assert.match(details(DATA.usages[0]), /<div class="wide dhead"><b title="a@x\.com · workspace default · quant">a@x\.com · workspace default · quant<\/b><\/div>/);
       TAB = "codex"; render();
       assert.match(elements["#wsNotice"].innerHTML, /lab 的 Codex 未登录/);
       TAB = "plans"; render();
