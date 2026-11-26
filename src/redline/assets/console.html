@@ -133,8 +133,8 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .rate{display:flex;align-items:flex-end;gap:6px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);white-space:nowrap;overflow:hidden}
 /* LED gauge, lit like the meters: dark segments = the track, lit ones glow in the level's colour */
 .rate{--c:var(--dim)}.rate.low{--c:var(--ok)}.rate.mid{--c:var(--warn)}.rate.high{--c:#ff7a2e}.rate.hot{--c:var(--red)}
-.rate.burn{--c:#ff3df0}.rate.burn b{animation:burn 1.2s ease-in-out infinite}
-@keyframes burn{50%{opacity:.45}}
+.rate.burn{--c:#ff3df0}.rate.burn b{animation:burn 2.6s ease-in-out infinite}   /* a slow breath, not a blink */
+@keyframes burn{50%{opacity:.6}}
 .rate svg{flex:none;width:38px;height:21px;overflow:visible}
 .rate svg .sg{fill:none;stroke:var(--faint);stroke-width:3.4}
 .rate svg .sg.on{stroke:var(--c);filter:drop-shadow(0 0 2px var(--c))}
@@ -142,32 +142,23 @@ main::-webkit-scrollbar{width:4px}main::-webkit-scrollbar-thumb{background:var(-
 .rate svg .nd{stroke:var(--c);stroke-width:1.4;stroke-linecap:round;filter:drop-shadow(0 0 2px var(--c))}
 .rate svg .hub{fill:var(--bg);stroke:var(--c);stroke-width:1.2}
 /* BOOM: the week's quota is going 1.5x faster than "this account should last N days" (`expect`).
-   The dial is pinned past its end and throws sparks, and the time until the nearest limit runs out
-   replaces the level. The sooner, the harder it goes: l1 > 12h, l2 > 2h, l3 within 2h. */
-.rate.boom{--c:#ff2d55;overflow:visible}
-.rate.boom svg{animation:rl-shake 1s linear infinite}
-.rate.boom.l2 svg{animation-duration:.42s}
-.rate.boom.l3 svg{animation-duration:.16s;filter:drop-shadow(0 0 4px var(--c))}
-.rate.boom svg .sg.on{stroke:var(--c);animation:rl-flick 1.4s steps(2) infinite}
-.rate.boom.l2 svg .sg.on{animation-duration:.6s}.rate.boom.l3 svg .sg.on{animation-duration:.22s}
-.rate.boom svg .spk{stroke:#ffd23d;stroke-width:1.1;stroke-linecap:round;opacity:0;animation:rl-spark 1s ease-out infinite}
-.rate.boom svg .spk:nth-of-type(2n){animation-delay:.33s}.rate.boom svg .spk:nth-of-type(3n){animation-delay:.66s}
-.rate.boom.l2 svg .spk{animation-duration:.55s}.rate.boom.l3 svg .spk{animation-duration:.3s}
-.rate.boom b{color:#fff;background:var(--c);padding:1px 4px;border-radius:2px;text-shadow:0 0 8px var(--c);letter-spacing:.02em;text-transform:none}
-.rate.boom.l2 b{animation:rl-strobe .7s steps(2) infinite}
-.rate.boom.l3 b{animation:rl-strobe .26s steps(2) infinite}
+   The needle is pinned past the end and the time until the nearest limit runs out replaces the
+   level. One effect only, easy on the eyes: the dial breathes slowly. Urgency is in the colour and
+   the tempo (never faster than ~0.7 a second, no flashing): l1 > 12h orange, l2 2-12h red, l3 < 2h. */
+.rate.boom{--c:#ff7a2e;overflow:visible}
+.rate.boom.l2,.rate.boom.l3{--c:#ff2d55}
+.rate.boom svg{animation:rl-breathe 3.2s ease-in-out infinite}
+.rate.boom.l2 svg{animation-duration:2.2s}
+.rate.boom.l3 svg{animation-duration:1.4s;filter:drop-shadow(0 0 3px var(--c))}
+.rate.boom b{color:#fff;background:var(--c);padding:1px 4px;border-radius:2px;text-shadow:none;letter-spacing:.02em;text-transform:none}
 .codex .dial .rate.boom{width:auto}.codex .rate.boom b{display:inline}
+@keyframes rl-breathe{50%{opacity:.55}}
 /* a limit used up: nothing to watch until it resets, so a still, dark dial (motion is kept for
    what still needs you) */
 .rate.dead{--c:var(--dim)}
 .rate.dead svg .nd,.rate.dead svg .hub{stroke:var(--faint);filter:none}
 .rate.dead b{color:var(--dim);text-shadow:none}
 .codex .dial .rate.dead{width:auto}.codex .rate.dead b{display:inline}
-@keyframes rl-shake{0%,100%{transform:translate(0,0) rotate(0)}20%{transform:translate(-.9px,.4px) rotate(-4deg)}
-  40%{transform:translate(.8px,-.5px) rotate(3deg)}60%{transform:translate(-.5px,-.4px) rotate(-2deg)}80%{transform:translate(.6px,.5px) rotate(2deg)}}
-@keyframes rl-flick{50%{stroke:#ffd23d}}
-@keyframes rl-spark{0%{opacity:1}100%{opacity:0}}
-@keyframes rl-strobe{50%{background:#ffd23d;color:#000}}
 .rate b{font-weight:600;color:var(--c);text-shadow:0 0 6px var(--c)}
 .rate.idle b{text-shadow:none}
 .rate span{display:none;text-transform:none;letter-spacing:0}   /* the %/h only where there is room (two-line rows) */
@@ -685,12 +676,6 @@ function gauge(f, mode = "") {
   for (const t of GAUGE_TICKS) {
     const a = pt(gaugeFrac(t), r + 2.6), b = pt(gaugeFrac(t), r + 4.4);
     out += `<line class="tk" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"/>`;
-  }
-  if (mode === "boom") {   // sparks flying off the pinned end
-    for (const [t, l] of [[0.97, 4], [0.9, 3], [1.04, 3.5], [0.84, 2.5]]) {
-      const a = pt(t, r + 3), b = pt(t, r + 3 + l);
-      out += `<line class="spk" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"/>`;
-    }
   }
   // the needle: pinned past the end when it blows
   const n = mode === "boom" ? pt(1.06, 10.5) : pt(f, 10.5);

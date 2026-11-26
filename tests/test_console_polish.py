@@ -275,7 +275,7 @@ def test_the_gauge_blows_when_the_week_goes_far_faster_than_expected(run_console
   let tag = rateTag(fast);
   assert.match(tag, /^<div class="rate boom l2"/);      // 2 h 20 m left: the middle intensity
   assert.match(tag, /<b>2h 20m<\/b>/);
-  assert.match(tag, /class="spk"/);                      // sparks
+  assert.ok(!/class="spk"/.test(tag));                   // no sparks: one quiet effect only
   assert.match(tag, /1\.5x faster than &quot;lasts 2d&quot;/);
   assert.ok(!/<b>high<\/b>/.test(tag));
   // the sooner it runs out, the harder it goes
